@@ -153,7 +153,102 @@ body,
 
 /* B3 — hybrid sandbox shell */
 .sandbox-shell {
+  flex-direction: column;
   min-height: 0;
+}
+
+.sandbox-shell-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.sandbox-shell-body-fullbleed {
+  flex: 1;
+  min-height: 0;
+}
+
+.context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 1rem;
+  padding: 0.35rem 0.65rem;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel);
+}
+
+.context-strip-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 650;
+  flex-shrink: 0;
+}
+
+.context-strip-zones {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.context-strip-zone-tabs {
+  flex-wrap: nowrap;
+}
+
+.context-strip-zone-tabs button {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.76rem;
+}
+
+.context-strip-goals {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.context-strip-goals .goal-picker-compact {
+  flex: 1;
+  min-width: 0;
+}
+
+.context-strip-disco-hint {
+  margin: 0;
+}
+
+.context-strip-env {
+  flex: 0 1 14rem;
+  min-width: 10rem;
+  margin-left: auto;
+}
+
+.context-strip-env .env-picker {
+  margin: 0;
+}
+
+.context-strip-env .field-row {
+  margin: 0;
+  gap: 0.35rem;
+}
+
+.context-strip-env .field-row span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.app-immersive .context-strip {
+  display: none;
 }
 
 .sandbox-sidebar {
@@ -195,6 +290,144 @@ body,
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+}
+
+.creatures-room {
+  position: relative;
+  min-height: 100%;
+  padding: 1.25rem 1.5rem 2rem;
+  color: var(--text);
+  background:
+    radial-gradient(ellipse 70% 45% at 10% 0%, rgba(74, 143, 212, 0.12), transparent 55%),
+    linear-gradient(180deg, #121820 0%, var(--bg) 50%, #0a0e14 100%);
+}
+
+.creatures-room-header {
+  margin-bottom: 1.1rem;
+  padding-bottom: 0.95rem;
+  border-bottom: 1px solid rgba(74, 143, 212, 0.28);
+}
+
+.creatures-room-eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.creatures-room-header h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
+  text-transform: none;
+  color: var(--text);
+}
+
+.creatures-room-lede {
+  margin: 0.45rem 0 0;
+  max-width: 40rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.creatures-room-body {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1.4fr) minmax(14rem, 20rem);
+  gap: 1rem 1.25rem;
+  align-items: start;
+}
+
+.creatures-picker {
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(21, 28, 39, 0.72);
+}
+
+.creatures-picker-list {
+  max-height: min(42vh, 22rem);
+  overflow-y: auto;
+  gap: 0.2rem;
+}
+
+.creatures-picker-list button {
+  text-align: left;
+  font-size: 0.78rem;
+  padding: 0.28rem 0.45rem;
+}
+
+.creatures-detail {
+  min-width: 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(21, 28, 39, 0.72);
+}
+
+.creatures-detail h2 {
+  margin: 0 0 0.55rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.creature-design-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(42, 53, 69, 0.85);
+  background: rgba(12, 18, 28, 0.95);
+}
+
+.creatures-detail .capability-panel {
+  margin-top: 0.55rem;
+}
+
+.creatures-careers {
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(21, 28, 39, 0.72);
+}
+
+.creatures-careers h2 {
+  margin-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .creatures-room-body {
+    grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
+  }
+
+  .creatures-careers {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 800px) {
+  .creatures-room {
+    padding: 1rem 0.85rem 1.5rem;
+  }
+
+  .creatures-room-body {
+    grid-template-columns: 1fr;
+  }
+
+  .creatures-picker-list {
+    max-height: 12rem;
+  }
 }
 
 .collapsible-panel {
@@ -248,7 +481,7 @@ body,
 }
 
 .bottom-dock:has(.training-setup) {
-  max-height: 58%;
+  max-height: 46%;
 }
 
 .bottom-dock-collapsed {
@@ -310,14 +543,51 @@ body,
   align-items: flex-start;
 }
 
+.dock-full-train {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
+  align-items: stretch;
+}
+
+.dock-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  align-items: flex-start;
+}
+
+.dock-row-primary {
+  align-items: stretch;
+}
+
+.dock-row-setup {
+  min-width: 0;
+}
+
+.dock-row-setup .training-setup {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: none;
+}
+
 .dock-col {
   flex: 1 1 10rem;
   min-width: 9rem;
   max-width: 100%;
 }
 
+.dock-full-train .dock-row-primary .dock-col {
+  flex: 1 1 9rem;
+  min-width: 8rem;
+}
+
 .dock-col-grow {
   flex: 2 1 16rem;
+}
+
+.dock-full-train .dock-row-primary .dock-col-grow {
+  flex: 1.4 1 12rem;
 }
 
 .subhead-toggle {
@@ -355,6 +625,13 @@ body,
   grid-template-columns: 4.5rem 1fr 2.75rem;
   margin: 0;
   max-width: 18rem;
+}
+
+.train-try-slider {
+  grid-template-columns: 2.25rem 1fr 2.75rem;
+  margin: 0;
+  max-width: 18rem;
+  font-size: 0.75rem;
 }
 
 .train-setup-grid {
@@ -408,6 +685,10 @@ body,
 }
 
 .dock-full:has(.training-setup) {
+  align-items: stretch;
+}
+
+.dock-full-train:has(.training-setup) {
   align-items: stretch;
 }
 
@@ -789,6 +1070,10 @@ button:disabled {
     flex-direction: column;
   }
 
+  .sandbox-shell-body {
+    flex-direction: column;
+  }
+
   .topbar {
     flex-wrap: wrap;
   }
@@ -807,12 +1092,26 @@ button:disabled {
     border-bottom: 1px solid var(--panel-border);
   }
 
+  .context-strip {
+    gap: 0.35rem 0.65rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .context-strip-env {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+
+  .context-strip-zone-tabs {
+    flex-wrap: wrap;
+  }
+
   .bottom-dock {
     max-height: 48%;
   }
 
   .bottom-dock:has(.training-setup) {
-    max-height: 62%;
+    max-height: 55%;
   }
 }
 
@@ -926,71 +1225,255 @@ button:disabled {
   gap: 0.5rem;
 }
 
-.trophy-cabinet {
-  margin-top: 0.55rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid var(--panel-border);
+.sandbox-shell-fullbleed .sandbox-shell-body-fullbleed,
+.sandbox-shell-fullbleed .viewport-fullbleed,
+.viewport-fullbleed {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.trophy-room {
+  position: relative;
+  min-height: 100%;
+  padding: 1.25rem 1.5rem 2rem;
+  color: var(--text);
+}
+
+.trophy-room-atmosphere {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212, 160, 74, 0.18), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(58, 74, 46, 0.22), transparent 50%),
+    linear-gradient(180deg, #121820 0%, var(--bg) 45%, #0a0e14 100%);
+  z-index: 0;
+}
+
+.trophy-room > *:not(.trophy-room-atmosphere) {
+  position: relative;
+  z-index: 1;
+}
+
+.trophy-room-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(212, 160, 74, 0.28);
+}
+
+.trophy-room-eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.trophy-room-brand h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
+}
+
+.trophy-room-lede {
+  margin: 0.45rem 0 0;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.trophy-room-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+  min-width: 10rem;
+}
+
+.trophy-room-count {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.trophy-room-bar {
+  width: 100%;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.trophy-room-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  border-radius: inherit;
 }
 
 .trophy-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.35rem;
+  gap: 0.35rem;
+}
+
+.trophy-room-filters {
+  margin-bottom: 1rem;
 }
 
 .trophy-filters button {
-  font-size: 0.72rem;
-  padding: 0.25rem 0.45rem;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
 }
 
-.trophy-grid {
+.trophy-room-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.35rem;
-  margin-top: 0.35rem;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem);
+  gap: 1rem 1.25rem;
+  align-items: start;
 }
 
-.trophy-tile {
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  padding: 0.4rem 0.45rem;
-  min-height: 2.6rem;
+.trophy-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: 0.55rem;
+}
+
+.trophy-plaque {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  background: rgba(0, 0, 0, 0.18);
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-height: 5.2rem;
+  padding: 0.7rem 0.75rem;
+  text-align: left;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  background:
+    linear-gradient(165deg, rgba(40, 48, 58, 0.95), rgba(18, 22, 30, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.trophy-tile.locked {
-  opacity: 0.45;
+.trophy-plaque:hover {
+  border-color: rgba(212, 160, 74, 0.45);
 }
 
-.trophy-tile.unlocked {
+.trophy-plaque.selected {
+  outline: 1px solid rgba(212, 160, 74, 0.7);
+  outline-offset: 1px;
+}
+
+.trophy-plaque.locked {
+  opacity: 0.55;
+}
+
+.trophy-plaque.unlocked {
   opacity: 1;
 }
 
+.trophy-plaque-mark {
+  color: var(--accent);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.trophy-plaque.locked .trophy-plaque-mark {
+  color: var(--muted);
+}
+
 .trophy-title {
-  font-size: 0.78rem;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
   font-weight: 650;
+  line-height: 1.2;
 }
 
 .trophy-meta {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   color: var(--muted);
   text-transform: capitalize;
 }
 
+.trophy-room-detail {
+  position: sticky;
+  top: 0.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(212, 160, 74, 0.35);
+  border-radius: 4px;
+  background: rgba(16, 20, 28, 0.92);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.trophy-room-detail h2 {
+  margin: 0.15rem 0 0.55rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.trophy-room-detail-desc {
+  margin: 0 0 0.85rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.trophy-room-detail-meta {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+
+.trophy-room-detail-meta .muted {
+  display: inline-block;
+  min-width: 3.6rem;
+  margin-right: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+}
+
 .trophy-flavor-triumph {
-  border-color: #f59e0b;
+  border-color: rgba(212, 160, 74, 0.85);
 }
 
 .trophy-flavor-disaster {
-  border-color: #ef4444;
+  border-color: rgba(196, 92, 74, 0.85);
 }
 
 .trophy-flavor-mishap {
-  border-color: #a855f7;
+  border-color: rgba(122, 154, 74, 0.75);
+}
+
+@media (max-width: 860px) {
+  .trophy-room-body {
+    grid-template-columns: 1fr;
+  }
+
+  .trophy-room-detail {
+    position: static;
+    order: -1;
+  }
+
+  .trophy-room-progress {
+    align-items: flex-start;
+  }
 }
 
 .library-row-rich button:first-child {

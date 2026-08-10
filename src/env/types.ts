@@ -15,7 +15,7 @@ import {
 
 export type EnvTheme = 'plain' | 'dusk' | 'mint' | 'slate';
 
-export type ObstacleKind = 'box' | 'ramp' | 'stair' | 'pit' | 'loop';
+export type ObstacleKind = 'box' | 'ramp' | 'stair' | 'pit' | 'loop' | 'pad';
 
 export const OBSTACLE_KINDS: ObstacleKind[] = [
   'box',
@@ -23,6 +23,7 @@ export const OBSTACLE_KINDS: ObstacleKind[] = [
   'stair',
   'pit',
   'loop',
+  'pad',
 ];
 
 export interface EnvObstacle {
@@ -33,6 +34,11 @@ export interface EnvObstacle {
   w: number;
   h: number;
   rot?: number;
+  /**
+   * Pad only — approximate launch apex in ruler units (100…1000).
+   * Omitted → default `LAUNCH_PAD_APEX_H`.
+   */
+  launchApex?: number;
 }
 
 export function isObstacleKind(value: string): value is ObstacleKind {
@@ -41,11 +47,15 @@ export function isObstacleKind(value: string): value is ObstacleKind {
 
 /**
  * C2.9 — score-only AABB (no Rapier).
- * Penalty: time-in-zone. Reward: touch-once (flat bonus on first overlap).
+ * Penalty: time-in-zone. Reward: touch-once. Landing: touch-once after airborne.
  */
-export type ScoreRegionKind = 'penalty' | 'reward';
+export type ScoreRegionKind = 'penalty' | 'reward' | 'landing';
 
-export const SCORE_REGION_KINDS: ScoreRegionKind[] = ['penalty', 'reward'];
+export const SCORE_REGION_KINDS: ScoreRegionKind[] = [
+  'penalty',
+  'reward',
+  'landing',
+];
 
 export interface EnvScoreRegion {
   id: string;
@@ -115,6 +125,32 @@ export interface EnvSpawn {
   y: number;
 }
 
+/**
+ * Authored progressive course window (Environment Studio).
+ * Each stage keeps full obstacle geometry; finish/checkpoints are filtered.
+ */
+export interface AuthoredCurriculumStage {
+  id: string;
+  label: string;
+  /**
+   * Finish gate: checkpoint order index, or `'finish'` for the env finish marker.
+   */
+  finishAt: number | 'finish';
+  /**
+   * Include base checkpoints with order ≤ this value.
+   * Use -1 for start→stage-finish only.
+   */
+  maxCheckpointOrder: number;
+  /** Optional spawn override; default = env.spawn. */
+  spawn?: EnvSpawn;
+  /** Fitness threshold to advance after an evolve finish. */
+  threshold: number;
+}
+
+export interface AuthoredCourseCurriculum {
+  stages: AuthoredCurriculumStage[];
+}
+
 export interface EnvironmentDesign {
   name: string;
   theme: EnvTheme;
@@ -123,6 +159,11 @@ export interface EnvironmentDesign {
   regions?: EnvScoreRegion[];
   /** C2.10 start / finish / checkpoint markers (score-only; optional). */
   markers?: EnvCourseMarker[];
+  /**
+   * Optional progressive stages derived from markers (Studio “Build curriculum”).
+   * Used by Train → course stages when present.
+   */
+  curriculum?: AuthoredCourseCurriculum;
   terrain?: EnvTerrain;
   tower?: EnvTower;
   /** Creature spawn; omitted / invalid → origin. */
@@ -139,6 +180,57 @@ export const THEME_CSS: Record<
   dusk: { bg: '#1a1218', panel: '#241820', canvasClear: '#1a1218' },
   mint: { bg: '#0d1816', panel: '#142420', canvasClear: '#0d1816' },
   slate: { bg: '#12151a', panel: '#1a1f27', canvasClear: '#12151a' },
+};
+
+/** Sky gradient + cloud tint for parallax (render-only). */
+export const THEME_SKY: Record<
+  EnvTheme,
+  {
+    zenith: string;
+    mid: string;
+    horizon: string;
+    haze: string;
+    cloud: string;
+    cloudHi: string;
+    ridge: string;
+  }
+> = {
+  plain: {
+    zenith: '#0b1424',
+    mid: '#1a2a42',
+    horizon: '#3a4a62',
+    haze: 'rgba(90, 120, 160, 0.22)',
+    cloud: 'rgba(210, 220, 235, 0.22)',
+    cloudHi: 'rgba(230, 235, 245, 0.28)',
+    ridge: 'rgba(40, 55, 75, 0.55)',
+  },
+  dusk: {
+    zenith: '#140c18',
+    mid: '#2a1830',
+    horizon: '#5a3040',
+    haze: 'rgba(160, 90, 100, 0.2)',
+    cloud: 'rgba(220, 180, 170, 0.2)',
+    cloudHi: 'rgba(240, 200, 190, 0.26)',
+    ridge: 'rgba(50, 30, 40, 0.55)',
+  },
+  mint: {
+    zenith: '#0a1816',
+    mid: '#143028',
+    horizon: '#2a5048',
+    haze: 'rgba(80, 140, 120, 0.2)',
+    cloud: 'rgba(190, 220, 210, 0.2)',
+    cloudHi: 'rgba(210, 235, 225, 0.26)',
+    ridge: 'rgba(30, 50, 45, 0.55)',
+  },
+  slate: {
+    zenith: '#0e1218',
+    mid: '#1a222c',
+    horizon: '#3a4555',
+    haze: 'rgba(100, 115, 130, 0.2)',
+    cloud: 'rgba(200, 210, 220, 0.2)',
+    cloudHi: 'rgba(220, 228, 235, 0.26)',
+    ridge: 'rgba(35, 42, 52, 0.55)',
+  },
 };
 
 export function defaultSpawn(): EnvSpawn {
@@ -176,6 +268,14 @@ export function cloneEnvironment(env: EnvironmentDesign): EnvironmentDesign {
     obstacles: env.obstacles.map((o) => ({ ...o })),
     regions: (env.regions ?? []).map((r) => ({ ...r })),
     markers: (env.markers ?? []).map((m) => ({ ...m })),
+    curriculum: env.curriculum
+      ? {
+          stages: env.curriculum.stages.map((s) => ({
+            ...s,
+            ...(s.spawn ? { spawn: clampSpawn(s.spawn) } : {}),
+          })),
+        }
+      : undefined,
     terrain: env.terrain
       ? { ...env.terrain, samples: env.terrain.samples.slice() }
       : undefined,

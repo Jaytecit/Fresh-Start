@@ -15,9 +15,11 @@ Allow brain (or manual) drives to spin designated wheel joints via Rapier torque
 ## Rapier design (Fresh Start only)
 
 - Optional `JointDef.isWheel` + `motorStrength?`
+- Optional design-level `CreatureDesign.wheelMass` (same clamp range as `footMass`) applied to all `isWheel` joints at spawn / live retune — heavier wheels bias CG for airborne undercarriage pivot
+- When a joint is both foot and wheel, `wheelMass` wins over `footMass`
 - Brain/manual channel layout: collapsed muscle channels, then one channel per wheel (joint-array order)
 - Each physics step after muscle forces: `addTorque` on wheel joint bodies from that wheel’s channel (`extractWheelDrives` → `applyMotorTorques`)
-- Torque constants in `physics/constants.ts`: `MOTOR_TORQUE_SCALE`
+- Torque constants in `physics/constants.ts`: `MOTOR_TORQUE_SCALE`; mass clamps `WHEEL_MASS_*`
 - Still uses fixed-dt + resetForces/resetTorques every step
 - Collision groups unchanged (wheels are joint balls)
 - Evolve / head-to-head require muscles **or** wheels (`designHasActuators`)

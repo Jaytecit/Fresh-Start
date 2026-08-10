@@ -25,10 +25,20 @@ export interface BoneDef {
   startJointId: number;
   endJointId: number;
   mass?: number;
+  /**
+   * G8 — rigid strut: Rapier fixed joint between joint balls, no capsule body.
+   * Cannot host muscles or aero. Omit / false = hinged bone (default).
+   */
+  rigid?: boolean;
   /** Aero surface area scale (E6.6 / G10); force tag. */
   aeroArea?: number;
   /** Structural aero part type (G10). Requires aeroArea > 0 to act. */
   aeroType?: AeroType;
+}
+
+/** True when the bone is authored as a solid strut (ignores feature flag). */
+export function isRigidBoneDef(bone: Pick<BoneDef, 'rigid'>): boolean {
+  return bone.rigid === true;
 }
 
 export interface MuscleDef {
@@ -48,6 +58,17 @@ export interface CreatureDesign {
   bones: BoneDef[];
   muscles: MuscleDef[];
   appearance?: AppearanceRig;
+  /**
+   * Mass for joints marked `isFoot` (C1.1 weighted feet).
+   * Applied in every mode at spawn; omit → DEFAULT_JOINT_MASS / joint.mass.
+   */
+  footMass?: number;
+  /**
+   * Mass for joints marked `isWheel` (E6.5 weighted wheels).
+   * Applied in every mode at spawn; omit → DEFAULT_JOINT_MASS / joint.mass.
+   * Wins over `footMass` when a joint is both foot and wheel.
+   */
+  wheelMass?: number;
 }
 
 export function nextId(items: { id: number }[]): number {
@@ -63,5 +84,7 @@ export function cloneDesign(design: CreatureDesign): CreatureDesign {
     bones: design.bones.map((b) => ({ ...b })),
     muscles: design.muscles.map((m) => ({ ...m })),
     appearance: cloneAppearance(design.appearance),
+    ...(design.footMass !== undefined ? { footMass: design.footMass } : {}),
+    ...(design.wheelMass !== undefined ? { wheelMass: design.wheelMass } : {}),
   };
 }

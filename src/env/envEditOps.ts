@@ -58,6 +58,7 @@ export function obstacleFootprint(o: EnvObstacle): Footprint {
   switch (o.kind) {
     case 'box':
     case 'ramp':
+    case 'pad':
       return {
         cx: o.x,
         cy: o.y,
@@ -445,6 +446,7 @@ export function resizeObstacleByCorner(
   switch (o.kind) {
     case 'box':
     case 'ramp':
+    case 'pad':
       return { ...o, x: center.x, y: center.y, w, h };
     case 'stair':
       return {
@@ -475,7 +477,7 @@ export function resizeObstacleByCorner(
 }
 
 export function rotateObstacle(o: EnvObstacle, wx: number, wy: number): EnvObstacle {
-  if (o.kind !== 'box' && o.kind !== 'ramp') return o;
+  if (o.kind !== 'box' && o.kind !== 'ramp' && o.kind !== 'pad') return o;
   const ang = Math.atan2(wy - o.y, wx - o.x) - Math.PI / 2;
   return { ...o, rot: ang };
 }
@@ -506,7 +508,8 @@ export function placeObstacleAt(
   const base = defaultObstacle(kind);
   switch (kind) {
     case 'box':
-    case 'ramp': {
+    case 'ramp':
+    case 'pad': {
       const h = base.h;
       return { ...base, x: wx, y: Math.max(h / 2, wy) };
     }
@@ -700,7 +703,7 @@ export function deleteSelection(
 
 export function obstacleHandles(o: EnvObstacle): HandleId[] {
   const corners: HandleId[] = ['nw', 'ne', 'sw', 'se'];
-  if (o.kind === 'box' || o.kind === 'ramp') {
+  if (o.kind === 'box' || o.kind === 'ramp' || o.kind === 'pad') {
     return [...corners, 'rotate'];
   }
   return corners;
@@ -740,7 +743,9 @@ export function selectionLabel(
     const r = (env.regions ?? []).find((x) => x.id === sel.id);
     if (!r) return 'Region';
     const unit = r.kind === 'penalty' ? '/s' : ' once';
-    return `${r.kind} · ${r.w.toFixed(1)}×${r.h.toFixed(1)} · rate ${r.rate.toFixed(2)}${unit}`;
+    const label =
+      r.kind === 'landing' ? 'landing' : r.kind === 'penalty' ? 'penalty' : 'reward';
+    return `${label} · ${r.w.toFixed(1)}×${r.h.toFixed(1)} · rate ${r.rate.toFixed(2)}${unit}`;
   }
   if (sel.kind === 'marker') {
     const m = (env.markers ?? []).find((x) => x.id === sel.id);

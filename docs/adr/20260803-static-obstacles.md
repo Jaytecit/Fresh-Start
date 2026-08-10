@@ -6,7 +6,7 @@ Accepted / Implemented
 
 ## Checklist IDs
 
-G1, C2.1 (partial set: box / ramp / stair / pit / loop)
+G1, C2.1 (partial set: box / ramp / stair / pit / loop / pad)
 
 ## Goal
 
@@ -18,7 +18,7 @@ Spawn authored environment obstacles as fixed Rapier colliders so Environment St
 - Collision groups: same as ground (membership bit 2), collide with creature parts — no new bits
 - Friction / restitution: universal Train-dock `WORLD_GRIP` (default 1.85, up to `WORLD_GRIP_MAX`) on ground, ramps, stairs/boxes/pits/loops, terrain, and tower with `CoefficientCombineRule.Max` so contact μ is not averaged down by body/foot μ; restitution stays `GROUND_RESTITUTION`
 - Joint balls use elevated `JOINT_FRICTION` / `FOOT_FRICTION` and higher angular damping so contact surfaces are stickier than bone capsules; wheels keep `BODY_FRICTION` so carts still roll
-- Plant purchase (Anti-scoot–scaled, universal): **anti-roll** on any planted surface; **adverse along-surface** damp on every surface (`SURFACE_TANGENT_BRAKE`) — tilted: downhill-only; flat: world-left (−X) only so +X forward is kept; ramp top-surface proximity covers thin-slab contact misses
+- Plant purchase (Anti-scoot–scaled, universal): **anti-roll** on any planted surface; **low-speed bidirectional stance stick** (`SURFACE_STANCE_STICK` when `|along| < STANCE_STICK_SPEED`) so muscle micro-skid dies and feet plant for push-off; above that band, **adverse along-surface** damp (`SURFACE_TANGENT_BRAKE`) — tilted: downhill-only; flat: world-left (−X) only so fast +X is kept; ramp top-surface proximity covers thin-slab contact misses
 - Size clamps in `src/physics/constants.ts` (`OBSTACLE_*`); kind composition in `src/physics/obstacles.ts`
 - Spawn via `spawnStaticObstacles(world, obstacles, worldGrip?)`; destroy on env replace / clear
 - Gated by `featureFlags.staticObstacles`
@@ -32,6 +32,7 @@ Kind mapping (Fresh Start–native, not parent):
 | stair | Ascending platform steps filling the `w×h` footprint |
 | pit | Left/right raised platforms with gap `w` (floor remains infinite ground) |
 | loop | Open ring of thin cuboid segments (gap at bottom) |
+| pad | Thin deck; contact applies ~200-apex vertical boost (see `20260810-launch-pad.md`) |
 
 ## Explicit non-goals
 

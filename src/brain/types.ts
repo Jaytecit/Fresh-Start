@@ -1,4 +1,5 @@
 import type { MorphGenes } from '../creature/morphGenes';
+import type { CreatureDesign } from '../creature/types';
 
 export type TaskId =
   | 'run'
@@ -6,6 +7,12 @@ export type TaskId =
   | 'climb'
   | 'motor'
   | 'flight'
+  /** E6.6 deepen — wing climb / sustain + landing. */
+  | 'flight_wing'
+  /** E6.6 deepen — glider range + landing. */
+  | 'flight_glider'
+  /** E6.6 deepen — parachute soft descent + landing. */
+  | 'flight_para'
   | 'rough'
   /** Timed course via C2.10 markers. */
   | 'sprint'
@@ -20,6 +27,16 @@ export type TaskId =
   /** H6 — disco imitation / freestyle (not GA-evolved). */
   | 'dance';
 
+/** True for generic + specialist flight tasks (plant-brake skip, scoring family). */
+export function isFlightTask(task: TaskId): boolean {
+  return (
+    task === 'flight' ||
+    task === 'flight_wing' ||
+    task === 'flight_glider' ||
+    task === 'flight_para'
+  );
+}
+
 export interface NetworkShape {
   inputCount: number;
   hiddenCount: number;
@@ -33,6 +50,8 @@ export interface Genome {
   fitness: number;
   /** D17 — soft morph genes (fixed topology); omitted when morph evolve is off. */
   morph?: MorphGenes;
+  /** D18 — per-member body graph; omitted when structural morph evolve is off. */
+  topology?: CreatureDesign;
 }
 
 export interface EvolutionProgress {

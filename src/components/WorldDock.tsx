@@ -1,4 +1,11 @@
 import { clampCourseMarker } from '../brain/courseMarkers';
+import { courseGateSummary } from '../env/courseAuthoring';
+import {
+  clampLaunchPadApex,
+  LAUNCH_PAD_APEX_H,
+  LAUNCH_PAD_APEX_MAX,
+  LAUNCH_PAD_APEX_MIN,
+} from '../physics/constants';
 import { isFeatureEnabled } from '../port/featureFlags';
 import {
   PLACE_MARKER_TOOLS,
@@ -8,7 +15,12 @@ import {
   type EnvTool,
 } from '../env/envSelection';
 import { selectionLabel } from '../env/envEditOps';
-import type { EnvironmentDesign, EnvCourseMarker } from '../env/types';
+import type {
+  AuthoredCurriculumStage,
+  EnvironmentDesign,
+  EnvCourseMarker,
+  EnvObstacle,
+} from '../env/types';
 
 interface Props {
   tool: EnvTool;
@@ -19,12 +31,28 @@ interface Props {
   selection: EnvSelection;
   onSelect: (sel: EnvSelection) => void;
   onPatchMarker: (id: string, patch: Partial<EnvCourseMarker>) => void;
+  onPatchObstacle: (id: string, patch: Partial<EnvObstacle>) => void;
   onDeleteSelected: () => void;
   onUndo: () => void;
   undoDisabled: boolean;
   onSineTerrain: () => void;
   onClearTerrain: () => void;
   onClearTower: () => void;
+  /** Remove obstacles, regions, markers, terrain, tower, curriculum; reset spawn. */
+  onClearAll: () => void;
+  /** Ensure start + finish gates exist. */
+  onEnsureCourse?: () => void;
+  /** Drop N evenly spaced checkpoints between start and finish. */
+  onPlaceEvenCheckpoints?: (count: number) => void;
+  /** Reorder selected / listed checkpoint (−1 earlier, +1 later). */
+  onMoveCheckpoint?: (id: string, delta: -1 | 1) => void;
+  /** Build progressive stages from checkpoints + finish. */
+  onBuildCurriculum?: () => void;
+  onClearCurriculum?: () => void;
+  onPatchCurriculumStage?: (
+    stageId: string,
+    patch: Partial<Pick<AuthoredCurriculumStage, 'label' | 'threshold'>>,
+  ) => void;
   collapsed?: boolean;
 }
 
@@ -54,19 +82,34 @@ export function WorldDock({
   selection,
   onSelect,
   onPatchMarker,
+  onPatchObstacle,
   onDeleteSelected,
   onUndo,
   undoDisabled,
   onSineTerrain,
   onClearTerrain,
   onClearTower,
+  onClearAll,
+  onEnsureCourse,
+  onPlaceEvenCheckpoints,
+  onMoveCheckpoint,
+  onBuildCurriculum,
+  onClearCurriculum,
+  onPatchCurriculumStage,
   collapsed,
 }: Props) {
   const label = selectionLabel(environment, selection);
   const markers = orderedMarkers(environment);
+  const checkpoints = markers.filter((m) => m.kind === 'checkpoint');
+  const gateSummary = courseGateSummary(environment);
+  const stages = environment.curriculum?.stages ?? [];
   const selectedMarker =
     selection?.kind === 'marker'
       ? markers.find((m) => m.id === selection.id) ?? null
+      : null;
+  const selectedObstacle =
+    selection?.kind === 'obstacle'
+      ? environment.obstacles.find((o) => o.id === selection.id) ?? null
       : null;
 
   if (collapsed) {
@@ -80,7 +123,9 @@ export function WorldDock({
           >
             Select
           </button>
-          {PLACE_OBSTACLE_TOOLS.map((t) => (
+          {PLACE_OBSTACLE_TOOLS.filter(
+            (t) => t !== 'pad' || isFeatureEnabled('launchPads'),
+          ).map((t) => (
             <button
               key={t}
               type="button"
@@ -147,12 +192,19 @@ export function WorldDock({
             Select
           </button>
           {isFeatureEnabled('staticObstacles') &&
-            PLACE_OBSTACLE_TOOLS.map((t) => (
+            PLACE_OBSTACLE_TOOLS.filter(
+              (t) => t !== 'pad' || isFeatureEnabled('launchPads'),
+            ).map((t) => (
               <button
                 key={t}
                 type="button"
                 className={tool === t ? 'active' : ''}
                 onClick={() => onToolChange(t)}
+                title={
+                  t === 'pad'
+                    ? 'Launch pad — contact boost; set approximate height on the selected pad'
+                    : undefined
+                }
               >
                 + {t}
               </button>
@@ -167,7 +219,9 @@ export function WorldDock({
                 title={
                   t === 'penalty'
                     ? 'Penalty zone — fitness drains while inside'
-                    : 'Reward zone — one-time bonus on first touch'
+                    : t === 'landing'
+                      ? 'Landing zone — heavy once bonus after airborne (foot touch)'
+                      : 'Reward zone — one-time bonus on first touch'
                 }
               >
                 + {t}
@@ -213,15 +267,86 @@ export function WorldDock({
           Ramp: drag start→end (snaps flush to ground / object edges). Other
           tools: click to place · drag to move · handles resize · Alt/Space pan ·
           Del remove (spawn resets to origin). Penalty = time in zone; reward =
-          touch once. Markers = start / checkpoint / finish course gates.
+          touch once; landing = heavy touch after airtime. Markers = start /
+          checkpoint / finish course gates.
         </p>
+
+        {isFeatureEnabled('launchPads') &&
+          selectedObstacle?.kind === 'pad' && (
+            <div className="marker-inspector" style={{ marginTop: '0.5rem' }}>
+              <h3 className="subhead">Launch pad</h3>
+              <label className="field-row">
+                <span>Height ~</span>
+                <input
+                  type="range"
+                  min={LAUNCH_PAD_APEX_MIN}
+                  max={LAUNCH_PAD_APEX_MAX}
+                  step={10}
+                  value={clampLaunchPadApex(
+                    selectedObstacle.launchApex ?? LAUNCH_PAD_APEX_H,
+                  )}
+                  onChange={(e) =>
+                    onPatchObstacle(selectedObstacle.id, {
+                      launchApex: clampLaunchPadApex(Number(e.target.value)),
+                    })
+                  }
+                />
+                <span className="val">
+                  {clampLaunchPadApex(
+                    selectedObstacle.launchApex ?? LAUNCH_PAD_APEX_H,
+                  )}
+                </span>
+              </label>
+              <p className="hint muted">
+                Approximate apex in ruler units ({LAUNCH_PAD_APEX_MIN}–
+                {LAUNCH_PAD_APEX_MAX}). Default {LAUNCH_PAD_APEX_H}.
+              </p>
+            </div>
+          )}
       </div>
 
       {isFeatureEnabled('courseMarkers') && (
         <div className="dock-col">
-          <h3 className="subhead">Markers</h3>
+          <h3 className="subhead">Course</h3>
+          <div className="button-row wrap">
+            <button
+              type="button"
+              onClick={() => onEnsureCourse?.()}
+              title="Add start near spawn and finish past the course if missing"
+            >
+              Ensure start + finish
+            </button>
+            <button
+              type="button"
+              onClick={() => onPlaceEvenCheckpoints?.(3)}
+              disabled={!gateSummary.hasStart || !gateSummary.hasFinish}
+              title="Place 3 evenly spaced checkpoints between start and finish"
+            >
+              + 3 checkpoints
+            </button>
+            <button
+              type="button"
+              className={tool === 'checkpoint' ? 'active' : ''}
+              onClick={() => onToolChange('checkpoint')}
+              title="Click canvas to place the next checkpoint"
+            >
+              + checkpoint
+            </button>
+          </div>
+          <p className="hint muted">
+            {gateSummary.hasStart ? 'Start' : 'No start'} ·{' '}
+            {gateSummary.checkpointCount} CP ·{' '}
+            {gateSummary.hasFinish ? 'Finish' : 'No finish'}
+            {gateSummary.stageCount > 0
+              ? ` · ${gateSummary.stageCount} train stages`
+              : ''}
+            . Sprint uses these gates; Train → course stages needs a curriculum.
+          </p>
+
           {markers.length === 0 ? (
-            <p className="hint muted">No course markers yet — use + start / checkpoint / finish.</p>
+            <p className="hint muted">
+              No gates yet — Ensure start + finish, then add checkpoints.
+            </p>
           ) : (
             <div className="button-row wrap marker-list">
               {markers.map((m) => (
@@ -244,6 +369,7 @@ export function WorldDock({
               ))}
             </div>
           )}
+
           {selectedMarker && (
             <div className="marker-inspector">
               <label className="field-row">
@@ -300,10 +426,107 @@ export function WorldDock({
                   }
                 />
               </label>
+              {selectedMarker.kind === 'checkpoint' && onMoveCheckpoint && (
+                <div className="button-row wrap" style={{ marginTop: '0.35rem' }}>
+                  <button
+                    type="button"
+                    disabled={
+                      checkpoints[0]?.id === selectedMarker.id
+                    }
+                    onClick={() => onMoveCheckpoint(selectedMarker.id, -1)}
+                    title="Hit earlier in the course"
+                  >
+                    Earlier
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      checkpoints[checkpoints.length - 1]?.id ===
+                      selectedMarker.id
+                    }
+                    onClick={() => onMoveCheckpoint(selectedMarker.id, 1)}
+                    title="Hit later in the course"
+                  >
+                    Later
+                  </button>
+                </div>
+              )}
               <p className="hint muted" style={{ marginTop: '0.35rem' }}>
                 Drag on canvas or edit numbers. Gates are score-only boxes
                 (joint center must enter).
               </p>
+            </div>
+          )}
+
+          {isFeatureEnabled('courseCurriculum') && (
+            <div style={{ marginTop: '0.65rem' }}>
+              <h3 className="subhead">Curriculum</h3>
+              <div className="button-row wrap">
+                <button
+                  type="button"
+                  onClick={() => onBuildCurriculum?.()}
+                  disabled={!gateSummary.hasFinish}
+                  title="One stage per checkpoint, then full finish — for Train course stages"
+                >
+                  Build stages from checkpoints
+                </button>
+                <button
+                  type="button"
+                  disabled={stages.length === 0}
+                  onClick={() => onClearCurriculum?.()}
+                >
+                  Clear stages
+                </button>
+              </div>
+              {stages.length === 0 ? (
+                <p className="hint muted">
+                  Place checkpoints, then Build stages. Save the env and enable
+                  Train → course stages.
+                </p>
+              ) : (
+                <div className="marker-inspector" style={{ marginTop: '0.35rem' }}>
+                  {stages.map((s, i) => (
+                    <div
+                      key={s.id}
+                      className="field-row"
+                      style={{ alignItems: 'center', gap: '0.35rem' }}
+                    >
+                      <span
+                        className="muted"
+                        style={{ minWidth: '1.5rem' }}
+                        title={s.label}
+                      >
+                        {i + 1}.
+                      </span>
+                      <input
+                        type="text"
+                        value={s.label}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onChange={(e) =>
+                          onPatchCurriculumStage?.(s.id, {
+                            label: e.target.value,
+                          })
+                        }
+                        title="Stage label"
+                      />
+                      <span className="muted">fit≥</span>
+                      <input
+                        type="number"
+                        step={1}
+                        min={0}
+                        value={s.threshold}
+                        style={{ width: '4rem' }}
+                        onChange={(e) =>
+                          onPatchCurriculumStage?.(s.id, {
+                            threshold: Number(e.target.value),
+                          })
+                        }
+                        title="Fitness to advance after evolve"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -366,6 +589,14 @@ export function WorldDock({
               Clear tower
             </button>
           )}
+          <button
+            type="button"
+            className="danger-ghost"
+            onClick={onClearAll}
+            title="Remove all obstacles, regions, markers, terrain, tower, and curriculum; reset spawn"
+          >
+            Clear all
+          </button>
         </div>
         <p className="hint muted" style={{ marginTop: '0.35rem' }}>
           {label}

@@ -9,8 +9,10 @@ export const featureFlags = {
   spriteBodyParts: true,
   /** A5 — render lerp / velocity extrapolate between fixed physics ticks */
   visualPoseInterpolation: true,
-  /** A6 — sim axis rulers */
+  /** A6 — sim axis rulers (edge-pinned height / distance) */
   simAxisRulers: true,
+  /** C2.7 deepen — parallax sky / clouds behind the sim */
+  parallaxSky: true,
   /** A7 — MLP network visualizer */
   networkVisualizer: true,
   /** A10 — skeleton vs cosmetics render modes */
@@ -58,6 +60,11 @@ export const featureFlags = {
   goalPriorities: true,
   /** D13 deepen — progressive course windows (Gauntlet spawn/finish stages) */
   courseCurriculum: true,
+  /**
+   * D7 deepen — optional Rapier raycast whiskers appended to loco observations.
+   * UI toggle defaults off; incompatible with brains trained on base OBS_COUNT.
+   */
+  raycastObservations: true,
   /** D14 — new experiences (demo teachers, rival ghost, mix goals, messy bodies) */
   trainExperiences: true,
   /** D15 — shareable recipes / experiment packs */
@@ -66,6 +73,8 @@ export const featureFlags = {
   trainTelemetryLog: true,
   /** D17 — soft morphology evolution (fixed topology morph genes) */
   morphEvolve: true,
+  /** D18 — grow/prune joints/bones/muscles (nested under morphEvolve) */
+  structuralMorphEvolve: true,
 
   /** E1 — goal catalog framework */
   goalCatalog: true,
@@ -102,8 +111,12 @@ export const featureFlags = {
   roughTerrainCourse: true,
   /** C2.4 — launch tower */
   launchTower: true,
+  /** C2.1 deepen — launch pad obstacle (contact → authored apex boost) */
+  launchPads: true,
   /** C2.9 — score regions (penalty / reward AABBs, time-in-zone) */
   scoreRegions: true,
+  /** C2.9 deepen — end individual try once a landing region credits */
+  endEpisodeOnLanding: true,
   /** C2.10 — start / finish / checkpoint course markers (score-only) */
   courseMarkers: true,
   /** G4 — world objects ball/box/hoop (Rapier) */
@@ -112,10 +125,14 @@ export const featureFlags = {
   motorWheels: true,
   /** G7 — joint angular limits (Rapier) */
   jointAngularLimits: false,
+  /** G8 — rigid struts / solid connectors (fixed joint, no capsule) */
+  rigidStruts: true,
   /** G9 — aero-like forces (Rapier) — unlocked by E6.6 */
   aeroLikeForces: true,
   /** G10 — structural aero part types (wing / glider / parachute) */
   structuralAeroParts: true,
+  /** G10 / C1.8 deepen — inflation-driven parachute bone canopy morph (cosmetic) */
+  parachuteCanopyVisual: true,
 
   /** H1/H2 — disco mode + audio */
   discoMode: true,
@@ -127,6 +144,8 @@ export const featureFlags = {
   discoDanceCurriculum: true,
   /** H8 — named Disco stage setup save/load */
   discoSetups: true,
+  /** H9 — cosmetic cloth garments (Verlet panels pinned to skeleton) */
+  cosmeticCloth: true,
 
   /** I1 — arena championship shell */
   arenaChampionship: false,

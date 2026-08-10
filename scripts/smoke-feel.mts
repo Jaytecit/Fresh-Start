@@ -1,7 +1,8 @@
 /**
  * Headless feel gate: braced triangle settles without pancaking;
  * hopper muscle contract shortens / expand lengthens;
- * Idle anti-scoot cuts leftward (−X) plant slip but keeps +X forward.
+ * Idle anti-scoot cuts leftward (−X) plant slip but keeps fast +X forward;
+ * low-speed stance stick kills planted micro-skid both ways.
  * Run: npx tsx scripts/smoke-feel.mts
  */
 import { readFileSync } from 'node:fs';
@@ -10,15 +11,22 @@ import { fileURLToPath } from 'node:url';
 import { TRIANGLE_WALKER, SIMPLE_HOPPER, FLOPPY_CHAIN } from '../src/creature/presets.ts';
 import { cloneDesign } from '../src/creature/types.ts';
 import { importCreatureJson } from '../src/library/jsonIO.ts';
-import { ANTI_SCOOT, FIXED_DT } from '../src/physics/constants.ts';
+import {
+  ANTI_SCOOT,
+  FIXED_DT,
+  STANCE_STICK_SPEED,
+} from '../src/physics/constants.ts';
 import { applyPlantSlideBrake } from '../src/physics/plantSlideBrake.ts';
 import { Simulation } from '../src/sim/simulation.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** After leftward plant-brake pulses, −X must be mostly gone. */
 const MAX_BACK_VX = 0.5;
-/** Forward shove must stay intact across a plant-brake pulse (no +X damp). */
+/** Fast forward shove must stay intact across a plant-brake pulse (no +X damp). */
 const MIN_FWD_KEEP = 0.99;
+/** Micro-skid inside the stance stick band must drop after a plant pulse. */
+const MICRO_SLIP = 0.2;
+const MAX_STANCE_VX = MICRO_SLIP * 0.35;
 
 function muscleLength(sim: Simulation, index: number): number {
   const m = sim.muscles()[index];
@@ -128,6 +136,27 @@ async function main() {
     throw new Error(
       `Anti-scoot should preserve +X (vx=${fwdVx.toFixed(3)} < ${(2.5 * MIN_FWD_KEEP).toFixed(3)})`,
     );
+  }
+
+  // 6) Stance stick: planted micro-slip (±) is scrubbed; stays below stick band.
+  if (!(MICRO_SLIP < STANCE_STICK_SPEED)) {
+    throw new Error('MICRO_SLIP must sit inside STANCE_STICK_SPEED');
+  }
+  for (const sign of [1, -1] as const) {
+    for (const j of targets) j.body.setLinvel({ x: sign * MICRO_SLIP, y: 0 }, true);
+    for (let i = 0; i < 8; i++) {
+      applyPlantSlideBrake(creature, null, sim.world, null, ANTI_SCOOT);
+    }
+    const microVx =
+      targets.reduce((s, j) => s + j.body.linvel().x, 0) / targets.length;
+    console.log(
+      `stance stick ${sign > 0 ? '+' : '-'}X vx=${microVx.toFixed(3)} (max |vx| ${MAX_STANCE_VX})`,
+    );
+    if (Math.abs(microVx) > MAX_STANCE_VX) {
+      throw new Error(
+        `Stance stick failed to cut micro-slip (vx=${microVx.toFixed(3)}, sign=${sign})`,
+      );
+    }
   }
 
   console.log('smoke-feel OK');

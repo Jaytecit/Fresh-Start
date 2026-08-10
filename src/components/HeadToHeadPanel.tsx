@@ -166,7 +166,7 @@ export function HeadToHeadPanel({
           {!canResolve && modelA && modelB && (
             <p className="hint warn">
               Could not match one or both models to a creature body in your
-              library. Load the matching design in Creatures or save a package
+              library. Load the matching design in Edit or save a package
               first.
             </p>
           )}

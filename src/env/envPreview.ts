@@ -61,6 +61,12 @@ function previewOne(o: EnvObstacle): ObstacleVisual[] {
       pushCuboid(visuals, 'ramp', o.x, o.y, w / 2, h / 2, rot);
       break;
     }
+    case 'pad': {
+      const w = clampSize(o.w);
+      const h = clampSize(Math.min(o.h, o.w * 0.45));
+      pushCuboid(visuals, 'pad', o.x, o.y, w / 2, h / 2, o.rot ?? 0);
+      break;
+    }
     case 'stair': {
       const w = clampSize(o.w);
       const h = clampSize(o.h);

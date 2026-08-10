@@ -96,6 +96,30 @@ export const GOAL_CATALOG: GoalDef[] = [
     zones: ['flying', 'free'],
   },
   {
+    id: 'flight_wing',
+    task: 'flight_wing',
+    title: 'Wing Flight',
+    blurb:
+      'Climb and sustain with wings. Place a launch pad + landing zone in World for the pad→fly→land loop.',
+    zones: ['flying', 'free'],
+  },
+  {
+    id: 'flight_glider',
+    task: 'flight_glider',
+    title: 'Glider Range',
+    blurb:
+      'Cover distance while airborne with a glider. Launch pad + landing zone recommended.',
+    zones: ['flying', 'free'],
+  },
+  {
+    id: 'flight_para',
+    task: 'flight_para',
+    title: 'Parachute Drop',
+    blurb:
+      'Soft descent under a parachute and stick the landing zone. Launch pad + landing zone recommended.',
+    zones: ['flying', 'free'],
+  },
+  {
     id: 'dance',
     task: 'dance',
     title: 'Dance',

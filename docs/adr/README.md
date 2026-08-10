@@ -11,7 +11,11 @@ Accepted ADRs (unlocked by marked E6.* goals):
 - [`20260803-static-obstacles.md`](./20260803-static-obstacles.md) — G1 / C2.1 static obstacles
 - [`20260803-terrain-heightfield.md`](./20260803-terrain-heightfield.md) — G3 / C2.3 terrain heightfield
 - [`20260803-launch-tower.md`](./20260803-launch-tower.md) — C2.4 launch tower
+- [`20260810-launch-pad.md`](./20260810-launch-pad.md) — C2.1 launch pad (contact boost ~200 apex)
 - [`20260803-rough-terrain-course.md`](./20260803-rough-terrain-course.md) — E6.8 rough terrain
-- [`20260803-score-regions.md`](./20260803-score-regions.md) — C2.9 score regions (non-Rapier AABBs)
+- [`20260803-score-regions.md`](./20260803-score-regions.md) — C2.9 score regions (non-Rapier AABBs; end-on-landing)
 - [`20260803-course-markers.md`](./20260803-course-markers.md) — C2.10 course markers (start / checkpoint / finish)
 - [`20260803-disco-puppet-modes.md`](./20260803-disco-puppet-modes.md) — H2 disco puppet feel variants (gravityScale + muscle scales)
+- [`20260809-rigid-struts.md`](./20260809-rigid-struts.md) — G8 rigid struts / solid connectors
+- [`20260809-cosmetic-cloth.md`](./20260809-cosmetic-cloth.md) — H9 cosmetic cloth garments (render-only Verlet)
+

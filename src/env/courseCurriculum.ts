@@ -1,12 +1,17 @@
 /**
  * Course curriculum — progressive spawn/finish windows on a base environment.
- * Extends D13 stage training for checkpointed courses (e.g. Gauntlet).
+ * Extends D13 stage training for checkpointed courses (e.g. Gauntlet + authored).
  */
 import { COURSE_MARKER_DEFAULT_H, COURSE_MARKER_DEFAULT_W } from '../brain/constants';
+import { orderedCheckpoints } from '../brain/courseMarkers';
 import { isFeatureEnabled } from '../port/featureFlags';
 import { BUILTIN_GAUNTLET_ENV_ID, gauntletEnv } from './gauntletEnv';
 import {
+  clampSpawn,
   cloneEnvironment,
+  resolveSpawn,
+  type AuthoredCourseCurriculum,
+  type AuthoredCurriculumStage,
   type EnvironmentDesign,
   type EnvCourseMarker,
   type EnvSpawn,
@@ -89,14 +94,127 @@ export const GAUNTLET_CURRICULUM: CourseCurriculum = {
   ],
 };
 
-const CURRICULA: CourseCurriculum[] = [GAUNTLET_CURRICULUM];
+const BUILTIN_CURRICULA: CourseCurriculum[] = [GAUNTLET_CURRICULUM];
+
+function finishPoseForAuthoredStage(
+  env: EnvironmentDesign,
+  stage: AuthoredCurriculumStage,
+): { x: number; y: number } | null {
+  if (stage.finishAt === 'finish') {
+    const finish = (env.markers ?? []).find((m) => m.kind === 'finish');
+    if (!finish) return null;
+    return { x: finish.x, y: finish.y };
+  }
+  const order = Math.max(0, Math.floor(stage.finishAt));
+  const cps = orderedCheckpoints(env.markers ?? []);
+  const cp = cps.find((m) => (m.order ?? 0) === order) ?? cps[order];
+  if (!cp) return null;
+  return { x: cp.x, y: cp.y };
+}
+
+/** Map Studio-authored stages onto the runtime curriculum shape. */
+export function courseCurriculumFromAuthored(
+  env: EnvironmentDesign,
+  packageId = 'authored',
+): CourseCurriculum | null {
+  if (!isFeatureEnabled('courseCurriculum')) return null;
+  const authored = env.curriculum;
+  if (!authored || authored.stages.length === 0) return null;
+  const base = cloneEnvironment(env);
+  // Staged windows should always see full markers from the snapshot.
+  const stages: CourseCurriculumStage[] = [];
+  for (const s of authored.stages) {
+    const pose = finishPoseForAuthoredStage(base, s);
+    if (!pose) continue;
+    stages.push({
+      id: s.id,
+      label: s.label || 'Stage',
+      goalId: 'sprint',
+      spawn: s.spawn ? clampSpawn(s.spawn) : resolveSpawn(base),
+      finishX: pose.x,
+      finishY: pose.y,
+      maxCheckpointOrder: Math.max(-1, Math.floor(s.maxCheckpointOrder)),
+      threshold: Math.max(0, Number.isFinite(s.threshold) ? s.threshold : 0),
+    });
+  }
+  if (stages.length === 0) return null;
+  return {
+    packageId,
+    displayName: base.name || 'Course',
+    baseEnv: () => cloneEnvironment(base),
+    stages,
+  };
+}
 
 export function curriculumForPackageId(
   packageId: string | null | undefined,
 ): CourseCurriculum | null {
   if (!isFeatureEnabled('courseCurriculum')) return null;
   if (!packageId) return null;
-  return CURRICULA.find((c) => c.packageId === packageId) ?? null;
+  return BUILTIN_CURRICULA.find((c) => c.packageId === packageId) ?? null;
+}
+
+/**
+ * Resolve curriculum for Train: authored stages on the env win; else builtin package.
+ * Pass the full (unstaged) environment when available.
+ */
+export function resolveCourseCurriculum(
+  packageId: string | null | undefined,
+  env?: EnvironmentDesign | null,
+): CourseCurriculum | null {
+  if (!isFeatureEnabled('courseCurriculum')) return null;
+  if (env?.curriculum?.stages.length) {
+    return courseCurriculumFromAuthored(env, packageId ?? 'authored');
+  }
+  return curriculumForPackageId(packageId);
+}
+
+/** True when Train can offer course-stage progression for this env/package. */
+export function hasCourseCurriculum(
+  packageId: string | null | undefined,
+  env?: EnvironmentDesign | null,
+): boolean {
+  return resolveCourseCurriculum(packageId, env) != null;
+}
+
+export function clampAuthoredCurriculum(
+  raw: AuthoredCourseCurriculum | null | undefined,
+): AuthoredCourseCurriculum | undefined {
+  if (!raw || !Array.isArray(raw.stages) || raw.stages.length === 0) {
+    return undefined;
+  }
+  const stages: AuthoredCurriculumStage[] = [];
+  for (const s of raw.stages) {
+    if (!s || typeof s.id !== 'string') continue;
+    const finishAt =
+      s.finishAt === 'finish'
+        ? 'finish'
+        : Number.isFinite(s.finishAt)
+          ? Math.max(0, Math.floor(s.finishAt as number))
+          : null;
+    if (finishAt === null) continue;
+    stages.push({
+      id: s.id,
+      label: typeof s.label === 'string' && s.label.trim() ? s.label : 'Stage',
+      finishAt,
+      maxCheckpointOrder: Math.max(
+        -1,
+        Math.floor(
+          Number.isFinite(s.maxCheckpointOrder) ? s.maxCheckpointOrder : -1,
+        ),
+      ),
+      threshold: Math.max(
+        0,
+        Number.isFinite(s.threshold) ? s.threshold : 0,
+      ),
+      ...(s.spawn &&
+      typeof s.spawn.x === 'number' &&
+      typeof s.spawn.y === 'number'
+        ? { spawn: clampSpawn(s.spawn) }
+        : {}),
+    });
+  }
+  return stages.length > 0 ? { stages } : undefined;
 }
 
 function stageFinishMarker(stage: CourseCurriculumStage): EnvCourseMarker {
@@ -141,6 +259,8 @@ export function applyCourseCurriculumStage(
     name: `${curriculum.displayName} · ${stage.label}`,
     spawn: { ...stage.spawn },
     markers,
+    // Staged window is ephemeral — do not carry nested curriculum into play/save.
+    curriculum: undefined,
   };
 }
 

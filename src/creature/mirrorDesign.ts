@@ -12,7 +12,10 @@ function designCentroidX(design: CreatureDesign): number {
   return sum / design.joints.length;
 }
 
-function mirrorAppearance(a: AppearanceRig | undefined): AppearanceRig | undefined {
+function mirrorAppearance(
+  a: AppearanceRig | undefined,
+  cx: number,
+): AppearanceRig | undefined {
   if (!a) return undefined;
   const next = cloneAppearance(a)!;
   next.googlyEyes = next.googlyEyes.map((e) => ({
@@ -25,6 +28,20 @@ function mirrorAppearance(a: AppearanceRig | undefined): AppearanceRig | undefin
     offsetX: p.offsetX !== undefined ? -p.offsetX : undefined,
     rotation: p.rotation !== undefined ? -p.rotation : undefined,
   }));
+  next.cloth = (next.cloth ?? []).map((g) => ({
+    ...g,
+    originX: 2 * cx - (g.originX + (g.cols - 1) * g.cellSize),
+    pins: g.pins.map((p) => ({
+      ...p,
+      // Mirror column within the grid so left/right pins swap sides.
+      particleIndex: (() => {
+        const row = Math.floor(p.particleIndex / g.cols);
+        const col = p.particleIndex % g.cols;
+        return row * g.cols + (g.cols - 1 - col);
+      })(),
+      offsetX: p.offsetX !== undefined ? -p.offsetX : undefined,
+    })),
+  }));
   return next;
 }
 
@@ -35,6 +52,6 @@ export function mirrorDesignX(design: CreatureDesign): CreatureDesign {
   return {
     ...src,
     joints: src.joints.map((j) => ({ ...j, x: 2 * cx - j.x })),
-    appearance: mirrorAppearance(src.appearance),
+    appearance: mirrorAppearance(src.appearance, cx),
   };
 }

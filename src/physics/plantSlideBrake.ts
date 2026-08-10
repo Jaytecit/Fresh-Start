@@ -5,9 +5,11 @@
  *
  * Strength scales with the Train-dock Anti-scoot slider (universal):
  * - Anti-roll on any planted surface (balls otherwise roll under Coulomb μ)
- * - Adverse along-surface damp on every surface equally:
+ * - Low-speed bidirectional stance stick (|along| < STANCE_STICK_SPEED) so
+ *   muscle-driven micro-skid dies and feet stay planted for push-off
+ * - Above the stick band, adverse along-surface damp only:
  *   tilted → downhill only (uphill / forward up the slab preserved)
- *   flat → world-left (−X) only (+X forward preserved)
+ *   flat → world-left (−X) only (fast +X forward preserved)
  * - Ramp proximity fallback when thin slabs miss Rapier contact pairs
  */
 import type { EnvTerrain, ObstacleKind } from '../env/types';
@@ -17,7 +19,9 @@ import {
   ANTI_SCOOT_MAX,
   GRAVITY_Y,
   PLANT_SLIDE_Y,
+  STANCE_STICK_SPEED,
   SURFACE_ANTI_ROLL,
+  SURFACE_STANCE_STICK,
   SURFACE_TANGENT_BRAKE,
 } from './constants';
 import type { ObstacleHandle, ObstacleVisual } from './obstacles';
@@ -38,7 +42,8 @@ export function clampAntiScoot(value: number): number {
 
 /**
  * Ball-foot purchase on a surface.
- * Adverse along-surface damp + anti-roll; same rule on ground / ramps / objects.
+ * Stance stick (low speed) + adverse damp (high speed) + anti-roll.
+ * Same rule on ground / ramps / objects.
  */
 function applySurfacePurchase(
   body: GripBody,
@@ -56,13 +61,34 @@ function applySurfacePurchase(
     if (Math.abs(w) >= 1e-6) body.setAngvel(w * keepW, true);
   }
 
-  if (SURFACE_TANGENT_BRAKE <= 0) return;
+  if (SURFACE_TANGENT_BRAKE <= 0 && SURFACE_STANCE_STICK <= 0) return;
 
   const tx = Math.cos(surfaceRot);
   const ty = Math.sin(surfaceRot);
+  const v = body.linvel();
+  const along = v.x * tx + v.y * ty;
+  if (Math.abs(along) < 1e-6) return;
+
+  // Low-speed band: kill both directions so stance push transfers to the body
+  // instead of feet jittering (+X preserved / −X scrubbed) under muscle load.
+  if (
+    SURFACE_STANCE_STICK > 0 &&
+    Math.abs(along) < STANCE_STICK_SPEED
+  ) {
+    const keepT =
+      1 -
+      Math.min(1, Math.max(0, SURFACE_STANCE_STICK * purchaseScale));
+    const along2 = along * keepT;
+    const d = along2 - along;
+    body.setLinvel({ x: v.x + d * tx, y: v.y + d * ty }, true);
+    return;
+  }
+
+  if (SURFACE_TANGENT_BRAKE <= 0) return;
+
   const tilted = Math.abs(ty) > 0.08;
   // Tilted: gravity's along-slab sign (downhill). Flat: along-surface that
-  // points world-left (−X) so forward (+X) is not braked.
+  // points world-left (−X) so fast forward (+X) is not braked.
   const adverseSign = tilted
     ? Math.sign(GRAVITY_Y * ty) || -1
     : tx >= 0
@@ -72,9 +98,7 @@ function applySurfacePurchase(
   const keepT =
     1 -
     Math.min(1, Math.max(0, SURFACE_TANGENT_BRAKE * purchaseScale));
-  const v = body.linvel();
-  const along = v.x * tx + v.y * ty;
-  if (Math.abs(along) >= 1e-6 && along * adverseSign > 0) {
+  if (along * adverseSign > 0) {
     const along2 = along * keepT;
     const d = along2 - along;
     body.setLinvel({ x: v.x + d * tx, y: v.y + d * ty }, true);
@@ -199,7 +223,9 @@ export function applyPlantSlideBrake(
   const scale = clampAntiScoot(antiScoot);
   if (
     scale <= 0 ||
-    (SURFACE_ANTI_ROLL <= 0 && SURFACE_TANGENT_BRAKE <= 0)
+    (SURFACE_ANTI_ROLL <= 0 &&
+      SURFACE_TANGENT_BRAKE <= 0 &&
+      SURFACE_STANCE_STICK <= 0)
   ) {
     return;
   }

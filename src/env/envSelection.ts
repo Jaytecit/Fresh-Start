@@ -16,8 +16,10 @@ export type EnvTool =
   | 'stair'
   | 'pit'
   | 'loop'
+  | 'pad'
   | 'penalty'
   | 'reward'
+  | 'landing'
   | 'start'
   | 'checkpoint'
   | 'finish'
@@ -31,15 +33,16 @@ export const PLACE_OBSTACLE_TOOLS: Exclude<
   | 'spawn'
   | 'penalty'
   | 'reward'
+  | 'landing'
   | 'start'
   | 'checkpoint'
   | 'finish'
->[] = ['box', 'ramp', 'stair', 'pit', 'loop'];
+>[] = ['box', 'ramp', 'stair', 'pit', 'loop', 'pad'];
 
-export const PLACE_REGION_TOOLS: Extract<EnvTool, 'penalty' | 'reward'>[] = [
-  'penalty',
-  'reward',
-];
+export const PLACE_REGION_TOOLS: Extract<
+  EnvTool,
+  'penalty' | 'reward' | 'landing'
+>[] = ['penalty', 'reward', 'landing'];
 
 export const PLACE_MARKER_TOOLS: Extract<
   EnvTool,

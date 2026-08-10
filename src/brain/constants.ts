@@ -15,6 +15,25 @@ export const OBS_COUNT = 12;
 export const PHASE_CLOCK_HZ = 2.5;
 
 /**
+ * Optional raycast whiskers (D7 deepen) appended after OBS_COUNT when enabled.
+ * Angles from +X toward +Y (up): forward, forward-up, forward-down, steep-down, down.
+ */
+export const RAYCAST_RAY_COUNT = 5;
+export const RAYCAST_OBS_COUNT = OBS_COUNT + RAYCAST_RAY_COUNT;
+/** Max cast length (m). Hit distance is normalized by this (miss → 1). */
+export const RAYCAST_MAX_DIST = 8;
+/** Lift ray origin above mean joint Y so down-rays clear foot colliders. */
+export const RAYCAST_ORIGIN_Y_BIAS = 0.35;
+/** Ray directions as radians from +X (CCW, +Y up). */
+export const RAYCAST_ANGLES_RAD = [
+  0,
+  Math.PI / 6,
+  -Math.PI / 6,
+  -Math.PI / 3,
+  -Math.PI / 2,
+] as const;
+
+/**
  * Divisors to keep inputs roughly O(1).
  * height / HEIGHT_SCALE, vel / VEL_SCALE, angVel / ANG_VEL_SCALE, rotation already /π.
  */
@@ -35,8 +54,26 @@ export const WEIGHT_INIT_SIGMA = 0.5;
 /** GA defaults (headless smoke). */
 export const POPULATION_SIZE = 40;
 export const EPISODE_SECONDS = 20;
-/** UI presets for per-generation episode length (simulated seconds). */
-export const EPISODE_LENGTH_PRESETS = [5, 20, 40, 80, 120] as const;
+/** Sentinel — no wall-clock episode timeout (ends via fall-stop / user Stop). */
+export const EPISODE_SECONDS_INFINITE = Number.POSITIVE_INFINITY;
+/** Try-length slider bounds (simulated seconds). */
+export const EPISODE_SECONDS_MIN = 5;
+export const EPISODE_SECONDS_MAX = 300;
+
+/** Clamp try length into the UI slider range (∞ / invalid → max). */
+export function clampEpisodeSeconds(seconds: number): number {
+  if (!Number.isFinite(seconds)) return EPISODE_SECONDS_MAX;
+  return Math.min(
+    EPISODE_SECONDS_MAX,
+    Math.max(EPISODE_SECONDS_MIN, Math.round(seconds)),
+  );
+}
+
+/** Format try-length for buttons / HUD. */
+export function formatEpisodeSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds)) return '∞';
+  return `${seconds}s`;
+}
 export const ELITE_COUNT = 2;
 export const TOURNAMENT_SIZE = 3;
 export const MUTATION_SIGMA = 0.15;
@@ -62,14 +99,23 @@ export const FALL_PENALTY = 2;
  * C2.9 score regions.
  * Penalty `rate` = fitness / second while overlapping.
  * Reward `rate` = flat fitness bonus on first touch.
+ * Landing `rate` = heavy touch-once after min airborne time.
  */
 export const SCORE_REGION_DEFAULT_PENALTY_RATE = 1;
 export const SCORE_REGION_DEFAULT_REWARD_RATE = 1;
+export const SCORE_REGION_DEFAULT_LANDING_RATE = 12;
 export const SCORE_REGION_MIN_RATE = 0;
-export const SCORE_REGION_MAX_RATE = 20;
+export const SCORE_REGION_MAX_RATE = 40;
 /** Default full size for newly placed regions (world units). */
 export const SCORE_REGION_DEFAULT_W = 3;
 export const SCORE_REGION_DEFAULT_H = 2;
+/** Default landing zone size (wider target). */
+export const SCORE_REGION_DEFAULT_LANDING_W = 5;
+export const SCORE_REGION_DEFAULT_LANDING_H = 2.5;
+/** Seconds of airtime required before a landing zone can credit. */
+export const LANDING_MIN_AIR_TIME = 0.25;
+/** Extra weight on landing rewards for specialist flight goals. */
+export const FLIGHT_LANDING_REWARD_MULT = 1.75;
 
 /**
  * C2.10 course markers (score-only trigger volumes).
@@ -133,5 +179,15 @@ export const FLIGHT_HEIGHT_SCALE = 4;
 /** Mean airborne height divisor — sustains altitude, not one peak flap. */
 export const FLIGHT_MEAN_HEIGHT_SCALE = 2.5;
 export const FLIGHT_AIR_SCALE = 4;
+/** Specialist flight distance / impact scales. */
+export const FLIGHT_WING_DIST_SCALE = 10;
+export const FLIGHT_GLIDER_DIST_SCALE = 8;
+export const FLIGHT_PARA_IMPACT_SCALE = 12;
+/** Below this min-joint Y, descending |vy| counts toward hard-landing penalty. */
+export const FLIGHT_SOFT_LAND_Y = 1.8;
+/** Aero-area at which specialist morphology match reaches 1.0. */
+export const FLIGHT_AERO_AREA_FULL = 1.5;
+/** Floor morphology scale when the matching aero type is absent. */
+export const FLIGHT_AERO_MATCH_FLOOR = 0.25;
 /** Rough terrain: forward distance divisor (run-like × lift quality). */
 export const ROUGH_DIST_SCALE = 1;

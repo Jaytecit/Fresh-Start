@@ -11,9 +11,23 @@ interface Props {
   onDelete: (id: string) => void;
   /** H7 — load a saved dance brain into Disco freestyle (not Free evolve). */
   onLoadDanceFreestyle?: (m: SavedModel) => void;
+  /** When set, only show brains whose body fingerprint matches. */
+  bodyFingerprint?: string | null;
+  /** Show the full best-ever ledger (all tasks), not only the active task. */
+  showAllBestEver?: boolean;
 }
 
-/** B12 — model picker / models hub. */
+function bodyFpFromModel(model: SavedModel): string {
+  const i = model.designFingerprint.indexOf(':');
+  return i >= 0 ? model.designFingerprint.slice(i + 1) : model.designFingerprint;
+}
+
+function bodyFpFromBest(entry: BestEverEntry): string {
+  const i = entry.recipeFingerprint.indexOf(':');
+  return i >= 0 ? entry.recipeFingerprint.slice(i + 1) : entry.recipeFingerprint;
+}
+
+/** B12 — model picker / models hub (Creatures tab). */
 export function ModelsHub({
   task,
   savedModels,
@@ -22,27 +36,39 @@ export function ModelsHub({
   onContinue,
   onDelete,
   onLoadDanceFreestyle,
+  bodyFingerprint = null,
+  showAllBestEver = false,
 }: Props) {
-  const forTask = savedModels.filter((m) => m.task === task);
-  const others = savedModels.filter((m) => m.task !== task);
-  const danceModels = savedModels.filter((m) => m.task === 'dance');
-  const best = bestEverList.filter((e) => e.task === task);
+  const models = bodyFingerprint
+    ? savedModels.filter((m) => bodyFpFromModel(m) === bodyFingerprint)
+    : savedModels;
+  const forTask = models.filter((m) => m.task === task);
+  const others = models.filter((m) => m.task !== task);
+  const danceModels = models.filter((m) => m.task === 'dance');
+  const best = showAllBestEver
+    ? bodyFingerprint
+      ? bestEverList.filter((e) => bodyFpFromBest(e) === bodyFingerprint)
+      : bestEverList
+    : bestEverList.filter((e) => e.task === task);
 
   return (
     <section>
       <h2>Saved brains</h2>
       <p className="hint muted">
-        Trained brains for <strong>{task}</strong> and all-time bests. Keep
-        training from a row, or use Start from in Training setup.
+        {bodyFingerprint
+          ? 'Trained brains for this body. Keep training from a row, or pick Start from in Train setup.'
+          : 'Trained brains and all-time bests. Keep training from a row, or pick Start from in Train setup.'}
       </p>
 
       {best.length > 0 && (
         <>
-          <h3 className="subhead">Best ever · {task}</h3>
+          <h3 className="subhead">
+            {showAllBestEver ? 'Best ever' : `Best ever · ${task}`}
+          </h3>
           <ul className="stats">
             {best.map((e) => (
-              <li key={e.task}>
-                {e.fitness.toFixed(3)} · {e.designName}
+              <li key={`${e.task}-${e.recipeFingerprint}`}>
+                {e.task}: {e.fitness.toFixed(3)} · {e.designName}
               </li>
             ))}
           </ul>
@@ -126,7 +152,7 @@ export function ModelsHub({
         <>
           <h3 className="subhead">Other tasks</h3>
           <div className="button-col">
-            {others.slice(0, 6).map((m) => (
+            {others.slice(0, 12).map((m) => (
               <div key={m.id} className="library-row">
                 <button
                   type="button"

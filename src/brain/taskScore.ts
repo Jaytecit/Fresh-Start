@@ -1,14 +1,21 @@
 /**
  * Task fitness adapters (E6.*) — Fresh Start Rapier state only.
  */
-import { avgJointX, minJointY } from './observations';
+import type { AeroType } from '../creature/types';
 import type { SpawnedCreature } from '../physics/spawn';
 import {
   FALL_PENALTY,
   JUMP_HEIGHT_SCALE,
+  FLIGHT_AERO_AREA_FULL,
+  FLIGHT_AERO_MATCH_FLOOR,
   FLIGHT_AIR_SCALE,
+  FLIGHT_GLIDER_DIST_SCALE,
   FLIGHT_HEIGHT_SCALE,
+  FLIGHT_LANDING_REWARD_MULT,
   FLIGHT_MEAN_HEIGHT_SCALE,
+  FLIGHT_PARA_IMPACT_SCALE,
+  FLIGHT_SOFT_LAND_Y,
+  FLIGHT_WING_DIST_SCALE,
   MIN_DESIGNED_HEAD_Y,
   MOTOR_DIST_SCALE,
   CLIMB_HEIGHT_SCALE,
@@ -41,7 +48,8 @@ import {
   emptyCourseMarkerAccum,
   type CourseMarkerAccum,
 } from './courseMarkers';
-import type { TaskId } from './types';
+import { isFlightTask, type TaskId } from './types';
+import { avgJointX, minJointY } from './observations';
 
 export interface TaskEpisodeMetrics extends EpisodeResult {
   peakHeight: number;
@@ -52,7 +60,7 @@ export interface TaskEpisodeMetrics extends EpisodeResult {
   peakSpeed: number;
   /** C2.9 — accumulated time-in-zone penalty. */
   regionPenalty: number;
-  /** C2.9 — touch-once reward total. */
+  /** C2.9 — touch-once reward + landing total. */
   regionReward: number;
   /** C2.10 — true after start line (or immediately if no start). */
   courseArmed: boolean;
@@ -68,6 +76,8 @@ export interface TaskEpisodeMetrics extends EpisodeResult {
    * C2.10 — race clock at episode end (running or finished); null if never armed.
    */
   raceTime: number | null;
+  /** Simulated seconds elapsed when the episode ended (may be early on landing). */
+  episodeTime: number;
 }
 
 export function emptyMetrics(): TaskEpisodeMetrics {
@@ -88,6 +98,7 @@ export function emptyMetrics(): TaskEpisodeMetrics {
     finished: false,
     finishTime: null,
     raceTime: null,
+    episodeTime: 0,
   };
 }
 
@@ -102,22 +113,33 @@ type ScoredBase = EpisodeResult & {
 function withRegionScore(
   base: ScoredBase,
   accum: ScoreRegionAccum,
+  landingMult = 1,
 ): Omit<
   TaskEpisodeMetrics,
-  'courseArmed' | 'checkpointsHit' | 'finished' | 'finishTime' | 'raceTime'
+  | 'courseArmed'
+  | 'checkpointsHit'
+  | 'finished'
+  | 'finishTime'
+  | 'raceTime'
+  | 'episodeTime'
 > {
   return {
     ...base,
-    fitness: Math.max(0, applyRegionScore(base.fitness, accum)),
+    fitness: Math.max(0, applyRegionScore(base.fitness, accum, landingMult)),
     regionPenalty: accum.penalty,
-    regionReward: accum.reward,
+    regionReward: accum.reward + accum.landingReward * Math.max(0, landingMult),
   };
 }
 
 function withCourseMetrics(
   metrics: Omit<
     TaskEpisodeMetrics,
-    'courseArmed' | 'checkpointsHit' | 'finished' | 'finishTime' | 'raceTime'
+    | 'courseArmed'
+    | 'checkpointsHit'
+    | 'finished'
+    | 'finishTime'
+    | 'raceTime'
+    | 'episodeTime'
   >,
   courseAccum?: CourseMarkerAccum,
   episodeSimTime = 0,
@@ -130,6 +152,7 @@ function withCourseMetrics(
       finished: false,
       finishTime: null,
       raceTime: null,
+      episodeTime: episodeSimTime,
     };
   }
   return {
@@ -139,6 +162,7 @@ function withCourseMetrics(
     finished: courseAccum.finished,
     finishTime: courseAccum.finishTime,
     raceTime: courseRaceTime(courseAccum, episodeSimTime),
+    episodeTime: episodeSimTime,
   };
 }
 
@@ -149,7 +173,7 @@ function applyUprightGate(
   uprightMean: number,
 ): { fitness: number; uprightQuality: number } {
   if (
-    task === 'flight' ||
+    isFlightTask(task) ||
     task === 'hang' ||
     creature.designedHeadY < MIN_DESIGNED_HEAD_Y
   ) {
@@ -214,12 +238,21 @@ export function scoreTaskPerformance(
   episodeSimTime = 0,
   /** Best forward progress (m) this episode — sprint uses peak, not end pose. */
   peakDistance?: number,
+  /** Peak descending |vy| near the ground (parachute soft-land). */
+  impactSpeed = 0,
+  /** Forward meters traveled while fully airborne (glider range). */
+  airborneTravel = 0,
 ): TaskEpisodeMetrics {
   const course = courseAccum ?? emptyCourseMarkerAccum([]);
   const finish = (
     base: Omit<
       TaskEpisodeMetrics,
-      'courseArmed' | 'checkpointsHit' | 'finished' | 'finishTime' | 'raceTime'
+      | 'courseArmed'
+      | 'checkpointsHit'
+      | 'finished'
+      | 'finishTime'
+      | 'raceTime'
+      | 'episodeTime'
     >,
   ): TaskEpisodeMetrics =>
     withCourseMetrics(base, courseAccum, episodeSimTime);
@@ -473,10 +506,93 @@ export function scoreTaskPerformance(
     );
   }
 
-  // flight — sustain mean airborne height; peak alone (one-flap) is weak.
+  const distance = Math.max(0, peakDistance ?? avgJointX(creature) - startX);
   const peakScore = Math.max(0, peakHeight) / FLIGHT_HEIGHT_SCALE;
   const meanScore = Math.max(0, meanAirHeight) / FLIGHT_MEAN_HEIGHT_SCALE;
   const airScore = airTime / FLIGHT_AIR_SCALE;
+  const landMult = isFlightTask(task) && task !== 'flight'
+    ? FLIGHT_LANDING_REWARD_MULT
+    : 1;
+
+  if (task === 'flight_wing') {
+    const distScore = distance / FLIGHT_WING_DIST_SCALE;
+    const base =
+      (peakScore * 0.3 + meanScore * 0.4 + airScore * 0.25 + distScore * 0.05) *
+        aeroPresenceScale(creature, 'wing') -
+      (fell ? FALL_PENALTY * 0.5 : 0);
+    return finish(
+      withRegionScore(
+        {
+          fitness: base,
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: 1,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+        landMult,
+      ),
+    );
+  }
+
+  if (task === 'flight_glider') {
+    const glideDist =
+      Math.max(distance * 0.35, airborneTravel) / FLIGHT_GLIDER_DIST_SCALE;
+    const base =
+      (glideDist * 0.45 + meanScore * 0.35 + airScore * 0.2) *
+        aeroPresenceScale(creature, 'glider') -
+      (fell ? FALL_PENALTY * 0.5 : 0);
+    return finish(
+      withRegionScore(
+        {
+          fitness: base,
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: 1,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+        landMult,
+      ),
+    );
+  }
+
+  if (task === 'flight_para') {
+    const soft =
+      1 / (1 + Math.max(0, impactSpeed) / FLIGHT_PARA_IMPACT_SCALE);
+    const floatScore = airTime / (1 + Math.max(0, peakHeight) * 0.08);
+    const base =
+      (floatScore * 0.45 + meanScore * 0.25 + soft * 0.3) *
+        aeroPresenceScale(creature, 'parachute') -
+      (fell ? FALL_PENALTY * 0.35 : 0);
+    return finish(
+      withRegionScore(
+        {
+          fitness: base,
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: 1,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+        landMult,
+      ),
+    );
+  }
+
+  // flight — sustain mean airborne height; peak alone (one-flap) is weak.
   const fitness =
     peakScore * 0.2 +
     meanScore * 0.5 +
@@ -500,6 +616,22 @@ export function scoreTaskPerformance(
   );
 }
 
+/** Morphology match 0.25…1 for bones tagged with the specialist aero type. */
+export function aeroPresenceScale(
+  creature: SpawnedCreature,
+  type: AeroType,
+): number {
+  let area = 0;
+  for (const b of creature.bones) {
+    if (b.aeroType === type && (b.aeroArea ?? 0) > 0) {
+      area += b.aeroArea ?? 0;
+    }
+  }
+  if (area <= 0) return FLIGHT_AERO_MATCH_FLOOR;
+  const t = Math.min(1, area / FLIGHT_AERO_AREA_FULL);
+  return FLIGHT_AERO_MATCH_FLOOR + (1 - FLIGHT_AERO_MATCH_FLOOR) * t;
+}
+
 /** Track peak / airtime / mean airborne height (all joints above ground contact). */
 export function updateJumpFlightTrackers(
   creature: SpawnedCreature,
@@ -508,28 +640,48 @@ export function updateJumpFlightTrackers(
   airTime: number,
   airHeightIntegral = 0,
   airborneY = 0.55,
+  impactSpeed = 0,
+  airborneTravel = 0,
+  prevAvgX: number | null = null,
 ): {
   peakHeight: number;
   airTime: number;
   airHeightIntegral: number;
   meanAirHeight: number;
+  impactSpeed: number;
+  airborneTravel: number;
+  avgX: number;
 } {
   const y = minJointY(creature);
+  const avgX = avgJointX(creature);
   const nextPeak = Math.max(peakHeight, y);
   const airborne = creature.joints.every(
     (j) => j.body.translation().y > airborneY,
   );
   let nextAir = airTime;
   let nextIntegral = airHeightIntegral;
+  let nextTravel = airborneTravel;
+  let nextImpact = impactSpeed;
   if (airborne) {
     nextAir += dt;
     nextIntegral += y * dt;
+    if (prevAvgX != null) {
+      nextTravel += Math.max(0, avgX - prevAvgX);
+    }
+  } else if (y < FLIGHT_SOFT_LAND_Y) {
+    let vySum = 0;
+    for (const j of creature.joints) vySum += j.body.linvel().y;
+    const vy = vySum / Math.max(1, creature.joints.length);
+    if (vy < 0) nextImpact = Math.max(nextImpact, -vy);
   }
   return {
     peakHeight: nextPeak,
     airTime: nextAir,
     airHeightIntegral: nextIntegral,
     meanAirHeight: nextAir > 1e-6 ? nextIntegral / nextAir : 0,
+    impactSpeed: nextImpact,
+    airborneTravel: nextTravel,
+    avgX,
   };
 }
 
@@ -659,22 +811,26 @@ export function explainTaskScore(
       },
       { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
     );
-  } else if (task === 'flight') {
+  } else if (isFlightTask(task)) {
     terms.push(
       {
         label: 'Mean air height',
         value: `${metrics.meanAirHeight.toFixed(2)} m`,
-        note: `÷ ${FLIGHT_MEAN_HEIGHT_SCALE} · 50%`,
+        note: `÷ ${FLIGHT_MEAN_HEIGHT_SCALE}`,
       },
       {
         label: 'Air time',
         value: `${metrics.airTime.toFixed(2)} s`,
-        note: `÷ ${FLIGHT_AIR_SCALE} · 30%`,
+        note: `÷ ${FLIGHT_AIR_SCALE}`,
       },
       {
         label: 'Peak height',
         value: `${metrics.peakHeight.toFixed(2)} m`,
-        note: `÷ ${FLIGHT_HEIGHT_SCALE} · 20%`,
+        note: `÷ ${FLIGHT_HEIGHT_SCALE}`,
+      },
+      {
+        label: 'Distance',
+        value: `${dist.toFixed(2)} m`,
       },
     );
   }
@@ -682,10 +838,9 @@ export function explainTaskScore(
   if (metrics.fell) {
     terms.push({
       label: 'Fall penalty',
-      value:
-        task === 'flight'
-          ? `−${(FALL_PENALTY * 0.5).toFixed(2)}`
-          : `−${FALL_PENALTY.toFixed(2)}`,
+      value: isFlightTask(task)
+        ? `−${(FALL_PENALTY * 0.5).toFixed(2)}`
+        : `−${FALL_PENALTY.toFixed(2)}`,
     });
   }
   if (metrics.regionPenalty > 0) {
@@ -697,7 +852,7 @@ export function explainTaskScore(
   }
   if (metrics.regionReward > 0) {
     terms.push({
-      label: 'Zone reward',
+      label: 'Zone / landing reward',
       value: `+${metrics.regionReward.toFixed(2)}`,
       note: 'touch-once',
     });
@@ -753,6 +908,21 @@ export function scoringLegendForTask(task: TaskId): string {
     case 'flight':
       return (
         'Mean airborne height (50%) + air time (30%) + peak (20%) − light fall. One-flap coasts score poorly.' +
+        zoneNote
+      );
+    case 'flight_wing':
+      return (
+        'Wing climb/sustain (peak + mean + air) × wing aero match; landing zones heavily weighted. Place launch pad + landing.' +
+        zoneNote
+      );
+    case 'flight_glider':
+      return (
+        'Airborne range + mean height × glider aero match; landing zones heavily weighted. Place launch pad + landing.' +
+        zoneNote
+      );
+    case 'flight_para':
+      return (
+        'Float time + soft descent × parachute aero match; landing zones heavily weighted. Place launch pad + landing.' +
         zoneNote
       );
     case 'dance':

@@ -36,7 +36,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 | **C1.1** Mark feet               | Only if goals benefit? | Yes — Fresh Start run/jump already treat all joints as feet; explicit foot marks improve lift/landing scoring.                         | `[x]`                        |
 | **D3** Progressive limits        | What is this?          | After a clear, auto-raise course difficulty (taller tower, wider gap, rougher terrain). Useful later for climb / E6.8.                 | `[ ]` defer                  |
 | **D6** Multi-brain phase handoff | What is this?          | Sequence brains by stage (e.g. run-up → deploy → glide). **Not needed** — G10 uses structural aero parts + single MLP/muscles.         | `[ ]` defer                  |
-| **D7** Expanded observations     | Needed?                | Object sensors skipped (world objects omitted). Keep **contact / terrain-relative** packs for climb & rough terrain.                   | `[x]` (contact/terrain only) |
+| **D7** Expanded observations     | Needed?                | Contact / terrain packs shipped. Optional **raycast whiskers** (Train toggle) for obstacle foresight; object-ID sensors still skipped. | `[x]` (+ optional raycasts)  |
 | **E6 expand**                    | Which parent goals?    | Port all realistic skill goals that fit Rapier + existing world features. Skip object/sports/ice/gimmick/retired (see E6 ignore list). | `[x]`                        |
 | **E5 count**                     | How many secrets?      | Target **100** discoverable secrets (parent had 90; FS currently 10).                                                                  | `[x]`                        |
 | **Brand**                        | Rename / tagline?      | **Solemn Sandbox** — *A serious environment to carry out silly experiments.*                                                           | `[x]` B19                    |
@@ -51,7 +51,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 - [x] **A1.2 / A4 Eye / googly-eye primitives** — done
 - [x] **A2 Sprite body-part library** — done (animal / modular / monster + tint/mirror/pivot + preload)
 - [x] **A5 Visual pose interpolation** (render lerp between fixed physics ticks) — *only if relevant: yes, keeps 60 Hz feel when frames hitch*
-- [x] **A6 Sim axis rulers** (height / horizontal overlays)
+- [x] **A6 Sim axis rulers** (edge-pinned height / distance overlays)
 - [x] **A7 Network visualizer** (MLP graph; Fresh Start network, not NEAT)
 
 
@@ -85,18 +85,18 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 ## C. Editor / tools
 
 - [ ] **C1 Studio-depth creature editor upgrades**
-  - [x] **C1.1 Mark feet** — benefits run/jump scoring
+  - [x] **C1.1 Mark feet** — benefits run/jump scoring; foot-weight slider (all modes)
   - [x] **C1.2 Drive groups** (shared brain channel across muscles)
-  - [x] **C1.8 Aero surface authoring** (wing / glider / parachute) — deepen with G10 part types
+  - [x] **C1.8 Aero surface authoring** (wing / glider / parachute) — deepen with G10 part types; parachute canopy bone morph (`parachuteCanopyVisual`)
   - [x] **C1.9 Wheel / motor-wheel authoring** — needs G6 (minimal torque exists; editor next)
   - [x] **C1.11 Multi-select + subgraph transforms** — marquee / Shift-click · Copy · Mirror-duplicate · scale/rotate handles
 - [ ] **C2 Environment Studio** (partial vs parent)
-  - [x] **C2.1 Obstacle authoring** (box / ramp / stair / pit / loop) — partial set only
+  - [x] **C2.1 Obstacle authoring** (box / ramp / stair / pit / loop / pad) — pad: foot-only, once/run, apex slider 100–1000
   - [x] **C2.3 Terrain heightfield authoring**
   - [x] **C2.4 Tower / launch structure**
-  - [x] **C2.7 Theme selection**
+  - [x] **C2.7 Theme selection** — parallax sky / clouds for travel cues
   - [x] **C2.8 Undo/redo + export/import**
-  - [x] **C2.9 Score regions** (penalty time-in-zone / reward touch-once; score-only AABBs)
+  - [x] **C2.9 Score regions** (penalty / reward / landing; score-only AABBs; landing = airborne→foot touch; end-on-landing)
   - [x] **C2.10 Start / finish / checkpoint markers** — **done** (score-only AABBs; Sprint Finish; ADR + smoke)
 - [x] **C5 JSON import/export** (creatures / models / environments with validation)
 
@@ -111,17 +111,18 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 
 - [O] **D6 Multi-brain phase handoff** — defer; not required for G10 structural aero parts
 
-- [x] **D7 Expanded observation packs** — contact / terrain only (no object sensors)
+- [x] **D7 Expanded observation packs** — contact / terrain + optional raycast whiskers (Train toggle; no object-ID sensors)
 - [x] **D8 Additional trainable tasks** — jump/climb/motor/flight/rough done
 - [x] **D9 Train dock IA + plain labels** — Watch & speed · Training setup · Progress; side panel How to train / Saved brains (see `docs/TRAINING_EXPERIMENTATION_PLAN.md`)
 - [x] **D10 Population / batch / mutation recipes** — How many try / watch · Mutation style · recipe chips (Balanced · Quick look · Serious search · Fine tune · Wild ideas)
 - [x] **D11 Start-from + selection Advanced** — Fresh / best of run / saved brain · Keep the champions · Who gets to breed · Rounds limit · Run #
 - [x] **D12 Annealing / adaptive try length / crossover toggles** — Settle down · Short tries first · Stop after fall · Mix two parents
-- [x] **D13 Goal priorities + stage trainer** — What matters more sliders · Train in stages checklist · **course stages** (Gauntlet spawn/finish windows + start-line race timer)
+- [x] **D13 Goal priorities + stage trainer** — What matters more sliders · Train in stages checklist · **course stages** (Gauntlet + Studio-authored checkpoint curriculum + start-line race timer)
 - [x] **D14 New experiences pack** — Copy my demo · Practice with messy bodies · Race your record · Mix goals (flag-gated slices)
 - [x] **D15 Shareable training recipes / experiment packs** — Named knob sets + body/env/goal/recipe/brain bundle (extend C5)
 - [x] **D16 Training telemetry log** — Train-dock toggle; capture gen-champion morphology + metrics + stall contact (Rapier foot↔obstacle: ramp angle/height/slip) + failure/reward insights over a 50-gen window; JSON download
 - [x] **D17 Soft morphology evolution** — Messy bodies jitter + morph genes (mass/leg length/aero/wheels, fixed topology); per-member spawn; telemetry + saved morph snapshot; flag `morphEvolve`
+- [x] **D18 Structural morphology evolution** — Nested under D17: grow/prune joints/bones/muscles from authored design; padded fixed brain channels; flag `structuralMorphEvolve`
 
 
 
@@ -140,7 +141,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
   - [x] E6.2 Jump — jump height · **Hang Time** · **Long Jump** (Clear the Bar / flips / hops = later deepen)
   - [x] E6.3 Climb — step course (stair/obstacles/beam/park = later deepen)
   - [x] E6.5 Motor / wheeled — minimal drive (ramp/gap/hurdles/technical = later deepen via markers)
-  - [x] E6.6 Flight / glide / para — minimal sustain (specialist variants = later deepen)
+  - [x] E6.6 Flight / glide / para — generic flight + wing / glider / para specialists (launch+land)
   - [x] E6.8 Rough terrain — done
 
 
@@ -159,7 +160,8 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 - [x] **G3 Procedural / authored terrain heightfield**
 - [x] **G6 Wheels / motor wheels** — minimal done; deepen with C1.9
 - [x] **G9 Aero-like forces** — minimal done; deepen with C1.8 / G10
-- [x] **G10 Structural aero parts** — Wing (paired, flap) / Glider (rigid pitch sail) / Parachute (jointed inflation drag); single brain (done)
+- [x] **G10 Structural aero parts** — Wing (paired, flap) / Glider (rigid pitch sail) / Parachute (jointed inflation drag); single brain (done); canopy bone morph from `chuteInflation`
+- [x] **G8 Rigid struts / links** — Solid connectors (Rapier fixed joint, no capsule body) for triangles/squares/trusses; Fresh Start rewrite (not parent solidSegments); flag `rigidStruts`
 
 
 
@@ -173,6 +175,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 - [x] **H6 Dance imitation / freestyle brain** — Record disco teacher drives → MSE/SGD MLP fit → music-conditioned freestyle (solo)
 - [x] **H7 Dance curriculum** — Local playlist, offline waveform analysis, multi-track imitation (warm-start), Disco-local refine (upright + beat sync + energy), portable dance brain reload (Disco only; Free evolve unchanged)
 - [x] **H8 Disco setup presets** — Named save/load of full Disco stage (tuning, routing, puppet, viz, slots, optional dance brain); audio files not embedded
+- [x] **H9 Cosmetic cloth garments** — Editor-authored Verlet cloth panels pinned to joints/bones (cape preset); disco-first, render-only; flag `cosmeticCloth`
 
 
 
@@ -206,7 +209,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 
 ## Pruned (ignored — removed from active list)
 
-A1.1/A1.3–A1.6 primitives & skinning · A3 biological presets · A8 gait fingerprints · A9 range preview · A10 skeleton/cosmetics modes · **B15 arena modifiers** · C1.3–C1.7/C1.10 · C2.2 ice · C2.5 world objects · C2.6 spawn/camera/bounds · C3 random morph · C4 share codes · D2 elite replay · E3 challenges · E4 custom goals · E6.4 object interaction · E6.7 sports · F2 finished models shelf · F5 challenge progress · F6 templates · F7 schema migrations/fingerprinting · G2 ice · G4 world objects · G5 wind modifiers · G7 joint limits · G8 rigid plates · G11 pistons · **Arena Championship I1–I5** (I6 Head-to-Head is a separate focused want) · J2–J4
+A1.1/A1.3–A1.6 primitives & skinning · A3 biological presets · A8 gait fingerprints · A9 range preview · A10 skeleton/cosmetics modes · **B15 arena modifiers** · C1.3–C1.7/C1.10 · C2.2 ice · C2.5 world objects · C2.6 spawn/camera/bounds · C3 random morph · C4 share codes · D2 elite replay · E3 challenges · E4 custom goals · E6.4 object interaction · E6.7 sports · F2 finished models shelf · F5 challenge progress · F6 templates · F7 schema migrations/fingerprinting · G2 ice · G4 world objects · G5 wind modifiers · G7 joint limits · G11 pistons · **Arena Championship I1–I5** (I6 Head-to-Head is a separate focused want) · J2–J4
 
 ---
 

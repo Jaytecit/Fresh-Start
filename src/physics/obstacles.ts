@@ -4,7 +4,11 @@
  */
 import type { EnvObstacle, ObstacleKind } from '../env/types';
 import {
+  clampLaunchPadApex,
   GROUND_RESTITUTION,
+  LAUNCH_PAD_APEX_H,
+  LAUNCH_PAD_DEFAULT_H,
+  LAUNCH_PAD_DEFAULT_W,
   OBSTACLE_DEFAULT_RAMP_ROT,
   OBSTACLE_LOOP_SEGMENTS,
   OBSTACLE_MAX_SIZE,
@@ -26,6 +30,8 @@ export interface ObstacleVisual {
   hx: number;
   hy: number;
   rot: number;
+  /** Pad only — approximate launch apex (ruler units). */
+  launchApex?: number;
 }
 
 export interface ObstacleHandle {
@@ -51,9 +57,14 @@ function addCuboid(
 ): void {
   const safeHx = Math.max(OBSTACLE_MIN_SIZE / 2, hx);
   const safeHy = Math.max(OBSTACLE_MIN_SIZE / 2, hy);
+  const safeX = Number.isFinite(x) ? x : 0;
+  const safeY = Number.isFinite(y) ? y : 0;
+  const safeRot = Number.isFinite(rot) ? rot : 0;
   const groups = groundCollisionGroups();
   const body = world.createRigidBody(
-    RAPIER.RigidBodyDesc.fixed().setTranslation(x, y).setRotation(rot),
+    RAPIER.RigidBodyDesc.fixed()
+      .setTranslation(safeX, safeY)
+      .setRotation(safeRot),
   );
   // Max combine so Train grip slider is the contact μ (not averaged down).
   const desc = RAPIER.ColliderDesc.cuboid(safeHx, safeHy)
@@ -64,7 +75,14 @@ function addCuboid(
     .setSolverGroups(groups);
   world.createCollider(desc, body);
   handle.bodies.push(body);
-  handle.visuals.push({ kind, x, y, hx: safeHx, hy: safeHy, rot });
+  handle.visuals.push({
+    kind,
+    x: safeX,
+    y: safeY,
+    hx: safeHx,
+    hy: safeHy,
+    rot: safeRot,
+  });
 }
 
 function spawnBox(
@@ -178,6 +196,19 @@ function spawnLoop(
   }
 }
 
+function spawnPad(
+  world: RAPIER.World,
+  handle: ObstacleHandle,
+  o: EnvObstacle,
+  grip: number,
+): void {
+  const w = clampSize(o.w);
+  const h = clampSize(Math.min(o.h, o.w * 0.45));
+  addCuboid(world, handle, 'pad', o.x, o.y, w / 2, h / 2, o.rot ?? 0, grip);
+  const vis = handle.visuals[handle.visuals.length - 1];
+  if (vis) vis.launchApex = clampLaunchPadApex(o.launchApex);
+}
+
 export function spawnStaticObstacles(
   world: RAPIER.World,
   obstacles: readonly EnvObstacle[],
@@ -201,6 +232,9 @@ export function spawnStaticObstacles(
         break;
       case 'loop':
         spawnLoop(world, handle, o, grip);
+        break;
+      case 'pad':
+        spawnPad(world, handle, o, grip);
         break;
       default:
         break;
@@ -266,6 +300,16 @@ export function defaultObstacle(kind: ObstacleKind): EnvObstacle {
       return { id, kind, x: 6, y: 0, w: 2.2, h: 1.4 };
     case 'loop':
       return { id, kind, x: 10, y: 2.2, w: 3.6, h: 3.6 };
+    case 'pad':
+      return {
+        id,
+        kind,
+        x: 4,
+        y: LAUNCH_PAD_DEFAULT_H / 2,
+        w: LAUNCH_PAD_DEFAULT_W,
+        h: LAUNCH_PAD_DEFAULT_H,
+        launchApex: LAUNCH_PAD_APEX_H,
+      };
     default:
       return { id, kind: 'box', x: 3, y: 0.5, w: 2, h: 1 };
   }

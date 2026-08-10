@@ -11,6 +11,13 @@ import {
   mutateMorphGenes,
   type MorphGenes,
 } from '../creature/morphGenes';
+import {
+  cloneTopology,
+  crossoverStructure,
+  morphForTopology,
+  mutateStructure,
+} from '../creature/structureGenes';
+import type { CreatureDesign } from '../creature/types';
 import { cloneWeights, gaussian } from './network';
 import type { Genome } from './types';
 
@@ -24,6 +31,10 @@ export interface BreedOptions {
   crossover?: boolean;
   /** D17 — also breed/mutate morph genes. */
   morphEvolve?: boolean;
+  /** D18 — also breed/mutate body topology (implies morphEvolve). */
+  structuralMorphEvolve?: boolean;
+  /** Authored base design for structural caps (required when structural on). */
+  structureBase?: CreatureDesign;
 }
 
 export function tournamentPick(
@@ -83,6 +94,10 @@ function copyMorph(m: MorphGenes | undefined): MorphGenes | undefined {
   return m ? cloneMorphGenes(m) : undefined;
 }
 
+function copyTopology(t: CreatureDesign | undefined): CreatureDesign | undefined {
+  return t ? cloneTopology(t) : undefined;
+}
+
 /** Elitism + tournament selection + mutation → next generation genomes. */
 export function breedNextGeneration(
   population: Genome[],
@@ -94,10 +109,14 @@ export function breedNextGeneration(
   const tournamentSize = opts?.tournamentSize ?? TOURNAMENT_SIZE;
   const useCrossover = opts?.crossover ?? false;
   const morphEvolve = opts?.morphEvolve ?? false;
+  const structural =
+    (opts?.structuralMorphEvolve ?? false) && !!opts?.structureBase;
+  const structureBase = opts?.structureBase;
   const mutOpts = {
     mutationSigma: opts?.mutationSigma,
     mutationResetRate: opts?.mutationResetRate,
   };
+  const sigma = mutOpts.mutationSigma ?? MUTATION_SIGMA;
 
   const ranked = population.slice().sort((a, b) => b.fitness - a.fitness);
   const next: Genome[] = [];
@@ -106,40 +125,50 @@ export function breedNextGeneration(
       weights: cloneWeights(ranked[e]!.weights),
       fitness: 0,
       morph: copyMorph(ranked[e]!.morph),
+      topology: copyTopology(ranked[e]!.topology),
     });
   }
   while (next.length < popSize) {
     const parent = tournamentPick(ranked, rng, tournamentSize);
     let childWeights: Float32Array;
     let childMorph: MorphGenes | undefined = copyMorph(parent.morph);
+    let childTopology: CreatureDesign | undefined = copyTopology(parent.topology);
+
     if (useCrossover && ranked.length >= 2) {
       const other = tournamentPick(ranked, rng, tournamentSize);
       childWeights = crossoverWeights(parent.weights, other.weights, rng);
       childWeights = mutate(childWeights, rng, mutOpts);
-      if (morphEvolve && parent.morph && other.morph) {
+      if (structural && structureBase && parent.topology && other.topology) {
+        childTopology = mutateStructure(
+          crossoverStructure(parent.topology, other.topology, rng),
+          structureBase,
+          rng,
+        );
+        childMorph = morphForTopology(childTopology, rng, sigma, true);
+      } else if (morphEvolve && parent.morph && other.morph) {
         childMorph = mutateMorphGenes(
           crossoverMorphGenes(parent.morph, other.morph, rng),
           rng,
-          mutOpts.mutationSigma ?? MUTATION_SIGMA,
+          sigma,
         );
       } else if (morphEvolve && parent.morph) {
-        childMorph = mutateMorphGenes(
-          parent.morph,
-          rng,
-          mutOpts.mutationSigma ?? MUTATION_SIGMA,
-        );
+        childMorph = mutateMorphGenes(parent.morph, rng, sigma);
       }
     } else {
       childWeights = mutate(parent.weights, rng, mutOpts);
-      if (morphEvolve && parent.morph) {
-        childMorph = mutateMorphGenes(
-          parent.morph,
-          rng,
-          mutOpts.mutationSigma ?? MUTATION_SIGMA,
-        );
+      if (structural && structureBase && parent.topology) {
+        childTopology = mutateStructure(parent.topology, structureBase, rng);
+        childMorph = morphForTopology(childTopology, rng, sigma, true);
+      } else if (morphEvolve && parent.morph) {
+        childMorph = mutateMorphGenes(parent.morph, rng, sigma);
       }
     }
-    next.push({ weights: childWeights, fitness: 0, morph: childMorph });
+    next.push({
+      weights: childWeights,
+      fitness: 0,
+      morph: childMorph,
+      topology: childTopology,
+    });
   }
   return next;
 }

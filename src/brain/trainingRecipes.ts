@@ -3,6 +3,7 @@
  * Physics-free: only brain/GA search parameters.
  */
 import {
+  clampEpisodeSeconds,
   ELITE_COUNT,
   EPISODE_SECONDS,
   LIVE_BATCH_SIZE,
@@ -247,13 +248,28 @@ export function loadGaKnobSet(): GaKnobSet {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return base;
-    const parsed = JSON.parse(raw) as Partial<GaKnobSet>;
+    const parsed = JSON.parse(raw) as Partial<GaKnobSet> & {
+      episodeSeconds?: number | null;
+    };
     const next = { ...base, ...parsed };
     next.batchSize = Math.max(1, Math.min(next.batchSize, next.populationSize));
     next.eliteCount = Math.max(1, Math.min(4, next.eliteCount | 0));
     next.tournamentSize = Math.max(2, Math.min(8, next.tournamentSize | 0));
     next.populationSize = Math.max(2, Math.min(120, next.populationSize | 0));
     next.maxGenerations = Math.max(1, Math.min(500, next.maxGenerations | 0));
+    // Legacy ∞ sentinel (-1) maps to the slider max.
+    if (parsed.episodeSeconds === -1) {
+      next.episodeSeconds = clampEpisodeSeconds(Number.POSITIVE_INFINITY);
+      next.stopAfterFall = true;
+    } else if (
+      parsed.episodeSeconds == null ||
+      !Number.isFinite(Number(parsed.episodeSeconds)) ||
+      Number(parsed.episodeSeconds) <= 0
+    ) {
+      next.episodeSeconds = clampEpisodeSeconds(base.episodeSeconds);
+    } else {
+      next.episodeSeconds = clampEpisodeSeconds(Number(parsed.episodeSeconds));
+    }
     return next;
   } catch {
     return base;
@@ -262,7 +278,11 @@ export function loadGaKnobSet(): GaKnobSet {
 
 export function saveGaKnobSet(knobs: GaKnobSet): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(knobs));
+    const payload = {
+      ...knobs,
+      episodeSeconds: clampEpisodeSeconds(knobs.episodeSeconds),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     /* ignore quota */
   }
@@ -288,6 +308,7 @@ export function adaptiveEpisodeSeconds(
   generation: number,
   enabled: boolean,
 ): number {
+  if (!Number.isFinite(baseSeconds)) return baseSeconds;
   if (!enabled) return baseSeconds;
   const early = Math.min(baseSeconds, Math.max(3, Math.round(baseSeconds * 0.35)));
   const mid = Math.min(baseSeconds, Math.max(early, Math.round(baseSeconds * 0.7)));

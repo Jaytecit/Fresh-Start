@@ -89,12 +89,21 @@ export const PLANT_SLIDE_BRAKE = 0.45;
 /**
  * Ball-foot purchase (scaled by Train-dock Anti-scoot):
  * - SURFACE_ANTI_ROLL: |angvel| kill per fixed step on any planted surface
- * - SURFACE_TANGENT_BRAKE: adverse along-surface kill on **every** surface
- *   (tilted: downhill only; flat: world-left / −X only so +X forward is kept).
+ * - SURFACE_STANCE_STICK: bidirectional along-surface damp when |along| is
+ *   below STANCE_STICK_SPEED (kills muscle-driven micro-skid so feet plant)
+ * - SURFACE_TANGENT_BRAKE: adverse along-surface kill above the stick band
+ *   (tilted: downhill only; flat: world-left / −X only so fast +X is kept).
  * Coulomb μ alone does not stop rolling spheres.
  */
 export const SURFACE_ANTI_ROLL = 0.95;
 export const SURFACE_TANGENT_BRAKE = 0.95;
+/** Along-surface speed (m/s) below which stance stick is bidirectional. */
+export const STANCE_STICK_SPEED = 0.5;
+/**
+ * Bidirectional along-surface kill per fixed step inside the stick band
+ * (scaled by Anti-scoot). Keeps planted feet from jittering under muscle load.
+ */
+export const SURFACE_STANCE_STICK = 0.85;
 /**
  * Train-dock Anti-scoot default (1 = tuned SURFACE_* response).
  * Runtime range [0, ANTI_SCOOT_MAX]; 0 disables plant purchase.
@@ -116,6 +125,12 @@ export const MOTOR_TORQUE_SCALE = 28;
 /** Aero-like coefficients (E6.6) — Fresh Start design, not parent tables. */
 export const AERO_DRAG_COEFF = 0.55;
 export const AERO_LIFT_COEFF = 0.85;
+/**
+ * Cap velocity magnitude used in aero force math.
+ * Launch-pad ballistic speeds (~100–300) make v² drag/lift explode joints into NaN
+ * and panic Rapier WASM; flapping/glide stay well below this.
+ */
+export const AERO_SPEED_FORCE_CAP = 48;
 
 /**
  * G10 wing — downstroke lift (world +Y) from descending wing speed.
@@ -272,12 +287,41 @@ export const DISCO_PUPPET_MODE_LABELS: {
 export const DEFAULT_DISCO_PUPPET_MODE: DiscoPuppetMode = 'fullPuppet';
 
 /**
- * Disco-only mass for joints marked `isFoot` (heavier feet resist float-away).
- * Evolve/Edit keep authored / DEFAULT_JOINT_MASS.
+ * Mass for joints marked `isFoot` (heavier feet plant harder).
+ * Used in Edit / Play / Train / Disco when `CreatureDesign.footMass` is set.
+ * Default matches DEFAULT_JOINT_MASS so unmarked designs keep prior feel.
  */
-export const DISCO_FOOT_MASS_MIN = 1;
-export const DISCO_FOOT_MASS_MAX = 96;
+export const FOOT_MASS_MIN = 1;
+export const FOOT_MASS_MAX = 96;
+export const FOOT_MASS_DEFAULT = DEFAULT_JOINT_MASS;
+/** @deprecated Use FOOT_MASS_MIN — kept for Disco setup JSON compat. */
+export const DISCO_FOOT_MASS_MIN = FOOT_MASS_MIN;
+/** @deprecated Use FOOT_MASS_MAX */
+export const DISCO_FOOT_MASS_MAX = FOOT_MASS_MAX;
+/**
+ * Historic Disco panel default (heavy plant). New creature designs use
+ * FOOT_MASS_DEFAULT unless the author raises the builder slider.
+ */
 export const DISCO_FOOT_MASS_DEFAULT = 96;
+
+export function clampFootMass(value: number): number {
+  if (!Number.isFinite(value)) return FOOT_MASS_DEFAULT;
+  return Math.min(FOOT_MASS_MAX, Math.max(FOOT_MASS_MIN, value));
+}
+
+/**
+ * Mass for joints marked `isWheel` (heavier wheels bias CG for airborne pivot).
+ * Same range as foot mass; omit → DEFAULT_JOINT_MASS / joint.mass.
+ * When a joint is both foot and wheel, wheel mass wins at spawn / retune.
+ */
+export const WHEEL_MASS_MIN = FOOT_MASS_MIN;
+export const WHEEL_MASS_MAX = FOOT_MASS_MAX;
+export const WHEEL_MASS_DEFAULT = DEFAULT_JOINT_MASS;
+
+export function clampWheelMass(value: number): number {
+  if (!Number.isFinite(value)) return WHEEL_MASS_DEFAULT;
+  return Math.min(WHEEL_MASS_MAX, Math.max(WHEEL_MASS_MIN, value));
+}
 
 /** C2.4 launch tower clamps / proportions. */
 export const TOWER_MIN_BASE_W = 0.6;
@@ -288,3 +332,41 @@ export const TOWER_MAX_HEIGHT = 40;
 export const TOWER_DECK_THICKNESS = 0.22;
 /** Stem width as a fraction of baseW. */
 export const TOWER_STEM_WIDTH_RATIO = 0.42;
+
+/**
+ * C2.1 launch pad — vertical boost.
+ * Per-pad authored apex (ruler units) → VY = √(2|g|h) × damping compensation.
+ * Builder slider clamps to [APEX_MIN, APEX_MAX]; default APEX_H.
+ */
+export const LAUNCH_PAD_APEX_MIN = 100;
+export const LAUNCH_PAD_APEX_MAX = 1000;
+export const LAUNCH_PAD_APEX_H = 180;
+/** Multiplier on ideal √(2gh) so measured peak ≈ authored apex under drag/scrub. */
+export const LAUNCH_PAD_DAMPING_COMP = 1.12;
+
+/** Clamp authored / imported launch apex into the builder range. */
+export function clampLaunchPadApex(value: number | undefined): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : LAUNCH_PAD_APEX_H;
+  return Math.min(LAUNCH_PAD_APEX_MAX, Math.max(LAUNCH_PAD_APEX_MIN, n));
+}
+
+/** Upward linvel for a target approximate apex height. */
+export function launchPadVyForApex(apex: number): number {
+  const h = clampLaunchPadApex(apex);
+  return Math.sqrt(2 * Math.abs(GRAVITY_Y) * h) * LAUNCH_PAD_DAMPING_COMP;
+}
+
+/** @deprecated Prefer launchPadVyForApex(pad.launchApex) — default-pad VY. */
+export const LAUNCH_PAD_VY = launchPadVyForApex(LAUNCH_PAD_APEX_H);
+/** Lift off the deck on fire so contact solve cannot scrub the boost. */
+export const LAUNCH_PAD_CLEARANCE = 1.2;
+/**
+ * Top-face proximity for foot centers when Rapier contact pairs miss a thin slab.
+ * Kept close to the drawn deck (≈ foot radius), not a large halo.
+ */
+export const LAUNCH_PAD_PROXIMITY = JOINT_RADIUS * 0.55;
+/** Re-assert upward speed for this many steps after contact fire. */
+export const LAUNCH_PAD_BOOST_STEPS = 8;
+/** Default authored pad size (thin deck). */
+export const LAUNCH_PAD_DEFAULT_W = 3.2;
+export const LAUNCH_PAD_DEFAULT_H = 0.28;

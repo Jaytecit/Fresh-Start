@@ -1,5 +1,8 @@
+import { scrubClothAfterDelete } from '../appearance/clothOps';
 import { nextDriveGroupId, normalizeDriveGroup } from '../brain/driveGroups';
 import type { BoneDef, CreatureDesign, JointDef, MuscleDef } from '../creature/types';
+import { isRigidBoneDef } from '../creature/types';
+import { isFeatureEnabled } from '../port/featureFlags';
 import { isAeroType } from './aeroValidation';
 
 /** Move a joint; bones/muscles resize from joint endpoints (no stored lengths). */
@@ -49,6 +52,7 @@ export function updateBone(
     bones: design.bones.map((b) => {
       if (b.id !== boneId) return b;
       const next = { ...b, ...patch };
+      if (patch.rigid === false) delete next.rigid;
       if (patch.aeroArea !== undefined && patch.aeroArea <= 0) {
         delete next.aeroArea;
         delete next.aeroType;
@@ -66,9 +70,35 @@ export function updateBone(
           next.aeroType = patch.aeroType;
         }
       }
+      // Rigid struts cannot host aero.
+      if (isRigidBoneDef(next)) {
+        delete next.aeroArea;
+        delete next.aeroType;
+      }
       return next;
     }),
   };
+}
+
+/** True when a muscle endpoint bone is a rigid strut (illegal). */
+export function muscleUsesRigidBone(
+  design: CreatureDesign,
+  startBoneId: number,
+  endBoneId: number,
+): boolean {
+  if (!isFeatureEnabled('rigidStruts')) return false;
+  for (const id of [startBoneId, endBoneId]) {
+    const bone = design.bones.find((b) => b.id === id);
+    if (bone && isRigidBoneDef(bone)) return true;
+  }
+  return false;
+}
+
+/** Bones that currently host a muscle (cannot become rigid). */
+export function boneHasMuscle(design: CreatureDesign, boneId: number): boolean {
+  return design.muscles.some(
+    (m) => m.startBoneId === boneId || m.endBoneId === boneId,
+  );
 }
 
 export function updateMuscle(
@@ -135,15 +165,19 @@ export function deleteJoint(design: CreatureDesign, jointId: number): CreatureDe
       .map((b) => b.id),
   );
   const appearance = design.appearance
-    ? {
-        ...design.appearance,
-        googlyEyes: design.appearance.googlyEyes.filter((e) => e.jointId !== jointId),
-        bodyParts: design.appearance.bodyParts.filter(
-          (p) =>
-            p.jointId !== jointId &&
-            (p.boneId === undefined || !removedBoneIds.has(p.boneId)),
-        ),
-      }
+    ? scrubClothAfterDelete(
+        {
+          ...design.appearance,
+          googlyEyes: design.appearance.googlyEyes.filter((e) => e.jointId !== jointId),
+          bodyParts: design.appearance.bodyParts.filter(
+            (p) =>
+              p.jointId !== jointId &&
+              (p.boneId === undefined || !removedBoneIds.has(p.boneId)),
+          ),
+        },
+        new Set([jointId]),
+        removedBoneIds,
+      )
     : undefined;
   return {
     ...design,
@@ -160,10 +194,14 @@ export function deleteJoint(design: CreatureDesign, jointId: number): CreatureDe
 /** Remove a bone and muscles attached to it. */
 export function deleteBone(design: CreatureDesign, boneId: number): CreatureDesign {
   const appearance = design.appearance
-    ? {
-        ...design.appearance,
-        bodyParts: design.appearance.bodyParts.filter((p) => p.boneId !== boneId),
-      }
+    ? scrubClothAfterDelete(
+        {
+          ...design.appearance,
+          bodyParts: design.appearance.bodyParts.filter((p) => p.boneId !== boneId),
+        },
+        new Set(),
+        new Set([boneId]),
+      )
     : undefined;
   return {
     ...design,

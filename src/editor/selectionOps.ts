@@ -360,10 +360,47 @@ function appendRemappedAppearance(
       return copy;
     })
     .filter((p): p is NonNullable<typeof p> => p != null);
+  const cloth = (appearance.cloth ?? [])
+    .map((g) => {
+      const pins = g.pins
+        .map((p) => {
+          const copy = { ...p };
+          if (copy.boneId !== undefined) {
+            const nb = boneMap.get(copy.boneId);
+            if (nb === undefined) return null;
+            copy.boneId = nb;
+          }
+          if (copy.jointId !== undefined) {
+            const nj = jointMap.get(copy.jointId);
+            if (nj === undefined) return null;
+            copy.jointId = nj;
+          }
+          if (flipX && copy.offsetX !== undefined) copy.offsetX = -copy.offsetX;
+          if (flipX) {
+            const row = Math.floor(copy.particleIndex / g.cols);
+            const col = copy.particleIndex % g.cols;
+            copy.particleIndex = row * g.cols + (g.cols - 1 - col);
+          }
+          return copy;
+        })
+        .filter((p): p is NonNullable<typeof p> => p != null);
+      // Only duplicate garments whose pins all remapped into the selection.
+      if (pins.length === 0 || pins.length !== g.pins.length) return null;
+      return {
+        ...g,
+        id: `${g.id}-copy-${Date.now().toString(36)}`,
+        originX: flipX
+          ? -(g.originX + (g.cols - 1) * g.cellSize)
+          : g.originX,
+        pins,
+      };
+    })
+    .filter((g): g is NonNullable<typeof g> => g != null);
   return {
     ...next,
     googlyEyes: [...(appearance.googlyEyes ?? []), ...eyes],
     bodyParts: [...(appearance.bodyParts ?? []), ...parts],
+    cloth: [...(appearance.cloth ?? []), ...cloth],
   };
 }
 

@@ -34,6 +34,9 @@ import {
   FOOT_ANGULAR_DAMPING,
   FOOT_FRICTION,
   JOINT_RADIUS,
+  LAUNCH_PAD_APEX_H,
+  LAUNCH_PAD_APEX_MAX,
+  LAUNCH_PAD_APEX_MIN,
   RAMP_FRICTION_MAX,
 } from '../src/physics/constants.ts';
 import {
@@ -112,7 +115,16 @@ import {
   goalsForZone,
 } from '../src/goals/catalog.ts';
 import { ZONES, ZONE_ORDER } from '../src/zones/zones.ts';
-import { emptyMetrics } from '../src/brain/taskScore.ts';
+import {
+  aeroPresenceScale,
+  emptyMetrics,
+  scoreTaskPerformance,
+} from '../src/brain/taskScore.ts';
+import {
+  emptyScoreRegionAccum,
+  shouldEndEpisodeOnLanding,
+  updateScoreRegionAccum,
+} from '../src/brain/scoreRegions.ts';
 import { evaluateSecretGoals } from '../src/secrets/eval.ts';
 import { SECRET_GOALS } from '../src/secrets/definitions.ts';
 import { secretEligible } from '../src/secrets/eligibility.ts';
@@ -233,9 +245,16 @@ async function assertStaticObstacles(): Promise<void> {
     id: `smoke_${kind}`,
     kind,
     x: 2 + i * 4,
-    y: kind === 'loop' ? 2.2 : kind === 'stair' || kind === 'pit' ? 0 : 0.5,
-    w: kind === 'ramp' ? 3 : kind === 'loop' ? 3.2 : 2,
-    h: kind === 'ramp' ? 0.28 : kind === 'loop' ? 3.2 : 1.2,
+    y:
+      kind === 'loop'
+        ? 2.2
+        : kind === 'stair' || kind === 'pit'
+          ? 0
+          : kind === 'pad'
+            ? 0.14
+            : 0.5,
+    w: kind === 'ramp' || kind === 'pad' ? 3 : kind === 'loop' ? 3.2 : 2,
+    h: kind === 'ramp' || kind === 'pad' ? 0.28 : kind === 'loop' ? 3.2 : 1.2,
     ...(kind === 'ramp' ? { rot: -0.35 } : {}),
   }));
 
@@ -731,6 +750,207 @@ async function assertTerrainHeightfield(): Promise<void> {
 
   sim.setEnvironment(flatGroundEnv());
   console.log('terrain heightfield OK');
+}
+
+async function assertLaunchPad(): Promise<void> {
+  assert(featureFlags.launchPads, 'launchPads flag should be on');
+  assert(featureFlags.staticObstacles, 'staticObstacles flag should be on');
+  const sim = new Simulation();
+  await sim.init();
+  if (!sim.world) throw new Error('no world');
+
+  const apex = LAUNCH_PAD_APEX_H;
+  const env = flatGroundEnv('Smoke Launch Pad');
+  env.obstacles = [
+    {
+      id: 'pad0',
+      kind: 'pad',
+      x: 0,
+      y: 0.14,
+      w: 4,
+      h: 0.28,
+      launchApex: apex,
+    },
+    {
+      id: 'pad1',
+      kind: 'pad',
+      x: 8,
+      y: 0.14,
+      w: 4,
+      h: 0.28,
+      launchApex: apex,
+    },
+  ];
+  env.spawn = { x: 0, y: 0.55 };
+  sim.setEnvironment(env);
+  sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
+  sim.driveMode = 'idle';
+
+  let peakY = -Infinity;
+  let launched = false;
+  for (let i = 0; i < 320; i++) {
+    sim.step(FIXED_DT);
+    const joints = sim.creature!.joints;
+    const avgY =
+      joints.reduce((s, j) => s + j.body.translation().y, 0) / joints.length;
+    peakY = Math.max(peakY, avgY);
+    const maxVy = Math.max(...joints.map((j) => j.body.linvel().y));
+    if (maxVy > 40) launched = true;
+  }
+  assert(launched, 'launch pad should impart upward velocity');
+  assert(
+    peakY >= LAUNCH_PAD_APEX_MIN * 0.45,
+    `expected peak near apex ${apex}, got ${peakY.toFixed(1)}`,
+  );
+  assert(
+    peakY <= LAUNCH_PAD_APEX_MAX * 1.25,
+    `peak ${peakY.toFixed(1)} exceeds max apex band (${LAUNCH_PAD_APEX_MAX})`,
+  );
+  assert(
+    peakY < 2500,
+    `launch should not use old 10× power; peak=${peakY.toFixed(1)}`,
+  );
+
+  assert(sim.launchPadSpent(), 'pad0 should be spent after first launch');
+  assert(sim.launchPadSpentCount() === 1, 'only pad0 spent so far');
+
+  // Same pad must not re-fire while a second pad remains armed.
+  for (let i = 0; i < 120; i++) sim.step(FIXED_DT);
+  assert(sim.launchPadSpentCount() === 1, 'pad0 must stay spent; pad1 unused');
+
+  // Place creature onto the second pad — it should still fire once.
+  const placeOnPad = (padX: number, padY: number) => {
+    const creature = sim.creature!;
+    const bodies = [
+      ...creature.joints.map((j) => j.body),
+      ...creature.bones.map((b) => b.body),
+    ];
+    const cx =
+      creature.joints.reduce((s, j) => s + j.body.translation().x, 0) /
+      creature.joints.length;
+    const cy =
+      creature.joints.reduce((s, j) => s + j.body.translation().y, 0) /
+      creature.joints.length;
+    const dx = padX - cx;
+    const dy = padY + 0.55 - cy;
+    for (const b of bodies) {
+      const t = b.translation();
+      b.setTranslation({ x: t.x + dx, y: t.y + dy }, true);
+      b.setLinvel({ x: 0, y: 0 }, true);
+      b.setAngvel(0, true);
+      b.wakeUp();
+    }
+  };
+
+  placeOnPad(8, 0.14);
+  let launched2 = false;
+  let peak2 = -Infinity;
+  for (let i = 0; i < 320; i++) {
+    sim.step(FIXED_DT);
+    const joints = sim.creature!.joints;
+    const avgY =
+      joints.reduce((s, j) => s + j.body.translation().y, 0) / joints.length;
+    peak2 = Math.max(peak2, avgY);
+    const maxVy = Math.max(...joints.map((j) => j.body.linvel().y));
+    if (maxVy > 40) launched2 = true;
+  }
+  assert(launched2, 'second pad should still launch');
+  assert(sim.launchPadSpentCount() === 2, 'both pads spent after second launch');
+  assert(
+    peak2 >= LAUNCH_PAD_APEX_MIN * 0.45,
+    `second pad peak near apex ${apex}, got ${peak2.toFixed(1)}`,
+  );
+
+  // Returning to pad0 must not re-fire.
+  placeOnPad(0, 0.14);
+  for (let i = 0; i < 120; i++) sim.step(FIXED_DT);
+  assert(
+    sim.launchPadSpentCount() === 2,
+    'returning to pad0 must not create a third fire',
+  );
+
+  for (const j of sim.snapshot().joints) {
+    assert(Number.isFinite(j.x) && Number.isFinite(j.y), 'joint finite after launch');
+  }
+  sim.setEnvironment(flatGroundEnv());
+  console.log(
+    `launch pad OK peakY=${peakY.toFixed(1)} (target ~${apex}, per-pad once/run)`,
+  );
+
+  // Winged + max apex used to NaN (aero v² × boost) and panic Rapier WASM.
+  const aeroSim = new Simulation();
+  await aeroSim.init();
+  const aeroEnv = flatGroundEnv('Smoke Launch Pad Aero');
+  aeroEnv.obstacles = [
+    {
+      id: 'pad0',
+      kind: 'pad',
+      x: 0,
+      y: 0.14,
+      w: 6,
+      h: 0.28,
+      launchApex: LAUNCH_PAD_APEX_MAX,
+    },
+    {
+      id: 'pad1',
+      kind: 'pad',
+      x: 8,
+      y: 0.14,
+      w: 6,
+      h: 0.28,
+      launchApex: LAUNCH_PAD_APEX_MAX,
+    },
+  ];
+  aeroEnv.spawn = { x: 0, y: 0.8 };
+  aeroSim.setEnvironment(aeroEnv);
+  aeroSim.loadDesign(cloneDesign(SIMPLE_FLAPPER));
+  aeroSim.driveMode = 'idle';
+  for (let i = 0; i < 200; i++) aeroSim.step(FIXED_DT);
+  assert(aeroSim.launchPadSpentCount() >= 1, 'flapper should fire pad0 at max apex');
+  // Seat lowest joint just above pad1 deck (flapper has no marked feet).
+  {
+    const creature = aeroSim.creature!;
+    const bodies = [
+      ...creature.joints.map((j) => j.body),
+      ...creature.bones.map((b) => b.body),
+    ];
+    const cx =
+      creature.joints.reduce((s, j) => s + j.body.translation().x, 0) /
+      creature.joints.length;
+    let minY = Infinity;
+    for (const j of creature.joints) {
+      minY = Math.min(minY, j.body.translation().y);
+    }
+    const dx = 8 - cx;
+    const dy = 0.14 + 0.28 / 2 + JOINT_RADIUS + 0.05 - minY;
+    for (const b of bodies) {
+      const t = b.translation();
+      b.setTranslation({ x: t.x + dx, y: t.y + dy }, true);
+      b.setLinvel({ x: 0, y: -2 }, true);
+      b.setAngvel(0, true);
+      b.wakeUp();
+    }
+  }
+  let aeroLaunched2 = false;
+  for (let i = 0; i < 320; i++) {
+    aeroSim.step(FIXED_DT);
+    const maxVy = Math.max(
+      ...aeroSim.creature!.joints.map((j) => j.body.linvel().y),
+    );
+    if (maxVy > 40) aeroLaunched2 = true;
+    for (const j of aeroSim.snapshot().joints) {
+      assert(
+        Number.isFinite(j.x) && Number.isFinite(j.y),
+        `flapper joint finite after second max-apex pad (step ${i})`,
+      );
+    }
+  }
+  assert(aeroLaunched2, 'flapper second max-apex pad should launch');
+  assert(
+    aeroSim.launchPadSpentCount() === 2,
+    'flapper second max-apex pad should fire once',
+  );
+  console.log('launch pad aero OK (flapper max-apex ×2, finite)');
 }
 
 async function assertLaunchTower(): Promise<void> {
@@ -1338,7 +1558,67 @@ async function assertScoreRegions(): Promise<void> {
     'reward must not accumulate with time-in-zone',
   );
 
-  const flags = featureFlags as { scoreRegions: boolean };
+  const landingRegion: EnvScoreRegion = {
+    id: 'land',
+    kind: 'landing',
+    x: 0,
+    y: 1,
+    w: 20,
+    h: 6,
+    rate: 12,
+  };
+  // Grounded episode overlapping landing — no airtime → no credit.
+  const groundedLand = await runWithRegions([landingRegion]);
+  assert(
+    groundedLand.regionReward === 0,
+    `landing must not credit before airtime, got ${groundedLand.regionReward}`,
+  );
+
+  // Direct accum: after airtime, foot overlap credits once.
+  {
+    const sim = new Simulation();
+    await sim.init();
+    sim.setEnvironment(flatGroundEnv('Landing Accum'));
+    sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
+    for (let i = 0; i < 30; i++) sim.step(FIXED_DT);
+    const creature = sim.creature!;
+    let accum = emptyScoreRegionAccum();
+    accum = updateScoreRegionAccum(
+      creature,
+      [landingRegion],
+      FIXED_DT,
+      accum,
+      0,
+    );
+    assert(accum.landingReward === 0, 'landing blocked at airTime=0');
+    accum = updateScoreRegionAccum(
+      creature,
+      [landingRegion],
+      FIXED_DT,
+      accum,
+      1,
+    );
+    assert(
+      Math.abs(accum.landingReward - 12) < 1e-6,
+      `landing should credit 12 after airtime, got ${accum.landingReward}`,
+    );
+    const again = updateScoreRegionAccum(
+      creature,
+      [landingRegion],
+      FIXED_DT,
+      accum,
+      1,
+    );
+    assert(
+      Math.abs(again.landingReward - 12) < 1e-6,
+      'landing must be touch-once',
+    );
+  }
+
+  const flags = featureFlags as {
+    scoreRegions: boolean;
+    endEpisodeOnLanding: boolean;
+  };
   const prev = flags.scoreRegions;
   flags.scoreRegions = false;
   try {
@@ -1353,10 +1633,85 @@ async function assertScoreRegions(): Promise<void> {
     flags.scoreRegions = prev;
   }
 
+  // Drop from height into a landing pad — episode should end once landing credits.
+  assert(flags.endEpisodeOnLanding, 'endEpisodeOnLanding flag should be on');
+  {
+    const dropSeconds = 12;
+    const sim = new Simulation();
+    await sim.init();
+    const env = flatGroundEnv('Landing End Early');
+    env.spawn = { x: 0, y: 8 };
+    env.regions = [
+      {
+        id: 'land-drop',
+        kind: 'landing',
+        x: 0,
+        y: 1,
+        w: 40,
+        h: 4,
+        rate: 12,
+      },
+    ];
+    sim.setEnvironment(env);
+    const landed = await evaluateTaskEpisode(
+      sim,
+      cloneDesign(SIMPLE_HOPPER),
+      shape,
+      weights,
+      'run',
+      dropSeconds,
+    );
+    assert(
+      landed.regionReward >= 12 - 1e-6,
+      `drop should credit landing, got ${landed.regionReward}`,
+    );
+    assert(
+      shouldEndEpisodeOnLanding({
+        penalty: 0,
+        reward: 0,
+        landingReward: 12,
+        touchedRewardIds: new Set(['land-drop']),
+      }),
+      'shouldEndEpisodeOnLanding true after credit',
+    );
+    assert(
+      landed.episodeTime < dropSeconds - 0.5,
+      `landing should end episode early (${landed.episodeTime}s vs ${dropSeconds}s)`,
+    );
+    assert(!landed.fell, 'successful landing must not count as a fall');
+
+    const prevEnd = flags.endEpisodeOnLanding;
+    flags.endEpisodeOnLanding = false;
+    try {
+      const simFull = new Simulation();
+      await simFull.init();
+      simFull.setEnvironment(env);
+      const full = await evaluateTaskEpisode(
+        simFull,
+        cloneDesign(SIMPLE_HOPPER),
+        shape,
+        weights,
+        'run',
+        dropSeconds,
+      );
+      assert(
+        full.regionReward >= 12 - 1e-6,
+        'flag off still credits landing',
+      );
+      assert(
+        full.episodeTime >= dropSeconds - 1e-6 || full.fell,
+        `flag off should run full try or fall-stop, got t=${full.episodeTime} fell=${full.fell}`,
+      );
+    } finally {
+      flags.endEpisodeOnLanding = prevEnd;
+    }
+  }
+
   console.log(
     `score regions OK baseline=${baseline.fitness.toFixed(3)} ` +
       `pen=${withPenalty.fitness.toFixed(3)} (Δp=${withPenalty.regionPenalty.toFixed(2)}) ` +
-      `rew=${withReward.fitness.toFixed(3)} (+${withReward.regionReward.toFixed(2)})`,
+      `rew=${withReward.fitness.toFixed(3)} (+${withReward.regionReward.toFixed(2)}) ` +
+      `landing=airborne-gated end-on-landing`,
   );
 }
 
@@ -1722,6 +2077,143 @@ function assertDiscoBandRouting(): void {
   console.log('disco band routing OK');
 }
 
+async function assertSpecialistFlightGoals(): Promise<void> {
+  for (const id of ['flight_wing', 'flight_glider', 'flight_para'] as const) {
+    assert(
+      GOAL_CATALOG.some((g) => g.id === id),
+      `${id} should be in goal catalog`,
+    );
+    assert(
+      goalsForZone('flying').some((g) => g.id === id),
+      `${id} should appear in flying zone`,
+    );
+  }
+
+  const sim = new Simulation();
+  await sim.init();
+  sim.setEnvironment(flatGroundEnv('Flight Specialist Smoke'));
+  sim.loadDesign(cloneDesign(SIMPLE_FLAPPER));
+  for (let i = 0; i < 20; i++) sim.step(FIXED_DT);
+  const wingCreature = sim.creature!;
+  const wingMatch = aeroPresenceScale(wingCreature, 'wing');
+  const chuteMatchOnWing = aeroPresenceScale(wingCreature, 'parachute');
+  assert(wingMatch > chuteMatchOnWing, 'wing body should match wing > para');
+
+  const landingBoost = emptyScoreRegionAccum();
+  landingBoost.landingReward = 12;
+  const withLand = scoreTaskPerformance(
+    'flight_wing',
+    wingCreature,
+    0,
+    false,
+    0,
+    3,
+    2,
+    1,
+    2,
+    landingBoost,
+    undefined,
+    0,
+    2,
+    1,
+    0,
+    0,
+  );
+  const noLand = scoreTaskPerformance(
+    'flight_wing',
+    wingCreature,
+    0,
+    false,
+    0,
+    3,
+    2,
+    1,
+    2,
+    emptyScoreRegionAccum(),
+    undefined,
+    0,
+    2,
+    1,
+    0,
+    0,
+  );
+  assert(
+    withLand.fitness > noLand.fitness + 5,
+    `landing mult should boost wing flight fitness (${withLand.fitness} vs ${noLand.fitness})`,
+  );
+  assert(Number.isFinite(withLand.fitness), 'wing flight fitness finite');
+
+  sim.loadDesign(cloneDesign(SIMPLE_GLIDER));
+  for (let i = 0; i < 20; i++) sim.step(FIXED_DT);
+  const gliderFit = scoreTaskPerformance(
+    'flight_glider',
+    sim.creature!,
+    0,
+    false,
+    0,
+    2,
+    3,
+    1,
+    1.5,
+    emptyScoreRegionAccum(),
+    undefined,
+    0,
+    3,
+    5,
+    0,
+    4,
+  );
+  assert(Number.isFinite(gliderFit.fitness) && gliderFit.fitness > 0, 'glider scores');
+
+  sim.loadDesign(cloneDesign(CHUTE_DROPPER));
+  for (let i = 0; i < 20; i++) sim.step(FIXED_DT);
+  const soft = scoreTaskPerformance(
+    'flight_para',
+    sim.creature!,
+    0,
+    false,
+    0,
+    4,
+    3,
+    1,
+    1,
+    emptyScoreRegionAccum(),
+    undefined,
+    0,
+    3,
+    0,
+    2,
+    0,
+  );
+  const hard = scoreTaskPerformance(
+    'flight_para',
+    sim.creature!,
+    0,
+    false,
+    0,
+    4,
+    3,
+    1,
+    1,
+    emptyScoreRegionAccum(),
+    undefined,
+    0,
+    3,
+    0,
+    40,
+    0,
+  );
+  assert(
+    soft.fitness > hard.fitness,
+    `soft landing should score above hard impact (${soft.fitness} vs ${hard.fitness})`,
+  );
+
+  console.log(
+    `specialist flight OK wingMatch=${wingMatch.toFixed(2)} ` +
+      `landBoost=${(withLand.fitness - noLand.fitness).toFixed(2)}`,
+  );
+}
+
 async function main(): Promise<void> {
   assertCatalogAndZones();
   assertPackages();
@@ -1735,6 +2227,8 @@ async function main(): Promise<void> {
   await assertRampGrip();
   await assertTerrainHeightfield();
   await assertLaunchTower();
+  await assertLaunchPad();
+  await assertSpecialistFlightGoals();
   await assertJumpTaskScores();
   await assertRoughTaskScores();
   await assertMotorTorqueMoves();

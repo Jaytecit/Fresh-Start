@@ -19,6 +19,7 @@ import {
   type DiscoBallPos,
 } from './discoFx';
 import { applyVisualPoseSmoothing } from './poseInterpolate';
+import { drawParallaxSky } from './parallaxSky';
 import { clearCanvas, drawGround, drawSnapshot } from './render';
 import { drawSimAxisRulers } from './simRulers';
 import type { Simulation, SimulationSnapshot } from './simulation';
@@ -145,6 +146,8 @@ export function SimCanvas({
 
     let raf = 0;
     let last = performance.now();
+    let bufW = 0;
+    let bufH = 0;
 
     const tick = (now: number) => {
       const dt = (now - last) / 1000;
@@ -198,8 +201,16 @@ export function SimCanvas({
       const dpr = window.devicePixelRatio || 1;
       const w = rect.width;
       const h = rect.height;
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
+      // Assigning canvas.width/height resets the buffer every time — only
+      // when the backing-store size actually changes.
+      const nextW = Math.floor(w * dpr);
+      const nextH = Math.floor(h * dpr);
+      if (nextW !== bufW || nextH !== bufH) {
+        canvas.width = nextW;
+        canvas.height = nextH;
+        bufW = nextW;
+        bufH = nextH;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const useGreenscreen = greenscreenRef.current;
@@ -212,15 +223,16 @@ export function SimCanvas({
       } else if (useGreenscreen) {
         clearGreenscreenCanvas(ctx, w, h);
       } else {
-        clearCanvas(ctx, w, h);
+        if (isFeatureEnabled('parallaxSky')) {
+          drawParallaxSky(ctx, cam, w, h, snap.theme);
+        } else {
+          clearCanvas(ctx, w, h);
+        }
         drawGround(ctx, cam, w, h);
-      }
-      // Axis rulers off in Disco — the arena overview is the framing cue.
-      if (isFeatureEnabled('simAxisRulers') && !discoFx && !useGreenscreen) {
-        drawSimAxisRulers(ctx, cam, w, h);
       }
       drawSnapshot(ctx, cam, w, h, snap, {
         skipScenery: useGreenscreen,
+        clothDt: Math.min(0.05, Math.max(0, dt)),
       });
       if (discoFx) {
         if (dragRef.current?.kind !== 'grabBall') {
@@ -238,6 +250,11 @@ export function SimCanvas({
       // Generation / focus HUD overlay during live evolve
       if (snap.evolve?.running) {
         drawEvolveHud(ctx, w, snap);
+      }
+
+      // Edge rulers last so height/distance stay visible over scenery / creatures.
+      if (isFeatureEnabled('simAxisRulers') && !discoFx && !useGreenscreen) {
+        drawSimAxisRulers(ctx, cam, w, h);
       }
 
       raf = requestAnimationFrame(tick);
@@ -409,18 +426,25 @@ export function SimCanvas({
     dragRef.current = null;
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const zoomMin =
-      isFeatureEnabled('discoMode') && discoFxRef.current
-        ? DISCO_CAM_ZOOM_MIN
-        : DEFAULT_CAM_ZOOM_MIN;
-    camRef.current.zoom = Math.max(
-      zoomMin,
-      Math.min(120, camRef.current.zoom * factor),
-    );
-  };
+  // Native non-passive wheel — React 19 registers onWheel as passive.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      const zoomMin =
+        isFeatureEnabled('discoMode') && discoFxRef.current
+          ? DISCO_CAM_ZOOM_MIN
+          : DEFAULT_CAM_ZOOM_MIN;
+      camRef.current.zoom = Math.max(
+        zoomMin,
+        Math.min(120, camRef.current.zoom * factor),
+      );
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, []);
 
   return (
     <canvas
@@ -430,7 +454,6 @@ export function SimCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onWheel={onWheel}
       onContextMenu={(e) => e.preventDefault()}
     />
   );

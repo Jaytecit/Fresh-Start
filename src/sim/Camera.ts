@@ -25,11 +25,23 @@ export function worldToScreen(
   wx: number,
   wy: number,
 ): { x: number; y: number } {
+  const out = { x: 0, y: 0 };
+  writeWorldToScreen(cam, canvasW, canvasH, wx, wy, out);
+  return out;
+}
+
+/** Hot-path variant — writes into `out` to avoid per-call allocations. */
+export function writeWorldToScreen(
+  cam: Camera,
+  canvasW: number,
+  canvasH: number,
+  wx: number,
+  wy: number,
+  out: { x: number; y: number },
+): void {
   const h = framingHeight(canvasH, cam.insetBottom);
-  return {
-    x: canvasW / 2 + (wx - cam.x) * cam.zoom,
-    y: h / 2 - (wy - cam.y) * cam.zoom,
-  };
+  out.x = canvasW / 2 + (wx - cam.x) * cam.zoom;
+  out.y = h / 2 - (wy - cam.y) * cam.zoom;
 }
 
 export function screenToWorld(

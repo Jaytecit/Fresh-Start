@@ -6,6 +6,7 @@ import type { NetworkShape, TaskId } from '../brain/types';
 import { cloneDesign, type CreatureDesign } from '../creature/types';
 import { isAeroType } from '../editor/aeroValidation';
 import { clampTerrain } from '../env/terrainMath';
+import { clampAuthoredCurriculum } from '../env/courseCurriculum';
 import { clampScoreRegion } from '../brain/scoreRegions';
 import { clampCourseMarker } from '../brain/courseMarkers';
 import {
@@ -24,6 +25,11 @@ import {
   type EnvTerrain,
   type EnvTower,
 } from '../env/types';
+import {
+  clampFootMass,
+  clampLaunchPadApex,
+  clampWheelMass,
+} from '../physics/constants';
 import { clampTower } from '../physics/tower';
 import {
   decodeWeights,
@@ -65,6 +71,9 @@ const TASK_IDS: ReadonlySet<string> = new Set([
   'climb',
   'motor',
   'flight',
+  'flight_wing',
+  'flight_glider',
+  'flight_para',
   'rough',
   'sprint',
   'speed',
@@ -197,6 +206,13 @@ export function importCreatureJson(raw: string): JsonResult<CreatureDesign> {
     if (!Array.isArray(design.muscles)) {
       return { ok: false, error: 'Invalid creature JSON: missing muscles' };
     }
+    const footMassRaw = (design as { footMass?: unknown }).footMass;
+    const footMass =
+      typeof footMassRaw === 'number' ? clampFootMass(footMassRaw) : undefined;
+    const wheelMassRaw = (design as { wheelMass?: unknown }).wheelMass;
+    const wheelMass =
+      typeof wheelMassRaw === 'number' ? clampWheelMass(wheelMassRaw) : undefined;
+
     return {
       ok: true,
       value: {
@@ -204,6 +220,7 @@ export function importCreatureJson(raw: string): JsonResult<CreatureDesign> {
         joints: design.joints.map((j) => ({ ...j })),
         bones: design.bones.map((b) => {
           const next = { ...b };
+          if (next.rigid !== true) delete next.rigid;
           if (next.aeroType !== undefined && !isAeroType(next.aeroType)) {
             delete next.aeroType;
           }
@@ -211,10 +228,23 @@ export function importCreatureJson(raw: string): JsonResult<CreatureDesign> {
             delete next.aeroArea;
             delete next.aeroType;
           }
+          // Rigid struts cannot host aero.
+          if (next.rigid === true) {
+            delete next.aeroArea;
+            delete next.aeroType;
+          }
           return next;
         }),
-        muscles: design.muscles.map((m) => ({ ...m })),
+        muscles: design.muscles.map((m) => ({ ...m })).filter((m) => {
+          const a = design.bones.find((b) => b.id === m.startBoneId);
+          const b = design.bones.find((bb) => bb.id === m.endBoneId);
+          // Drop muscles that target rigid struts (invalid after G8).
+          if (a?.rigid === true || b?.rigid === true) return false;
+          return true;
+        }),
         appearance: cloneAppearance(design.appearance),
+        ...(footMass !== undefined ? { footMass } : {}),
+        ...(wheelMass !== undefined ? { wheelMass } : {}),
       },
     };
   } catch (err) {
@@ -271,6 +301,9 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
         w: o.w,
         h: o.h,
         ...(typeof o.rot === 'number' ? { rot: o.rot } : {}),
+        ...(o.kind === 'pad' && typeof o.launchApex === 'number'
+          ? { launchApex: clampLaunchPadApex(o.launchApex) }
+          : {}),
       });
     }
     const regions: EnvScoreRegion[] = [];
@@ -388,6 +421,9 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
       }
       spawn = clampSpawn({ x: rawSpawn.x, y: rawSpawn.y });
     }
+    const curriculum = clampAuthoredCurriculum(
+      environment.curriculum as Parameters<typeof clampAuthoredCurriculum>[0],
+    );
     return {
       ok: true,
       value: cloneEnvironment({
@@ -395,6 +431,7 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
         obstacles,
         regions,
         markers,
+        curriculum,
         terrain,
         tower,
         spawn,

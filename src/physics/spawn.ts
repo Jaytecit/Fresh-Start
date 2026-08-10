@@ -1,5 +1,7 @@
 import type { AeroType, CreatureDesign } from '../creature/types';
+import { isRigidBoneDef } from '../creature/types';
 import type { RuntimeMuscle } from '../control/muscleDrive';
+import { isFeatureEnabled } from '../port/featureFlags';
 import {
   ANGULAR_DAMPING,
   BODY_FRICTION,
@@ -7,6 +9,8 @@ import {
   BONE_HALF_WIDTH,
   DEFAULT_BONE_MASS,
   DEFAULT_JOINT_MASS,
+  clampFootMass,
+  clampWheelMass,
   FOOT_ANGULAR_DAMPING,
   FOOT_FRICTION,
   FOOT_FRICTION_MAX,
@@ -57,9 +61,18 @@ export interface RuntimeBone {
   chuteInflation: number;
 }
 
+/** G8 — solid strut (fixed joint only; no capsule body). */
+export interface RuntimeStrut {
+  id: number;
+  startJointId: number;
+  endJointId: number;
+}
+
 export interface SpawnedCreature {
   joints: RuntimeJoint[];
   bones: RuntimeBone[];
+  /** Rigid struts (present when rigidStruts flag + BoneDef.rigid). */
+  struts: RuntimeStrut[];
   muscles: RuntimeMuscle[];
   impulseJoints: RAPIER.ImpulseJoint[];
   /**
@@ -116,10 +129,21 @@ export function syncCreatureSoftCcd(creature: SpawnedCreature): void {
   }
 }
 
+function jointSpawnMass(design: CreatureDesign, j: CreatureDesign['joints'][number]): number {
+  // Wheel mass wins when both flags are set (airborne pivot / undercarriage bias).
+  if (j.isWheel && design.wheelMass !== undefined) {
+    return clampWheelMass(design.wheelMass);
+  }
+  if (j.isFoot && design.footMass !== undefined) {
+    return clampFootMass(design.footMass);
+  }
+  return j.mass ?? DEFAULT_JOINT_MASS;
+}
+
 function jointMap(design: CreatureDesign): Map<number, { x: number; y: number; mass: number }> {
   const map = new Map<number, { x: number; y: number; mass: number }>();
   for (const j of design.joints) {
-    map.set(j.id, { x: j.x, y: j.y, mass: j.mass ?? DEFAULT_JOINT_MASS });
+    map.set(j.id, { x: j.x, y: j.y, mass: jointSpawnMass(design, j) });
   }
   return map;
 }
@@ -137,7 +161,7 @@ export function spawnCreature(
 
   let designedHeadY = 0;
   for (const j of design.joints) {
-    const mass = j.mass ?? DEFAULT_JOINT_MASS;
+    const mass = jointSpawnMass(design, j);
     const mat = jointContactMaterial(j);
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
@@ -166,8 +190,10 @@ export function spawnCreature(
   }
 
   const bones: RuntimeBone[] = [];
+  const struts: RuntimeStrut[] = [];
   const boneBodies = new Map<number, RAPIER.RigidBody>();
   const impulseJoints: RAPIER.ImpulseJoint[] = [];
+  const useRigidStruts = isFeatureEnabled('rigidStruts');
 
   for (const b of design.bones) {
     const start = jdefs.get(b.startJointId);
@@ -182,6 +208,28 @@ export function spawnCreature(
     const dy = end.y - start.y;
     const length = Math.hypot(dx, dy) || 0.01;
     const halfLength = length / 2;
+
+    // G8 — solid strut: fixed joint only (no capsule / no hinge DOF).
+    if (useRigidStruts && isRigidBoneDef(b)) {
+      const ta = startBody.translation();
+      const tb = endBody.translation();
+      // Force start origin onto the point on end that currently coincides with it.
+      const jd = RAPIER.JointData.fixed(
+        { x: 0, y: 0 },
+        0,
+        { x: ta.x - tb.x, y: ta.y - tb.y },
+        0,
+      );
+      const fj = world.createImpulseJoint(jd, startBody, endBody, true);
+      impulseJoints.push(fj);
+      struts.push({
+        id: b.id,
+        startJointId: b.startJointId,
+        endJointId: b.endJointId,
+      });
+      continue;
+    }
+
     const cx = (start.x + end.x) / 2 + ox;
     const cy = (start.y + end.y) / 2 + oy;
     const angle = Math.atan2(dy, dx);
@@ -262,7 +310,9 @@ export function spawnCreature(
     const startBone = boneBodies.get(m.startBoneId);
     const endBone = boneBodies.get(m.endBoneId);
     if (!startBone || !endBone) {
-      throw new Error(`Muscle ${m.id} references missing bones`);
+      throw new Error(
+        `Muscle ${m.id} references missing hinge bones (rigid struts cannot host muscles)`,
+      );
     }
     const a = startBone.translation();
     const b = endBone.translation();
@@ -277,7 +327,7 @@ export function spawnCreature(
     });
   }
 
-  return { joints, bones, muscles, impulseJoints, designedHeadY };
+  return { joints, bones, struts, muscles, impulseJoints, designedHeadY };
 }
 
 /** Rapier packs membership in low 16 bits, filter in high 16 bits. */
@@ -297,6 +347,7 @@ export function destroyCreature(world: RAPIER.World, creature: SpawnedCreature):
   }
   creature.impulseJoints.length = 0;
   creature.bones.length = 0;
+  creature.struts.length = 0;
   creature.joints.length = 0;
   creature.muscles.length = 0;
 }

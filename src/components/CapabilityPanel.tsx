@@ -15,11 +15,13 @@ import { CollapsiblePanel } from './CollapsiblePanel';
 
 interface Props {
   design: CreatureDesign;
+  /** When true, panel starts expanded (Creatures tab). */
+  defaultOpen?: boolean;
 }
 
 /** B8 — Fresh Start morphology / traits summary (not parent capability physics). */
-export function CapabilityPanel({ design }: Props) {
-  const [open, setOpen] = useState(false);
+export function CapabilityPanel({ design, defaultOpen = false }: Props) {
+  const [open, setOpen] = useState(defaultOpen);
   const traits = morphologyTraits(design);
   const flight = computeFlightMetrics(design);
   let wings = 0;

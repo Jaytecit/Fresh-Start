@@ -35,7 +35,7 @@ import {
   type SelectionHandleId,
 } from './selectionOps';
 
-export type EditTool = 'joint' | 'bone' | 'muscle' | 'select';
+export type EditTool = 'joint' | 'bone' | 'muscle' | 'select' | 'cloth';
 export type { EditorSelection } from './selection';
 
 interface Props {
@@ -50,6 +50,12 @@ interface Props {
    * remounts (e.g. leaving Edit for Physics settle and returning).
    */
   cameraRef?: MutableRefObject<Camera>;
+  /** G8 — bone tool draws solid struts when true. */
+  boneRigid?: boolean;
+  /** H9 — joints already picked while material-drawing cloth. */
+  clothDraftJointIds?: number[];
+  /** H9 — click a joint in cloth tool to toggle it as a pin. */
+  onClothPinJoint?: (jointId: number) => void;
 }
 
 type DragLink =
@@ -139,6 +145,9 @@ export function EditorCanvas({
   selection = null,
   onSelect,
   cameraRef,
+  boneRigid = false,
+  clothDraftJointIds = [],
+  onClothPinJoint,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const localCamRef = useRef<Camera>(createCamera());
@@ -152,9 +161,12 @@ export function EditorCanvas({
   const designRef = useRef(design);
   const toolRef = useRef(tool);
   const snapRef = useRef(snapEnabled);
+  const boneRigidRef = useRef(boneRigid);
   const onChangeRef = useRef(onChange);
   const selectionRef = useRef(selection);
   const onSelectRef = useRef(onSelect);
+  const clothDraftRef = useRef(clothDraftJointIds);
+  const onClothPinRef = useRef(onClothPinJoint);
   // Don't clobber an in-progress drag with a stale prop snapshot.
   if (
     !jointDragRef.current &&
@@ -165,9 +177,12 @@ export function EditorCanvas({
   }
   toolRef.current = tool;
   snapRef.current = snapEnabled;
+  boneRigidRef.current = boneRigid;
   onChangeRef.current = onChange;
   selectionRef.current = selection;
   onSelectRef.current = onSelect;
+  clothDraftRef.current = clothDraftJointIds;
+  onClothPinRef.current = onClothPinJoint;
 
   const multiSelectOn = () => isFeatureEnabled('editorMultiSelectTransforms');
 
@@ -178,13 +193,23 @@ export function EditorCanvas({
     if (!ctx) return;
 
     let raf = 0;
+    let bufW = 0;
+    let bufH = 0;
     const paint = () => {
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const w = rect.width;
       const h = rect.height;
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
+      // Assigning canvas.width/height resets the buffer every time — only
+      // when the backing-store size actually changes.
+      const nextW = Math.floor(w * dpr);
+      const nextH = Math.floor(h * dpr);
+      if (nextW !== bufW || nextH !== bufH) {
+        canvas.width = nextW;
+        canvas.height = nextH;
+        bufW = nextW;
+        bufH = nextH;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       clearCanvas(ctx, w, h);
       if (snapRef.current) {
@@ -218,6 +243,8 @@ export function EditorCanvas({
               : null,
         selectedMuscleId: sel?.kind === 'muscle' ? sel.id : null,
         selectedBodyPartIndex: partIndex,
+        selectedClothIndex: sel?.kind === 'cloth' ? sel.index : null,
+        clothDraftJointIds: clothDraftRef.current,
         hoverJointId: drag?.kind === 'bone' ? drag.hoverId : null,
         hoverBoneId: drag?.kind === 'muscle' ? drag.hoverId : null,
         dragPreview: drag
@@ -312,11 +339,17 @@ export function EditorCanvas({
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   };
 
-  const hitBone = (wx: number, wy: number, d: CreatureDesign): number | null => {
+  const hitBone = (
+    wx: number,
+    wy: number,
+    d: CreatureDesign,
+    opts?: { hingeOnly?: boolean },
+  ): number | null => {
     const jointPos = new Map(d.joints.map((j) => [j.id, j]));
     let best: number | null = null;
     let bestDist = 0.35;
     for (const b of d.bones) {
+      if (opts?.hingeOnly && b.rigid === true) continue;
       const a = jointPos.get(b.startJointId);
       const c = jointPos.get(b.endJointId);
       if (!a || !c) continue;
@@ -609,8 +642,17 @@ export function EditorCanvas({
       return;
     }
 
+    if (currentTool === 'cloth') {
+      if (!isFeatureEnabled('cosmeticCloth')) return;
+      const jointHit = hitJoint(world.x, world.y, d);
+      if (jointHit == null) return;
+      onClothPinRef.current?.(jointHit);
+      return;
+    }
+
     if (currentTool === 'muscle') {
-      const boneHit = hitBone(world.x, world.y, d);
+      // Muscles attach to hinge bones only (not rigid struts).
+      const boneHit = hitBone(world.x, world.y, d, { hingeOnly: true });
       if (boneHit == null) return;
       const center = boneCenter(d, boneHit);
       if (!center) return;
@@ -737,7 +779,7 @@ export function EditorCanvas({
       drag.toY = target?.y ?? world.y;
       drag.hoverId = target && hover !== drag.fromId ? hover : null;
     } else {
-      const hover = hitBone(world.x, world.y, d);
+      const hover = hitBone(world.x, world.y, d, { hingeOnly: true });
       const target =
         hover != null && hover !== drag.fromId ? boneCenter(d, hover) : null;
       drag.toX = target?.x ?? world.x;
@@ -821,18 +863,25 @@ export function EditorCanvas({
           (b.startJointId === hit && b.endJointId === drag.fromId),
       );
       if (exists) return;
+      const solid =
+        boneRigidRef.current && isFeatureEnabled('rigidStruts');
       onChangeRef.current({
         ...d,
         name: 'Custom',
         bones: [
           ...d.bones,
-          { id: nextId(d.bones), startJointId: drag.fromId, endJointId: hit },
+          {
+            id: nextId(d.bones),
+            startJointId: drag.fromId,
+            endJointId: hit,
+            ...(solid ? { rigid: true as const } : {}),
+          },
         ],
       });
       return;
     }
 
-    const hit = hitBone(world.x, world.y, d);
+    const hit = hitBone(world.x, world.y, d, { hingeOnly: true });
     if (hit == null || hit === drag.fromId) return;
     const exists = d.muscles.some(
       (m) =>
@@ -855,11 +904,21 @@ export function EditorCanvas({
     });
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    camRef.current.zoom = Math.max(20, Math.min(120, camRef.current.zoom * factor));
-  };
+  // Native non-passive wheel — React 19 registers onWheel as passive.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      camRef.current.zoom = Math.max(
+        20,
+        Math.min(120, camRef.current.zoom * factor),
+      );
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, []);
 
   return (
     <canvas
@@ -869,7 +928,6 @@ export function EditorCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onWheel={onWheel}
       onContextMenu={(e) => e.preventDefault()}
     />
   );

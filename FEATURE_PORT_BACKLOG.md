@@ -2,14 +2,14 @@
 
 Derived from [`FEATURE_PORT_CHECKLIST.md`](./FEATURE_PORT_CHECKLIST.md) after prune + clarifications.
 
-**Last refreshed:** 2026-08-05  
+**Last refreshed:** 2026-08-09  
 **Legend:** `[x]` want/done · `[ ]` later · `[O]` pruned (gone)
 
 ---
 
 ## Already done
 
-A1.2/A4 googly · A2 body parts · B1–B3 shell · Wave 4 Section B UI (B4–B14, B16, B18) · E6.2/3/5/6/8 tasks · F1/F3 library · H1–H3 disco · J1 smokes · G6/G9 minimal · G10 structural aero · climb course · Wave 1 (A5–A7, C5, D4) · Wave 2 (C1.1/1.2/1.8/1.9, D1/D5/D7, E1/E2) · Wave 3a (E5/H4 secrets+confetti scaffold, F4/C2.7/C2.8 env scaffold) · Wave 3b (G1/C2.1 static obstacles) · Wave 3c (G3/C2.3 terrain heightfield) · Wave 3d (C2.4 launch tower) · Wave 3e (E6.8 rough terrain) · Wave 3f (G10 aero parts) · Wave 3g (C2.9 score regions) · **Wave 5** (B19 Solemn Sandbox · C2.10 markers · E6 sprint/speed/stay/hang/longjump · E5×100 · H2/H5 multi-disco · B20/I6 Head-to-Head) · **H6/H7** dance imitation + multi-track curriculum
+A1.2/A4 googly · A2 body parts · B1–B3 shell · Wave 4 Section B UI (B4–B14, B16, B18) · E6.2/3/5/6/8 tasks · F1/F3 library · H1–H3 disco · J1 smokes · G6/G9 minimal · G10 structural aero · climb course · Wave 1 (A5–A7, C5, D4) · Wave 2 (C1.1/1.2/1.8/1.9, D1/D5/D7, E1/E2) · Wave 3a (E5/H4 secrets+confetti scaffold, F4/C2.7/C2.8 env scaffold) · Wave 3b (G1/C2.1 static obstacles) · Wave 3c (G3/C2.3 terrain heightfield) · Wave 3d (C2.4 launch tower) · Wave 3e (E6.8 rough terrain) · Wave 3f (G10 aero parts) · Wave 3g (C2.9 score regions + landing) · E6.6 flight specialists · **Wave 5** (B19 Solemn Sandbox · C2.10 markers · E6 sprint/speed/stay/hang/longjump · E5×100 · H2/H5 multi-disco · B20/I6 Head-to-Head) · **H6/H7** dance imitation + multi-track curriculum · **H8** disco setups · **H9** cosmetic cloth garments · **D17/D18** soft + structural morph
 
 ---
 
@@ -61,6 +61,7 @@ Plan: [`docs/TRAINING_EXPERIMENTATION_PLAN.md`](./docs/TRAINING_EXPERIMENTATION_
 | D15 | Shareable recipes / experiment packs | 6 | **Done** (named recipes + pack export) |
 | D16 | Training telemetry log (50-gen window) | 6 | **Done** (Train toggle + JSON insights) |
 | D17 | Soft morphology evolution (P0–P2) | 6 | **Done** (messy bodies + morph genes + per-member) |
+| D18 | Structural morphology evolution | 6 | **Done** (grow/prune + padded brain; nested under D17) |
 
 **Open decisions (locked for Wave 6):**
 
@@ -92,8 +93,8 @@ Plan: [`docs/TRAINING_EXPERIMENTATION_PLAN.md`](./docs/TRAINING_EXPERIMENTATION_
 - **C1.1** feet → yes, for scoring  
 - **D3** progressive limits → defer  
 - **D6** multi-brain → defer; G10 = structural parts + single MLP  
-- **G10** → Wing (pair/flap) / Glider (rigid pitch sail) / Parachute (jointed inflation drag); no deploy multi-brain  
-- **D7** observations → contact/terrain only  
+- **G10** → Wing (pair/flap) / Glider (rigid pitch sail) / Parachute (jointed inflation drag); no deploy multi-brain; canopy bone morph (`parachuteCanopyVisual`)  
+- **D7** observations → contact/terrain + optional raycast whiskers (no object-ID sensors)  
 - **Section B** → want B4–B14, B16, B18–B20; defer B17 a11y; dump B15 arena modifiers  
 - **E6 expand** → realistic parent skills only; skip objects/sports/ice/gimmicks/Para Ramp  
 - **E5** → target **100** secrets  

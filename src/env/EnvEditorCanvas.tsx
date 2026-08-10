@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { EDITOR_GRID, snapToGrid } from '../editor/grid';
+import { isFeatureEnabled } from '../port/featureFlags';
+import { drawParallaxSky } from '../sim/parallaxSky';
 import {
   clearCanvas,
   drawCourseMarkers,
@@ -10,6 +12,7 @@ import {
   drawTerrain,
   drawTower,
 } from '../sim/render';
+import { drawSimAxisRulers } from '../sim/simRulers';
 import { createCamera, screenToWorld, worldToScreen, type Camera } from '../sim/Camera';
 import {
   deleteSelection,
@@ -65,7 +68,6 @@ import {
   type Vec2,
 } from './rampDraw';
 import { resolveSpawn, type EnvironmentDesign } from './types';
-import { isFeatureEnabled } from '../port/featureFlags';
 
 interface Props {
   environment: EnvironmentDesign;
@@ -214,13 +216,16 @@ export function EnvEditorCanvas({
       const cam = camRef.current;
       cam.insetBottom = insetRef.current;
 
-      clearCanvas(ctx, w, h);
+      const env = envRef.current;
+      if (isFeatureEnabled('parallaxSky')) {
+        drawParallaxSky(ctx, cam, w, h, env.theme);
+      } else {
+        clearCanvas(ctx, w, h);
+      }
       if (snapRef.current) {
         drawGrid(ctx, cam, w, h, EDITOR_GRID);
       }
       drawGround(ctx, cam, w, h);
-
-      const env = envRef.current;
       drawTerrain(ctx, cam, w, h, previewTerrainVisual(env.terrain));
       if (env.tower) {
         drawTower(ctx, cam, w, h, previewTowerVisuals(env.tower));
@@ -267,6 +272,10 @@ export function EnvEditorCanvas({
         drawRampRubberBand(ctx, cam, w, h, drawRamp.a, drawRamp.b);
       } else if (toolRef.current === 'ramp' && rampHoverRef.current) {
         drawRampSnapCursor(ctx, cam, w, h, rampHoverRef.current);
+      }
+
+      if (isFeatureEnabled('simAxisRulers')) {
+        drawSimAxisRulers(ctx, cam, w, h);
       }
 
       raf = requestAnimationFrame(paint);
@@ -857,6 +866,22 @@ export function EnvEditorCanvas({
     finishDrag();
   };
 
+  // Native non-passive wheel — React 19 registers onWheel as passive.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      camRef.current.zoom = Math.max(
+        16,
+        Math.min(140, camRef.current.zoom * factor),
+      );
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, []);
+
   return (
     <canvas
       ref={canvasRef}
@@ -865,14 +890,6 @@ export function EnvEditorCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onWheel={(e) => {
-        e.preventDefault();
-        const factor = e.deltaY > 0 ? 0.9 : 1.1;
-        camRef.current.zoom = Math.max(
-          16,
-          Math.min(140, camRef.current.zoom * factor),
-        );
-      }}
       onContextMenu={(e) => e.preventDefault()}
     />
   );

@@ -10,6 +10,7 @@ import {
   MUTATION_RESET_RATE,
   MUTATION_SIGMA,
   OBS_COUNT,
+  RAYCAST_OBS_COUNT,
   TOURNAMENT_SIZE,
   type BrainHz,
 } from '../brain/constants';
@@ -66,6 +67,7 @@ import {
 import {
   activeScoreRegions,
   emptyScoreRegionAccum,
+  shouldEndEpisodeOnLanding,
   updateScoreRegionAccum,
   type ScoreRegionAccum,
 } from '../brain/scoreRegions';
@@ -78,14 +80,19 @@ import {
   buildDanceObservations,
   DANCE_OBS_COUNT,
 } from '../brain/danceObs';
+import {
+  buildRaycastObservations,
+  raycastObsEnabled,
+} from '../brain/raycastObs';
 import type {
   EvolutionProgress,
   Genome,
   NetworkShape,
   TaskId,
 } from '../brain/types';
+import { isFlightTask } from '../brain/types';
 import type { AudioBands } from '../audio/audioAnalysis';
-import type { CreatureDesign } from '../creature/types';
+import type { AeroType, CreatureDesign } from '../creature/types';
 import { cloneDesign } from '../creature/types';
 import {
   applyMuscleForces,
@@ -109,7 +116,10 @@ import {
   ANTI_SCOOT,
   DEFAULT_DISCO_PUPPET_MODE,
   DEFAULT_JOINT_MASS,
-  DISCO_FOOT_MASS_DEFAULT,
+  FOOT_MASS_DEFAULT,
+  WHEEL_MASS_DEFAULT,
+  clampFootMass,
+  clampWheelMass,
   DISCO_PUPPET_MODES,
   FIXED_DT,
   FOOT_FRICTION,
@@ -139,6 +149,13 @@ import {
   type TowerHandle,
 } from '../physics/tower';
 import {
+  applyLaunchPads,
+  createLaunchPadCooldown,
+  isLaunchBoosting,
+  resetLaunchPadCooldown,
+  type LaunchPadCooldown,
+} from '../physics/launchPad';
+import {
   applyPlantSlideBrake,
   clampAntiScoot,
 } from '../physics/plantSlideBrake';
@@ -164,6 +181,13 @@ import {
   mutateMorphGenes,
   zeroMorphGenes,
 } from '../creature/morphGenes';
+import {
+  cloneTopology,
+  morphForTopology,
+  mutateStructure,
+  remapPaddedActuatorDrives,
+  structureChannelBudget,
+} from '../creature/structureGenes';
 import { isFeatureEnabled } from '../port/featureFlags';
 import {
   cloneEnvironment,
@@ -204,6 +228,20 @@ export interface AgentSnapshot {
     vx: number;
     vy: number;
     omega: number;
+    /** G10 — structural aero type (render canopy morph). */
+    aeroType?: AeroType;
+    /** G10 — runtime parachute inflation 0…1 (cosmetic canopy). */
+    chuteInflation?: number;
+  }[];
+  /** G8 — rigid strut visuals (joint endpoints; no capsule pose). */
+  struts: {
+    id: number;
+    startJointId: number;
+    endJointId: number;
+    ax: number;
+    ay: number;
+    bx: number;
+    by: number;
   }[];
   muscles: MuscleVisualState[];
   opacity: number;
@@ -244,6 +282,7 @@ export interface LiveFocusStats {
 export interface SimulationSnapshot {
   joints: AgentSnapshot['joints'];
   bones: AgentSnapshot['bones'];
+  struts: AgentSnapshot['struts'];
   muscles: MuscleVisualState[];
   time: number;
   agents: AgentSnapshot[];
@@ -272,6 +311,8 @@ export interface SimulationSnapshot {
   scoreRegions: EnvScoreRegion[];
   /** C2.10 — course marker overlays (score-only; empty when flag off). */
   courseMarkers: EnvCourseMarker[];
+  /** C2.7 — environment theme for parallax / sky. */
+  theme: import('../env/types').EnvTheme;
   /** Live focused episode stats (evolve cohort or solo watch). */
   liveStats: LiveFocusStats | null;
   /** Most recent completed episode metrics. */
@@ -292,12 +333,17 @@ interface CohortMember {
   startX: number;
   fallTime: number;
   fell: boolean;
+  /** C2.9 — successful landing credited; try freezes (not a fall). */
+  landed: boolean;
   footLifts: number;
   planted: FootLiftState;
   muscleVisual: MuscleVisualState[];
   peakHeight: number;
   airTime: number;
   airHeightIntegral: number;
+  impactSpeed: number;
+  airborneTravel: number;
+  prevAvgX: number;
   uprightSum: number;
   uprightSteps: number;
   peakSpeed: number;
@@ -377,11 +423,16 @@ interface SoloEpisodeWatch {
   startX: number;
   fallTime: number;
   fell: boolean;
+  /** C2.9 — successful landing credited; ends watch early. */
+  landed: boolean;
   footLifts: number;
   planted: FootLiftState;
   peakHeight: number;
   airTime: number;
   airHeightIntegral: number;
+  impactSpeed: number;
+  airborneTravel: number;
+  prevAvgX: number;
   uprightSum: number;
   uprightSteps: number;
   peakSpeed: number;
@@ -442,6 +493,10 @@ interface LiveEvolveState {
   priorities: GoalPriorities;
   /** D17 — soft morph evolve. */
   morphEvolve: boolean;
+  /** D18 — grow/prune topology with padded brain. */
+  structuralMorphEvolve: boolean;
+  /** D18 — padded muscle-channel region size (wheels follow). */
+  maxMuscleChannels: number;
   /** D14/D17 — per-episode messy body jitter. */
   messyBodies: boolean;
   onProgress?: (p: EvolutionProgress) => void;
@@ -461,6 +516,7 @@ export interface LiveEvolveOptions {
     shape: NetworkShape;
     weights: Float32Array;
     morph?: Genome['morph'];
+    topology?: Genome['topology'];
   };
   /** D10–D12 — GA search knobs (defaults match constants). */
   breed?: BreedOptions & {
@@ -472,10 +528,19 @@ export interface LiveEvolveOptions {
   priorities?: GoalPriorities;
   /** D17 — evolve morph genes with the brain. */
   morphEvolve?: boolean;
+  /** D18 — grow/prune joints/bones/muscles (requires morphEvolve). */
+  structuralMorphEvolve?: boolean;
   /** D14/D17 — jitter mass/length each spawn. */
   messyBodies?: boolean;
+  /** D7 deepen — append raycast whiskers to loco observations. */
+  raycastObservations?: boolean;
   onProgress?: (p: EvolutionProgress) => void;
   onFinished?: (best: Genome, shape: NetworkShape) => void;
+}
+
+export interface ShapeForDesignOptions {
+  /** Append raycast whiskers (requires feature flag). */
+  raycast?: boolean;
 }
 
 /** Whether motor-wheel joints add dedicated brain channels. */
@@ -483,13 +548,21 @@ function includeWheelActuators(): boolean {
   return isFeatureEnabled('motorWheels');
 }
 
+/** Loco observation input count for the current raycast setting. */
+export function locoObsInputCount(raycast?: boolean): number {
+  return raycastObsEnabled(raycast) ? RAYCAST_OBS_COUNT : OBS_COUNT;
+}
+
 /** MLP shape for a design after drive-group collapse (+ wheel channels). */
-export function shapeForDesign(design: CreatureDesign): NetworkShape {
+export function shapeForDesign(
+  design: CreatureDesign,
+  opts?: ShapeForDesignOptions,
+): NetworkShape {
   const channels = countDesignActuatorChannels(
     design,
     includeWheelActuators(),
   );
-  return makeShape(Math.max(channels, 1));
+  return makeShape(Math.max(channels, 1), locoObsInputCount(opts?.raycast));
 }
 
 /** H6 — dance MLP shape (pose + audio bands). Wheels stay idle in disco. */
@@ -533,12 +606,15 @@ function agentFromCreature(
   focused: boolean,
   appearance?: import('../appearance/types').AppearanceRig,
 ): AgentSnapshot {
+  const jointPose = new Map<number, { x: number; y: number }>();
+  const joints = creature.joints.map((j) => {
+    const t = j.body.translation();
+    const v = j.body.linvel();
+    jointPose.set(j.id, { x: t.x, y: t.y });
+    return { id: j.id, x: t.x, y: t.y, radius: j.radius, vx: v.x, vy: v.y };
+  });
   return {
-    joints: creature.joints.map((j) => {
-      const t = j.body.translation();
-      const v = j.body.linvel();
-      return { id: j.id, x: t.x, y: t.y, radius: j.radius, vx: v.x, vy: v.y };
-    }),
+    joints,
     bones: creature.bones.map((b) => {
       const t = b.body.translation();
       const v = b.body.linvel();
@@ -552,6 +628,21 @@ function agentFromCreature(
         vx: v.x,
         vy: v.y,
         omega: b.body.angvel(),
+        aeroType: b.aeroType,
+        chuteInflation: b.chuteInflation,
+      };
+    }),
+    struts: creature.struts.map((s) => {
+      const a = jointPose.get(s.startJointId) ?? { x: 0, y: 0 };
+      const b = jointPose.get(s.endJointId) ?? { x: 0, y: 0 };
+      return {
+        id: s.id,
+        startJointId: s.startJointId,
+        endJointId: s.endJointId,
+        ax: a.x,
+        ay: a.y,
+        bx: b.x,
+        by: b.y,
       };
     }),
     muscles: muscles.slice(),
@@ -602,26 +693,60 @@ function setRigidBodyMass(body: RAPIER.RigidBody, mass: number): void {
   }
 }
 
-/** Disco-only: weigh down marked feet so they plant instead of floating. */
-function applyDiscoFootMass(
-  creature: SpawnedCreature,
-  footMass: number,
-): void {
+/** Weigh marked feet (Edit / Play / Train / Disco). */
+function applyFootMass(creature: SpawnedCreature, footMass: number): void {
+  const m = clampFootMass(footMass);
   for (const j of creature.joints) {
-    if (j.isFoot) setRigidBodyMass(j.body, footMass);
+    if (j.isFoot && !j.isWheel) setRigidBodyMass(j.body, m);
   }
 }
 
-/** Restore joint masses from the design (or DEFAULT_JOINT_MASS). */
+/** Weigh marked wheels (Edit / Play / Train / Disco). */
+function applyWheelMass(creature: SpawnedCreature, wheelMass: number): void {
+  const m = clampWheelMass(wheelMass);
+  for (const j of creature.joints) {
+    if (j.isWheel) setRigidBodyMass(j.body, m);
+  }
+}
+
+function designFootMass(design: CreatureDesign | null | undefined): number {
+  if (design?.footMass !== undefined) return clampFootMass(design.footMass);
+  return FOOT_MASS_DEFAULT;
+}
+
+function designWheelMass(design: CreatureDesign | null | undefined): number {
+  if (design?.wheelMass !== undefined) return clampWheelMass(design.wheelMass);
+  return WHEEL_MASS_DEFAULT;
+}
+
+function jointAuthorMass(
+  design: CreatureDesign | null | undefined,
+  j: { id: number; isFoot?: boolean; isWheel?: boolean; mass?: number },
+): number {
+  if (j.isWheel && design?.wheelMass !== undefined) {
+    return clampWheelMass(design.wheelMass);
+  }
+  if (j.isFoot && design?.footMass !== undefined) {
+    return clampFootMass(design.footMass);
+  }
+  if (j.isWheel) return designWheelMass(design);
+  if (j.isFoot) return designFootMass(design);
+  return j.mass ?? DEFAULT_JOINT_MASS;
+}
+
+/** Restore joint masses from the design (feet/wheels honor design masses). */
 function restoreJointMassesFromDesign(
   creature: SpawnedCreature,
   design: CreatureDesign | null | undefined,
 ): void {
   const byId = new Map(
-    (design?.joints ?? []).map((j) => [j.id, j.mass ?? DEFAULT_JOINT_MASS]),
+    (design?.joints ?? []).map((j) => [j.id, jointAuthorMass(design, j)]),
   );
   for (const j of creature.joints) {
-    setRigidBodyMass(j.body, byId.get(j.id) ?? DEFAULT_JOINT_MASS);
+    setRigidBodyMass(
+      j.body,
+      byId.get(j.id) ?? jointAuthorMass(design, j),
+    );
   }
 }
 
@@ -629,6 +754,7 @@ function applyExtraForces(
   creature: SpawnedCreature,
   design: CreatureDesign | null | undefined,
   channelDrives: ArrayLike<number>,
+  opts?: { skipAero?: boolean },
 ): void {
   if (isFeatureEnabled('motorWheels')) {
     const fields = design ?? {
@@ -640,7 +766,7 @@ function applyExtraForces(
       extractWheelDrives(fields, channelDrives, true),
     );
   }
-  if (isFeatureEnabled('aeroLikeForces')) {
+  if (!opts?.skipAero && isFeatureEnabled('aeroLikeForces')) {
     applyAeroForces(creature);
   }
 }
@@ -681,8 +807,16 @@ export class Simulation {
    * Cleared on leave-disco; set by setDiscoPuppetMode.
    */
   discoArenaFeel = false;
-  /** Disco-only mass applied to joints marked as feet. */
-  discoFootMass = DISCO_FOOT_MASS_DEFAULT;
+  /** Mass applied to joints marked as feet (all modes). */
+  footMass = FOOT_MASS_DEFAULT;
+  wheelMass = WHEEL_MASS_DEFAULT;
+  /** @deprecated Use footMass — alias for Disco setup wiring. */
+  get discoFootMass(): number {
+    return this.footMass;
+  }
+  set discoFootMass(v: number) {
+    this.footMass = clampFootMass(v);
+  }
   /** Disco session — hide muscle strokes in render. */
   hideMuscles = false;
   /** Disco session — hide bone capsules + joint dots in render. */
@@ -700,6 +834,8 @@ export class Simulation {
   /** Channel-length drives when brain is active; expanded before forces. */
   private brainDrives: number[] = [];
   private brainAccumulator = 0;
+  /** D7 deepen — loco brains use raycast whiskers when true. */
+  private raycastObservations = false;
   private obsBuf = new Float32Array(OBS_COUNT);
   private outBuf = new Float32Array(16);
   private hidBuf = new Float32Array(32);
@@ -724,6 +860,8 @@ export class Simulation {
   private envObstacles: ObstacleHandle | null = null;
   private envTerrain: TerrainHandle | null = null;
   private envTower: TowerHandle | null = null;
+  /** Per-creature launch-pad cooldown (WeakMap keys = SpawnedCreature). */
+  private launchPadCooldowns = new WeakMap<SpawnedCreature, LaunchPadCooldown>();
   /** Surface collider μ; default WORLD_GRIP (materials — not Train-dock). */
   private worldGrip = WORLD_GRIP;
   /** Marked foot collider μ; default FOOT_FRICTION (materials only). */
@@ -738,6 +876,9 @@ export class Simulation {
 
   async init(): Promise<void> {
     await initRapier();
+    // Idempotent: React Strict Mode remounts must not orphan a live World
+    // (stale body handles against a second World poison Rapier WASM → unreachable).
+    if (this.world) return;
     this.world = createWorld(this.worldGrip);
   }
 
@@ -777,8 +918,12 @@ export class Simulation {
     this.accumulator = 0;
     this.brainAccumulator = 0;
     this.running = true;
+    this.footMass = designFootMass(design);
+    this.wheelMass = designWheelMass(design);
     if (this.driveMode === 'disco') {
       this.applyDiscoPuppetBodyTune();
+    } else {
+      this.applyAuthorMassTune();
     }
   }
 
@@ -794,10 +939,21 @@ export class Simulation {
     return this.brainDrives.slice();
   }
 
-  /** Disco-only mass for marked foot joints. */
+  /** Mass for marked foot joints — applies in every mode. */
+  setFootMass(mass: number): void {
+    this.footMass = clampFootMass(mass);
+    this.applyAuthorMassTune();
+  }
+
+  /** Mass for marked wheel joints — applies in every mode. */
+  setWheelMass(mass: number): void {
+    this.wheelMass = clampWheelMass(mass);
+    this.applyAuthorMassTune();
+  }
+
+  /** @deprecated Use setFootMass — Disco panel / setups still call this. */
   setDiscoFootMass(mass: number): void {
-    this.discoFootMass = Math.max(0.05, mass);
-    this.applyDiscoFootMassTune();
+    this.setFootMass(mass);
   }
 
   private discoMuscleForceOptions(): MuscleForceOptions {
@@ -810,13 +966,14 @@ export class Simulation {
     };
   }
 
-  private applyDiscoFootMassTune(): void {
-    const mass = this.discoFootMass;
+  private applyAuthorMassTune(): void {
     for (const d of this.discoDancers) {
-      applyDiscoFootMass(d.creature, mass);
+      applyFootMass(d.creature, this.footMass);
+      applyWheelMass(d.creature, this.wheelMass);
     }
     if (this.creature && this.discoDancers.length === 0) {
-      applyDiscoFootMass(this.creature, mass);
+      applyFootMass(this.creature, this.footMass);
+      applyWheelMass(this.creature, this.wheelMass);
     }
   }
 
@@ -829,7 +986,8 @@ export class Simulation {
         t.linearDamping,
         t.angularDamping,
       );
-      applyDiscoFootMass(d.creature, this.discoFootMass);
+      applyFootMass(d.creature, this.footMass);
+      applyWheelMass(d.creature, this.wheelMass);
     }
     // Solo arena creature (empty slots) — App only retunes while in Disco.
     if (this.creature && this.discoDancers.length === 0) {
@@ -839,7 +997,8 @@ export class Simulation {
         t.linearDamping,
         t.angularDamping,
       );
-      applyDiscoFootMass(this.creature, this.discoFootMass);
+      applyFootMass(this.creature, this.footMass);
+      applyWheelMass(this.creature, this.wheelMass);
     }
   }
 
@@ -849,6 +1008,7 @@ export class Simulation {
     if (this.creature && this.discoDancers.length === 0) {
       resetCreatureBodyTune(this.creature);
       restoreJointMassesFromDesign(this.creature, this.design);
+      this.applyAuthorMassTune();
     }
   }
 
@@ -859,17 +1019,22 @@ export class Simulation {
   beginSoloEpisodeWatch(episodeSeconds = EPISODE_SECONDS): void {
     if (!this.creature || !this.design) return;
     const markers = activeCourseMarkers(this.environment);
+    resetLaunchPadCooldown(this.launchCooldownFor(this.creature));
     this.soloWatch = {
       design: cloneDesign(this.design),
       task: this.task,
       startX: avgJointX(this.creature),
       fallTime: 0,
       fell: false,
+      landed: false,
       footLifts: 0,
       planted: createFootLiftState(this.creature.joints.length),
       peakHeight: 0,
       airTime: 0,
       airHeightIntegral: 0,
+      impactSpeed: 0,
+      airborneTravel: 0,
+      prevAvgX: avgJointX(this.creature),
       uprightSum: 0,
       uprightSteps: 0,
       peakSpeed: 0,
@@ -1059,6 +1224,15 @@ export class Simulation {
     if (this.design) this.loadDesign(this.design);
   }
 
+  /** Enable/disable raycast whiskers for loco play / evolve (feature-flagged). */
+  setRaycastObservations(on: boolean): void {
+    this.raycastObservations = raycastObsEnabled(on);
+  }
+
+  getRaycastObservations(): boolean {
+    return this.raycastObservations;
+  }
+
   /** Attach a genome for driveMode = 'brain' (single-creature play). */
   setBrain(shape: NetworkShape, weights: Float32Array): void {
     this.brainShape = shape;
@@ -1070,6 +1244,15 @@ export class Simulation {
     }
     if (this.obsBuf.length < shape.inputCount) {
       this.obsBuf = new Float32Array(shape.inputCount);
+    }
+    // Infer raycast pack from brain input size when playing a saved genome.
+    if (
+      shape.inputCount === RAYCAST_OBS_COUNT &&
+      isFeatureEnabled('raycastObservations')
+    ) {
+      this.raycastObservations = true;
+    } else if (shape.inputCount === OBS_COUNT) {
+      this.raycastObservations = false;
     }
   }
 
@@ -1293,12 +1476,16 @@ export class Simulation {
         startX: avgJointX(creature),
         fallTime: 0,
         fell: false,
+        landed: false,
         footLifts: 0,
         planted: createFootLiftState(creature.joints.length),
         muscleVisual: [],
         peakHeight: 0,
         airTime: 0,
         airHeightIntegral: 0,
+        impactSpeed: 0,
+        airborneTravel: 0,
+        prevAvgX: avgJointX(creature),
         uprightSum: 0,
         uprightSteps: 0,
         peakSpeed: 0,
@@ -1377,7 +1564,29 @@ export class Simulation {
       breed.shortTriesFirst,
     );
     const rng = createRng(options.seed ?? 1);
-    const shape = shapeForDesign(design);
+    const morphEvolve =
+      !!options.morphEvolve && isFeatureEnabled('morphEvolve');
+    const structuralMorphEvolve =
+      morphEvolve &&
+      !!options.structuralMorphEvolve &&
+      isFeatureEnabled('structuralMorphEvolve');
+    const messyBodies =
+      !!options.messyBodies && isFeatureEnabled('trainExperiences');
+    const raycastOn = raycastObsEnabled(!!options.raycastObservations);
+    this.raycastObservations = raycastOn;
+    const obsInputs = locoObsInputCount(raycastOn);
+
+    let maxMuscleChannels = countBrainActuatorChannels(design.muscles);
+    let shape: NetworkShape;
+    if (structuralMorphEvolve) {
+      const budget = structureChannelBudget(design, includeWheelActuators());
+      maxMuscleChannels = budget.maxMuscleChannels;
+      shape = makeShape(budget.outputCount, obsInputs);
+    } else {
+      shape = shapeForDesign(design, { raycast: raycastOn });
+      maxMuscleChannels = countBrainActuatorChannels(design.muscles);
+    }
+
     const mutOpts = {
       mutationSigma: breed.mutationSigma,
       mutationResetRate: breed.mutationResetRate,
@@ -1406,10 +1615,6 @@ export class Simulation {
       }
     }
 
-    const morphEvolve =
-      !!options.morphEvolve && isFeatureEnabled('morphEvolve');
-    const messyBodies =
-      !!options.messyBodies && isFeatureEnabled('trainExperiences');
     const baseMorph = morphEvolve ? zeroMorphGenes(design) : undefined;
     const seedMorph =
       morphEvolve && resolvedSeedGenome?.morph
@@ -1417,6 +1622,10 @@ export class Simulation {
         : baseMorph
           ? cloneMorphGenes(baseMorph)
           : undefined;
+    const seedTopology =
+      structuralMorphEvolve
+        ? cloneTopology(resolvedSeedGenome?.topology ?? design)
+        : undefined;
 
     const population: Genome[] = [];
     if (resolvedSeedGenome) {
@@ -1425,28 +1634,54 @@ export class Simulation {
         weights: elite,
         fitness: 0,
         morph: seedMorph ? cloneMorphGenes(seedMorph) : undefined,
+        topology: seedTopology ? cloneTopology(seedTopology) : undefined,
       });
       while (population.length < popSize) {
+        let topology =
+          structuralMorphEvolve && seedTopology
+            ? mutateStructure(seedTopology, design, rng)
+            : undefined;
+        let morph: Genome['morph'];
+        if (structuralMorphEvolve && topology) {
+          morph = morphForTopology(topology, rng, mutOpts.mutationSigma, true);
+        } else if (morphEvolve && seedMorph) {
+          morph = mutateMorphGenes(seedMorph, rng, mutOpts.mutationSigma);
+        } else {
+          morph = undefined;
+        }
         population.push({
           weights: mutate(resolvedSeedGenome.weights, rng, mutOpts),
           fitness: 0,
-          morph:
-            morphEvolve && seedMorph
-              ? mutateMorphGenes(seedMorph, rng, mutOpts.mutationSigma)
-              : undefined,
+          morph,
+          topology,
         });
       }
     } else {
       for (let i = 0; i < popSize; i++) {
+        let topology: Genome['topology'];
+        let morph: Genome['morph'];
+        if (structuralMorphEvolve) {
+          topology =
+            i === 0
+              ? cloneTopology(design)
+              : mutateStructure(design, design, rng);
+          morph = morphForTopology(
+            topology,
+            rng,
+            mutOpts.mutationSigma,
+            i !== 0,
+          );
+        } else if (morphEvolve && baseMorph) {
+          morph =
+            i === 0
+              ? cloneMorphGenes(baseMorph)
+              : mutateMorphGenes(baseMorph, rng, mutOpts.mutationSigma);
+        }
         population.push({
           weights: randomWeights(shape, rng),
           fitness: 0,
-          morph:
-            morphEvolve && baseMorph
-              ? i === 0
-                ? cloneMorphGenes(baseMorph)
-                : mutateMorphGenes(baseMorph, rng, mutOpts.mutationSigma)
-              : undefined,
+          morph,
+          topology,
         });
       }
     }
@@ -1494,6 +1729,9 @@ export class Simulation {
         morph: population[0]!.morph
           ? cloneMorphGenes(population[0]!.morph)
           : undefined,
+        topology: population[0]!.topology
+          ? cloneTopology(population[0]!.topology)
+          : undefined,
       },
       genBestMetrics: null,
       genBestFitness: -Infinity,
@@ -1505,6 +1743,8 @@ export class Simulation {
       breed,
       priorities: options.priorities ?? { ...DEFAULT_GOAL_PRIORITIES },
       morphEvolve,
+      structuralMorphEvolve,
+      maxMuscleChannels,
       messyBodies,
       onProgress: options.onProgress,
       onFinished: options.onFinished,
@@ -1529,9 +1769,12 @@ export class Simulation {
    * If the new length is already elapsed, the episode ends on the next step.
    */
   setEpisodeSeconds(seconds: number): void {
-    const duration = Math.max(1, seconds);
+    const duration = Number.isFinite(seconds) ? Math.max(1, seconds) : seconds;
     if (this.live) {
       this.live.episodeDuration = duration;
+      if (this.live.baseEpisodeSeconds !== undefined) {
+        this.live.baseEpisodeSeconds = duration;
+      }
       this.emitEvolveProgress();
     }
     if (this.soloWatch) {
@@ -1661,7 +1904,9 @@ export class Simulation {
       this.muscleVisual,
       this.discoArenaFeel ? this.discoMuscleForceOptions() : undefined,
     );
-    applyExtraForces(this.creature, this.design, channelDrives);
+    applyExtraForces(this.creature, this.design, channelDrives, {
+      skipAero: isLaunchBoosting(this.launchCooldownFor(this.creature)),
+    });
 
     syncCreatureSoftCcd(this.creature);
     this.world.timestep = dt;
@@ -1669,7 +1914,7 @@ export class Simulation {
     // Plant slide brake: Idle settle + brain/evolve scoot.
     // Skip flight/motor and disco freestyle (dance brain + arena feel).
     const skipPlantBrake =
-      this.task === 'flight' ||
+      isFlightTask(this.task) ||
       this.task === 'motor' ||
       (this.discoArenaFeel &&
         this.driveMode === 'brain' &&
@@ -1683,8 +1928,49 @@ export class Simulation {
         this.antiScoot,
       );
     }
+    this.maybeApplyLaunchPads(this.creature);
     this.time += dt;
     this.tickSoloWatch(dt);
+  }
+
+  private launchCooldownFor(creature: SpawnedCreature): LaunchPadCooldown {
+    let c = this.launchPadCooldowns.get(creature);
+    if (!c) {
+      c = createLaunchPadCooldown();
+      this.launchPadCooldowns.set(creature, c);
+    }
+    return c;
+  }
+
+  /** Smoke / debug — true after any pad has fired for the live creature this run. */
+  launchPadSpent(): boolean {
+    if (!this.creature) return false;
+    const c = this.launchPadCooldowns.get(this.creature);
+    return !!c && c.spentPads.size > 0;
+  }
+
+  /** Smoke / debug — how many distinct pads have fired this run. */
+  launchPadSpentCount(): number {
+    if (!this.creature) return 0;
+    return this.launchPadCooldowns.get(this.creature)?.spentPads.size ?? 0;
+  }
+
+  private maybeApplyLaunchPads(creature: SpawnedCreature | null | undefined): void {
+    if (
+      !creature ||
+      !this.world ||
+      !isFeatureEnabled('launchPads') ||
+      !this.envObstacles
+    ) {
+      return;
+    }
+    applyLaunchPads(
+      this.world,
+      creature,
+      this.envObstacles,
+      this.time,
+      this.launchCooldownFor(creature),
+    );
   }
 
   /** H6 — emit dance obs + teacher drives at brain rate while disco. */
@@ -1745,16 +2031,27 @@ export class Simulation {
       watch.peakHeight,
       watch.airTime,
       watch.airHeightIntegral,
+      0.55,
+      watch.impactSpeed,
+      watch.airborneTravel,
+      watch.prevAvgX,
     );
     watch.peakHeight = track.peakHeight;
     watch.airTime = track.airTime;
     watch.airHeightIntegral = track.airHeightIntegral;
+    watch.impactSpeed = track.impactSpeed;
+    watch.airborneTravel = track.airborneTravel;
+    watch.prevAvgX = track.avgX;
     watch.regionAccum = updateScoreRegionAccum(
       this.creature,
       regions,
       dt,
       watch.regionAccum,
+      watch.airTime,
     );
+    if (shouldEndEpisodeOnLanding(watch.regionAccum)) {
+      watch.landed = true;
+    }
     watch.courseAccum = updateCourseMarkerAccum(
       this.creature,
       markers,
@@ -1763,7 +2060,7 @@ export class Simulation {
     );
     watch.episodeT += dt;
 
-    if (watch.episodeT < watch.episodeDuration) return;
+    if (!watch.landed && watch.episodeT < watch.episodeDuration) return;
 
     const uprightMean =
       watch.uprightSteps > 0 ? watch.uprightSum / watch.uprightSteps : 1;
@@ -1782,6 +2079,8 @@ export class Simulation {
       watch.peakSpeed,
       watch.episodeT,
       watch.peakDistance,
+      watch.impactSpeed,
+      watch.airborneTravel,
     );
     const snap: EpisodeCompleteSnapshot = {
       task: watch.task,
@@ -1820,8 +2119,11 @@ export class Simulation {
         dancer.creature,
         dancer.design,
         channelDrivesFromMuscleDrives(dancer.design, muscleDrives),
+        {
+          skipAero: isLaunchBoosting(this.launchCooldownFor(dancer.creature)),
+        },
       );
-      if (this.task !== 'flight' && this.task !== 'motor') {
+      if (!isFlightTask(this.task) && this.task !== 'motor') {
         applyPlantSlideBrake(
           dancer.creature,
           this.activeTerrain(),
@@ -1864,6 +2166,9 @@ export class Simulation {
     this.world.timestep = dt;
     this.world.step();
     this.time += dt;
+    for (const dancer of this.discoDancers) {
+      this.maybeApplyLaunchPads(dancer.creature);
+    }
   }
 
   private physicsStepHeadToHead(dt: number): void {
@@ -1872,7 +2177,7 @@ export class Simulation {
     for (const member of this.cohort) {
       const shape = member.memberShape;
       if (!shape) continue;
-      if (member.fell) {
+      if (member.fell || member.landed) {
         resetCreatureForces(member.creature);
         continue;
       }
@@ -1888,7 +2193,9 @@ export class Simulation {
         muscleDrives,
         member.muscleVisual,
       );
-      applyExtraForces(member.creature, memberDesign, member.brainDrives);
+      applyExtraForces(member.creature, memberDesign, member.brainDrives, {
+        skipAero: isLaunchBoosting(this.launchCooldownFor(member.creature)),
+      });
 
       const fall = updateFallState(
         member.creature,
@@ -1909,9 +2216,9 @@ export class Simulation {
     this.h2h.episodeT += dt;
 
     const terrain = this.activeTerrain();
-    if (this.h2h.task !== 'flight' && this.h2h.task !== 'motor') {
+    if (!isFlightTask(this.h2h.task) && this.h2h.task !== 'motor') {
       for (const member of this.cohort) {
-        if (!member.fell) {
+        if (!member.fell && !member.landed) {
           applyPlantSlideBrake(
             member.creature,
             terrain,
@@ -1922,6 +2229,11 @@ export class Simulation {
         }
       }
     }
+    for (const member of this.cohort) {
+      if (!member.fell && !member.landed) {
+        this.maybeApplyLaunchPads(member.creature);
+      }
+    }
 
     const regions = activeScoreRegions(this.environment);
     const markers = activeCourseMarkers(this.environment);
@@ -1930,7 +2242,7 @@ export class Simulation {
         member.peakDistance,
         avgJointX(member.creature) - member.startX,
       );
-      if (!member.fell) {
+      if (!member.fell && !member.landed) {
         member.footLifts += updateFootLiftState(
           member.creature,
           member.planted,
@@ -1949,16 +2261,27 @@ export class Simulation {
         member.peakHeight,
         member.airTime,
         member.airHeightIntegral,
+        0.55,
+        member.impactSpeed,
+        member.airborneTravel,
+        member.prevAvgX,
       );
       member.peakHeight = track.peakHeight;
       member.airTime = track.airTime;
       member.airHeightIntegral = track.airHeightIntegral;
+      member.impactSpeed = track.impactSpeed;
+      member.airborneTravel = track.airborneTravel;
+      member.prevAvgX = track.avgX;
       member.regionAccum = updateScoreRegionAccum(
         member.creature,
         regions,
         dt,
         member.regionAccum,
+        member.airTime,
       );
+      if (shouldEndEpisodeOnLanding(member.regionAccum)) {
+        member.landed = true;
+      }
       member.courseAccum = updateCourseMarkerAccum(
         member.creature,
         markers,
@@ -1969,7 +2292,12 @@ export class Simulation {
 
     this.h2h.onProgress?.(this.h2h.episodeT, this.h2h.episodeDuration);
 
-    if (this.h2h.episodeT < this.h2h.episodeDuration) return;
+    // End early only when landings are in play (do not change fall-only timing).
+    const h2hAllSettled =
+      this.cohort.length > 0 &&
+      this.cohort.some((m) => m.landed) &&
+      this.cohort.every((m) => m.fell || m.landed);
+    if (this.h2h.episodeT < this.h2h.episodeDuration && !h2hAllSettled) return;
 
     const task = this.h2h.task;
     const fitness: [number, number] = [0, 0];
@@ -2000,6 +2328,8 @@ export class Simulation {
         member.peakSpeed,
         this.h2h.episodeT,
         member.peakDistance,
+        member.impactSpeed,
+        member.airborneTravel,
       );
       fitness[i] = result.fitness;
       metrics[i] = result;
@@ -2026,16 +2356,25 @@ export class Simulation {
     if (!this.world || !this.live) return;
 
     for (const member of this.cohort) {
-      // Freeze actuators after a fall so post-tumble thrash cannot erase progress.
-      if (member.fell) {
+      // Freeze actuators after fall/landing so post-settle thrash cannot erase progress.
+      if (member.fell || member.landed) {
         resetCreatureForces(member.creature);
         continue;
       }
       this.tickBrainMember(member, this.live.shape, dt);
       const memberDesign = member.memberDesign ?? this.live.design;
+      const channelDrives =
+        this.live.structuralMorphEvolve
+          ? remapPaddedActuatorDrives(
+              memberDesign,
+              member.brainDrives,
+              this.live.maxMuscleChannels,
+              includeWheelActuators(),
+            )
+          : member.brainDrives;
       const muscleDrives = expandChannelDrives(
         memberDesign.muscles,
-        member.brainDrives,
+        channelDrives,
       );
       resetCreatureForces(member.creature);
       applyMuscleForces(
@@ -2043,7 +2382,9 @@ export class Simulation {
         muscleDrives,
         member.muscleVisual,
       );
-      applyExtraForces(member.creature, memberDesign, member.brainDrives);
+      applyExtraForces(member.creature, memberDesign, channelDrives, {
+        skipAero: isLaunchBoosting(this.launchCooldownFor(member.creature)),
+      });
 
       const fall = updateFallState(
         member.creature,
@@ -2064,9 +2405,9 @@ export class Simulation {
     this.live.episodeT += dt;
 
     const terrain = this.activeTerrain();
-    if (this.live.task !== 'flight' && this.live.task !== 'motor') {
+    if (!isFlightTask(this.live.task) && this.live.task !== 'motor') {
       for (const member of this.cohort) {
-        if (!member.fell) {
+        if (!member.fell && !member.landed) {
           applyPlantSlideBrake(
             member.creature,
             terrain,
@@ -2075,6 +2416,11 @@ export class Simulation {
             this.antiScoot,
           );
         }
+      }
+    }
+    for (const member of this.cohort) {
+      if (!member.fell && !member.landed) {
+        this.maybeApplyLaunchPads(member.creature);
       }
     }
 
@@ -2097,7 +2443,7 @@ export class Simulation {
           },
         );
       }
-      if (!member.fell) {
+      if (!member.fell && !member.landed) {
         member.footLifts += updateFootLiftState(
           member.creature,
           member.planted,
@@ -2116,16 +2462,27 @@ export class Simulation {
         member.peakHeight,
         member.airTime,
         member.airHeightIntegral,
+        0.55,
+        member.impactSpeed,
+        member.airborneTravel,
+        member.prevAvgX,
       );
       member.peakHeight = track.peakHeight;
       member.airTime = track.airTime;
       member.airHeightIntegral = track.airHeightIntegral;
+      member.impactSpeed = track.impactSpeed;
+      member.airborneTravel = track.airborneTravel;
+      member.prevAvgX = track.avgX;
       member.regionAccum = updateScoreRegionAccum(
         member.creature,
         regions,
         dt,
         member.regionAccum,
+        member.airTime,
       );
+      if (shouldEndEpisodeOnLanding(member.regionAccum)) {
+        member.landed = true;
+      }
       member.courseAccum = updateCourseMarkerAccum(
         member.creature,
         markers,
@@ -2138,8 +2495,13 @@ export class Simulation {
       this.live.breed.stopAfterFall &&
       this.cohort.length > 0 &&
       this.cohort.every((m) => m.fell);
+    // End early only when landings are in play (do not change fall-only timing).
+    const allSettled =
+      this.cohort.length > 0 &&
+      this.cohort.some((m) => m.landed) &&
+      this.cohort.every((m) => m.fell || m.landed);
 
-    if (this.live.episodeT >= this.live.episodeDuration || allFell) {
+    if (this.live.episodeT >= this.live.episodeDuration || allFell || allSettled) {
       this.finishCurrentBatch();
     } else if (Math.floor(this.live.episodeT * 4) !== Math.floor((this.live.episodeT - dt) * 4)) {
       // ~4 Hz HUD refresh during the episode
@@ -2173,6 +2535,8 @@ export class Simulation {
         member.peakSpeed,
         live.episodeT,
         member.peakDistance,
+        member.impactSpeed,
+        member.airborneTravel,
       );
       result.fitness = applyGoalPriorities(result.fitness, {
         distance: result.distance,
@@ -2187,6 +2551,7 @@ export class Simulation {
           weights: cloneWeights(g.weights),
           fitness: result.fitness,
           morph: g.morph ? cloneMorphGenes(g.morph) : undefined,
+          topology: g.topology ? cloneTopology(g.topology) : undefined,
         };
       }
       if (result.fitness > live.genBestFitness) {
@@ -2260,6 +2625,8 @@ export class Simulation {
         mutationResetRate: live.breed.mutationResetRate,
         crossover: live.breed.crossover,
         morphEvolve: live.morphEvolve,
+        structuralMorphEvolve: live.structuralMorphEvolve,
+        structureBase: live.design,
       },
     );
     live.generation += 1;
@@ -2363,7 +2730,8 @@ export class Simulation {
     for (let i = 0; i < count; i++) {
       const genomeIndex = start + i;
       const genome = live.population[genomeIndex]!;
-      let memberDesign = applyMorphToDesign(live.design, genome.morph);
+      const topo = genome.topology ?? live.design;
+      let memberDesign = applyMorphToDesign(topo, genome.morph);
       if (live.messyBodies) {
         memberDesign = applyMessyBodyJitter(memberDesign, live.rng);
       }
@@ -2383,12 +2751,16 @@ export class Simulation {
         startX: avgJointX(creature),
         fallTime: 0,
         fell: false,
+        landed: false,
         footLifts: 0,
         planted: createFootLiftState(creature.joints.length),
         muscleVisual: [],
         peakHeight: 0,
         airTime: 0,
         airHeightIntegral: 0,
+        impactSpeed: 0,
+        airborneTravel: 0,
+        prevAvgX: avgJointX(creature),
         uprightSum: 0,
         uprightSteps: 0,
         peakSpeed: 0,
@@ -2446,6 +2818,19 @@ export class Simulation {
           this.observationContext(),
           lookahead,
         );
+      } else if (
+        this.raycastObservations ||
+        this.brainShape.inputCount === RAYCAST_OBS_COUNT
+      ) {
+        if (this.obsBuf.length < RAYCAST_OBS_COUNT) {
+          this.obsBuf = new Float32Array(RAYCAST_OBS_COUNT);
+        }
+        buildRaycastObservations(
+          this.creature,
+          this.world,
+          this.obsBuf,
+          this.observationContext(),
+        );
       } else {
         buildObservations(this.creature, this.obsBuf, this.observationContext());
       }
@@ -2473,7 +2858,26 @@ export class Simulation {
     member.brainAccumulator += dt;
     while (member.brainAccumulator >= brainDt) {
       member.brainAccumulator -= brainDt;
-      buildObservations(member.creature, this.obsBuf, this.observationContext());
+      if (
+        this.raycastObservations ||
+        shape.inputCount === RAYCAST_OBS_COUNT
+      ) {
+        if (this.obsBuf.length < RAYCAST_OBS_COUNT) {
+          this.obsBuf = new Float32Array(RAYCAST_OBS_COUNT);
+        }
+        buildRaycastObservations(
+          member.creature,
+          this.world,
+          this.obsBuf,
+          this.observationContext(),
+        );
+      } else {
+        buildObservations(
+          member.creature,
+          this.obsBuf,
+          this.observationContext(),
+        );
+      }
       const outs = evaluateNetwork(
         shape,
         member.weights,
@@ -2586,13 +2990,17 @@ export class Simulation {
   private emitEvolveProgress(evaluatedOverride?: number): void {
     const live = this.live;
     if (!live) return;
+    const batchSpan = Math.min(
+      live.batchSize,
+      live.popSize - live.batchIndex * live.batchSize,
+    );
+    const episodeFrac = Number.isFinite(live.episodeDuration)
+      ? live.episodeT / live.episodeDuration
+      : 0;
     const evaluated =
       evaluatedOverride ??
       live.batchIndex * live.batchSize +
-        Math.floor(
-          (live.episodeT / live.episodeDuration) *
-            Math.min(live.batchSize, live.popSize - live.batchIndex * live.batchSize),
-        );
+        Math.floor(episodeFrac * batchSpan);
     live.onProgress?.({
       generation: live.generation,
       evaluated: Math.min(live.popSize, Math.max(0, evaluated)),
@@ -2651,6 +3059,8 @@ export class Simulation {
       member.peakSpeed,
       episodeSimTime,
       member.peakDistance,
+      member.impactSpeed,
+      member.airborneTravel,
     );
     return {
       distance: scored.distance,
@@ -2691,6 +3101,8 @@ export class Simulation {
       watch.peakSpeed,
       watch.episodeT,
       watch.peakDistance,
+      watch.impactSpeed,
+      watch.airborneTravel,
     );
     return {
       distance: scored.distance,
@@ -2759,19 +3171,29 @@ export class Simulation {
         this.live.focusIndex,
         Math.max(0, this.cohort.length - 1),
       );
-      const allAgents = this.cohort.map((m, i) =>
-        agentFromCreature(
-          m.creature,
-          m.muscleVisual,
-          i === focus ? 1 : GHOST_OPACITY,
-          i === focus,
-          this.live!.design.appearance,
-        ),
-      );
+      const appearance = this.live.design.appearance;
+      // When ghosts are hidden, only snapshot the focused member — cohort
+      // Rapier reads/allocs for undrawn agents are wasted work.
       const agents = this.showGhostPack
-        ? allAgents
-        : [allAgents[focus]];
-      const focused = allAgents[focus];
+        ? this.cohort.map((m, i) =>
+            agentFromCreature(
+              m.creature,
+              m.muscleVisual,
+              i === focus ? 1 : GHOST_OPACITY,
+              i === focus,
+              appearance,
+            ),
+          )
+        : [
+            agentFromCreature(
+              this.cohort[focus].creature,
+              this.cohort[focus].muscleVisual,
+              1,
+              true,
+              appearance,
+            ),
+          ];
+      const focused = this.showGhostPack ? agents[focus] : agents[0];
       let focusX = 0;
       let focusY = 1;
       if (focused.joints.length > 0) {
@@ -2783,6 +3205,7 @@ export class Simulation {
       return {
         joints: focused.joints,
         bones: focused.bones,
+        struts: focused.struts,
         muscles: focused.muscles,
         time: this.time,
         agents,
@@ -2798,6 +3221,7 @@ export class Simulation {
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
         courseMarkers: activeCourseMarkers(this.environment),
+        theme: this.environment.theme,
         liveStats: this.liveStatsFromMember(
           this.cohort[focus],
           this.live.task,
@@ -2846,6 +3270,7 @@ export class Simulation {
       return {
         joints: allAgents[0].joints,
         bones: allAgents[0].bones,
+        struts: allAgents[0].struts,
         muscles: allAgents[0].muscles,
         time: this.time,
         agents: allAgents,
@@ -2861,6 +3286,7 @@ export class Simulation {
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
         courseMarkers: activeCourseMarkers(this.environment),
+        theme: this.environment.theme,
         liveStats: this.liveStatsFromMember(
           this.cohort[0],
           task,
@@ -2894,6 +3320,7 @@ export class Simulation {
       const lead = allAgents[0] ?? {
         joints: [],
         bones: [],
+        struts: [],
         muscles: [],
         opacity: 1,
         focused: true,
@@ -2901,6 +3328,7 @@ export class Simulation {
       return {
         joints: lead.joints,
         bones: lead.bones,
+        struts: lead.struts,
         muscles: lead.muscles,
         time: this.time,
         agents: allAgents,
@@ -2917,6 +3345,7 @@ export class Simulation {
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
         courseMarkers: activeCourseMarkers(this.environment),
+        theme: this.environment.theme,
         liveStats: null,
         lastEpisodeMetrics: this.lastEpisodeMetrics,
         evolve: null,
@@ -2937,6 +3366,7 @@ export class Simulation {
       : {
           joints: [],
           bones: [],
+          struts: [],
           muscles: [],
           opacity: 1,
           focused: true,
@@ -2955,12 +3385,14 @@ export class Simulation {
     return {
       joints: primary.joints,
       bones: primary.bones,
+      struts: primary.struts,
       muscles: primary.muscles,
       time: this.time,
       agents: primary.joints.length ? [primary] : [],
       focusX,
       focusY,
-      cameraFollow: false,
+      // Follow so high launch-pad flights stay readable on the height ruler.
+      cameraFollow: primary.joints.length > 0,
       appearance: this.design?.appearance,
       task: this.task,
       extrapolateDt: Math.min(this.accumulator, FIXED_DT),
@@ -2970,6 +3402,7 @@ export class Simulation {
       tower: this.envTower?.visuals ?? [],
       scoreRegions: activeScoreRegions(this.environment),
       courseMarkers: activeCourseMarkers(this.environment),
+      theme: this.environment.theme,
       liveStats: this.liveStatsFromSolo(),
       lastEpisodeMetrics: this.lastEpisodeMetrics,
       evolve: null,

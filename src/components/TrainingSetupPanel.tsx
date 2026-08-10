@@ -3,6 +3,12 @@
  */
 import type { ReactNode } from 'react';
 import {
+  clampEpisodeSeconds,
+  EPISODE_SECONDS_MAX,
+  EPISODE_SECONDS_MIN,
+  formatEpisodeSeconds,
+} from '../brain/constants';
+import {
   BREED_STRICTNESS,
   MUTATION_STYLES,
   TRAINING_RECIPES,
@@ -25,7 +31,6 @@ interface Props {
 
 const POP_PRESETS = [6, 12, 24, 36, 48, 80] as const;
 const BATCH_PRESETS = [4, 6, 8, 12, 24] as const;
-const TRY_PRESETS = [5, 8, 20, 40, 80] as const;
 const ROUND_PRESETS = [25, 50, 100, 200] as const;
 
 function KnobRow({
@@ -135,22 +140,31 @@ export function TrainingSetupPanel({
           ))}
         </KnobRow>
 
-        <KnobRow
-          label="Try length"
-          title="episodeSeconds — Seconds each creature gets per round"
-        >
-          {TRY_PRESETS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={knobs.episodeSeconds === s ? 'active' : ''}
+        <div className="train-knob">
+          <span
+            className="train-knob-label"
+            title="episodeSeconds — Simulated seconds each creature gets per round."
+          >
+            Try length
+          </span>
+          <label className="slider-row train-try-slider">
+            <span className="muted">{EPISODE_SECONDS_MIN}s</span>
+            <input
+              type="range"
+              min={EPISODE_SECONDS_MIN}
+              max={EPISODE_SECONDS_MAX}
+              step={1}
               disabled={disabled}
-              onClick={() => patch({ episodeSeconds: s })}
-            >
-              {s}s
-            </button>
-          ))}
-        </KnobRow>
+              value={clampEpisodeSeconds(knobs.episodeSeconds)}
+              onChange={(e) =>
+                patch({ episodeSeconds: Number(e.target.value) })
+              }
+            />
+            <span className="val">
+              {formatEpisodeSeconds(clampEpisodeSeconds(knobs.episodeSeconds))}
+            </span>
+          </label>
+        </div>
 
         <KnobRow
           label="Mutation style"

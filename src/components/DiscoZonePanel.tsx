@@ -468,8 +468,8 @@ export function DiscoZonePanel({
             </select>
           </label>
           <label className="disco-puppet-row disco-foot-mass-row">
-            <span title="Heavier marked feet resist floating in Disco">
-              Foot mass
+            <span title="Heavier marked feet plant harder (saved on the creature; all modes)">
+              Foot weight
             </span>
             <input
               type="range"
@@ -478,7 +478,7 @@ export function DiscoZonePanel({
               step={0.25}
               value={footMass}
               disabled={disabled}
-              aria-label="Disco foot mass"
+              aria-label="Foot weight for marked feet"
               onChange={(e) => onFootMassChange(Number(e.target.value))}
             />
             <span className="val">{footMass.toFixed(2)}</span>

@@ -22,6 +22,7 @@ import {
 import {
   activeScoreRegions,
   emptyScoreRegionAccum,
+  shouldEndEpisodeOnLanding,
   updateScoreRegionAccum,
 } from './scoreRegions';
 import { avgJointVelX, avgJointX } from './observations';
@@ -76,6 +77,9 @@ export function evaluateTaskEpisode(
   let airTime = 0;
   let airHeightIntegral = 0;
   let meanAirHeight = 0;
+  let impactSpeed = 0;
+  let airborneTravel = 0;
+  let prevAvgX: number | null = startX;
   let uprightSum = 0;
   let uprightSteps = 0;
   let peakSpeed = 0;
@@ -105,16 +109,24 @@ export function evaluateTaskEpisode(
       peakHeight,
       airTime,
       airHeightIntegral,
+      0.55,
+      impactSpeed,
+      airborneTravel,
+      prevAvgX,
     );
     peakHeight = track.peakHeight;
     airTime = track.airTime;
     airHeightIntegral = track.airHeightIntegral;
     meanAirHeight = track.meanAirHeight;
+    impactSpeed = track.impactSpeed;
+    airborneTravel = track.airborneTravel;
+    prevAvgX = track.avgX;
     regionAccum = updateScoreRegionAccum(
       creature,
       regions,
       FIXED_DT,
       regionAccum,
+      airTime,
     );
     courseAccum = updateCourseMarkerAccum(
       creature,
@@ -122,6 +134,9 @@ export function evaluateTaskEpisode(
       episodeSimTime,
       courseAccum,
     );
+    if (shouldEndEpisodeOnLanding(regionAccum)) {
+      break;
+    }
     const fall = updateFallState(creature, fallTime, FIXED_DT, terrain);
     fallTime = fall.fallTime;
     if (fall.fell) {
@@ -146,5 +161,7 @@ export function evaluateTaskEpisode(
     peakSpeed,
     episodeSimTime,
     peakDistance,
+    impactSpeed,
+    airborneTravel,
   );
 }

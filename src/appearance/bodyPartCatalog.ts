@@ -51,16 +51,37 @@ function defaultScaleForCategory(category: BodyPartCategory): number {
   }
 }
 
+/**
+ * Kenney animal pack ships Round + Round (outline) with identical filenames.
+ * Include the style folder so React keys / asset ids stay unique.
+ */
+function inferStyle(path: string): string {
+  const norm = path.replace(/\\/g, '/').toLowerCase();
+  const parts = norm.split('/');
+  const pngIdx = parts.indexOf('png');
+  if (pngIdx < 0 || pngIdx + 1 >= parts.length - 1) return '';
+  return parts[pngIdx + 1]!
+    .replace(/[()]+/g, '')
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
 function buildCatalog(modules: Record<string, string>): BodyPartDef[] {
   const out: BodyPartDef[] = [];
+  const seen = new Set<string>();
   for (const [path, url] of Object.entries(modules)) {
     if (path.includes('/licenses/')) continue;
     const file = path.split('/').pop() ?? path;
-    const base = file.replace(/\.png$/i, '');
+    const base = file.replace(/\.png$/i, '').toLowerCase().replace(/\s+/g, '_');
     const pack = inferPack(path);
+    const style = inferStyle(path);
+    const id = style ? `${pack}/${style}/${base}` : `${pack}/${base}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
     const category = inferCategory(path, file);
     out.push({
-      id: `${pack}/${base}`.toLowerCase().replace(/\s+/g, '_'),
+      id,
       label: base.replace(/[_-]+/g, ' '),
       category,
       pack,
@@ -78,6 +99,16 @@ function buildCatalog(modules: Record<string, string>): BodyPartDef[] {
 export const BODY_PART_CATALOG: BodyPartDef[] = buildCatalog(BODY_PART_URLS);
 
 const byId = new Map(BODY_PART_CATALOG.map((d) => [d.id, d]));
+
+// Legacy ids were `pack/base` before Round vs outline were disambiguated.
+for (const def of BODY_PART_CATALOG) {
+  const parts = def.id.split('/');
+  if (parts.length !== 3) continue;
+  const [pack, style, base] = parts;
+  if (style !== 'round' || !pack || !base) continue;
+  const legacy = `${pack}/${base}`;
+  if (!byId.has(legacy)) byId.set(legacy, def);
+}
 
 export function getBodyPart(id: string): BodyPartDef | undefined {
   return byId.get(id);

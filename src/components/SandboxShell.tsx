@@ -6,8 +6,8 @@ import {
 
 export type SandboxTabId =
   | 'zone'
-  | 'creatures'
   | 'edit'
+  | 'creatures'
   | 'train'
   | 'world'
   | 'h2h'
@@ -24,6 +24,8 @@ interface Props {
   activeTab: SandboxTabId;
   onActiveTabChange: (id: SandboxTabId) => void;
   viewport: ReactNode;
+  /** Full-width band above sidebar + viewport (Zone / Goal / Env). */
+  contextStrip?: ReactNode | null;
   /** Bottom chrome overlaid under the ground band (Train or World). */
   dock?: ReactNode | null;
   /** Label in the dock bar (default Train). */
@@ -37,6 +39,8 @@ interface Props {
    * Sidebar still shows the active panel body.
    */
   hideTabRail?: boolean;
+  /** Full-bleed modes (e.g. Trophy Room) — no side menu panel. */
+  hideSidebar?: boolean;
 }
 
 /** Header tab rail — place between brand and immersive toggle. */
@@ -73,15 +77,18 @@ export function SandboxShell({
   activeTab,
   onActiveTabChange,
   viewport,
+  contextStrip,
   dock,
   dockLabel = 'Train',
   dockCollapsed,
   onDockCollapsedChange,
   onDockHeightChange,
   hideTabRail = false,
+  hideSidebar = false,
 }: Props) {
   const dockRef = useRef<HTMLDivElement>(null);
-  const showDock = dock != null;
+  const showDock = dock != null && !hideSidebar;
+  const showStrip = !hideSidebar && contextStrip != null;
 
   useEffect(() => {
     if (!showDock) {
@@ -109,56 +116,74 @@ export function SandboxShell({
   const active = tabs.find((t) => t.id === activeTab) ?? tabs[0];
 
   return (
-    <div className="main sandbox-shell">
-      <aside className="sandbox-sidebar">
-        {!hideTabRail && (
-          <div className="tab-rail" role="tablist" aria-label="Sandbox panels">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={tab.id === active?.id}
-                className={tab.id === active?.id ? 'active' : ''}
-                onClick={() => onActiveTabChange(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        )}
-        <div
-          className="tab-panel"
-          role="tabpanel"
-          aria-label={active?.label ?? 'Panel'}
-        >
-          {active?.content}
-        </div>
-      </aside>
+    <div
+      className={
+        hideSidebar
+          ? 'main sandbox-shell sandbox-shell-fullbleed'
+          : 'main sandbox-shell'
+      }
+    >
+      {showStrip && contextStrip}
 
-      <div className="viewport">
-        {viewport}
-        {showDock && (
-          <div
-            ref={dockRef}
-            className={
-              dockCollapsed ? 'bottom-dock bottom-dock-collapsed' : 'bottom-dock'
-            }
-          >
-            <div className="bottom-dock-bar">
-              <span className="bottom-dock-label">{dockLabel}</span>
-              <button
-                type="button"
-                className="bottom-dock-toggle"
-                aria-expanded={!dockCollapsed}
-                onClick={() => onDockCollapsedChange(!dockCollapsed)}
-              >
-                {dockCollapsed ? 'Expand ▴' : 'Collapse ▾'}
-              </button>
+      <div
+        className={
+          hideSidebar
+            ? 'sandbox-shell-body sandbox-shell-body-fullbleed'
+            : 'sandbox-shell-body'
+        }
+      >
+        {!hideSidebar && (
+          <aside className="sandbox-sidebar">
+            {!hideTabRail && (
+              <div className="tab-rail" role="tablist" aria-label="Sandbox panels">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.id === active?.id}
+                    className={tab.id === active?.id ? 'active' : ''}
+                    onClick={() => onActiveTabChange(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div
+              className="tab-panel"
+              role="tabpanel"
+              aria-label={active?.label ?? 'Panel'}
+            >
+              {active?.content}
             </div>
-            <div className="bottom-dock-body">{dock}</div>
-          </div>
+          </aside>
         )}
+
+        <div className={hideSidebar ? 'viewport viewport-fullbleed' : 'viewport'}>
+          {viewport}
+          {showDock && (
+            <div
+              ref={dockRef}
+              className={
+                dockCollapsed ? 'bottom-dock bottom-dock-collapsed' : 'bottom-dock'
+              }
+            >
+              <div className="bottom-dock-bar">
+                <span className="bottom-dock-label">{dockLabel}</span>
+                <button
+                  type="button"
+                  className="bottom-dock-toggle"
+                  aria-expanded={!dockCollapsed}
+                  onClick={() => onDockCollapsedChange(!dockCollapsed)}
+                >
+                  {dockCollapsed ? 'Expand ▴' : 'Collapse ▾'}
+                </button>
+              </div>
+              <div className="bottom-dock-body">{dock}</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

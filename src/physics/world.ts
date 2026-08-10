@@ -37,6 +37,14 @@ export function groundCollisionGroups(): number {
   return (0b0100 & 0xffff) | ((0xffff & 0xffff) << 16);
 }
 
+/**
+ * Query groups for world-only raycasts: membership joint-bit, filter ground-bit.
+ * Matches joint↔world pairing so casts hit static geometry and miss creature parts.
+ */
+export function worldQueryCollisionGroups(): number {
+  return (0b0001 & 0xffff) | ((0b0100 & 0xffff) << 16);
+}
+
 function addGround(world: RAPIER.World, grip: number): void {
   // Infinite floor: halfspace solid is below the plane; outward normal points up.
   const groundBody = world.createRigidBody(

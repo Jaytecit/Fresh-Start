@@ -5,6 +5,7 @@
 import {
   AERO_DRAG_COEFF,
   AERO_LIFT_COEFF,
+  AERO_SPEED_FORCE_CAP,
   FIXED_DT,
   GLIDER_DRAG_COEFF,
   GLIDER_LIFT_COEFF,
@@ -28,8 +29,19 @@ function boneNormal(axis: { x: number; y: number }): { x: number; y: number } {
   return { x: -axis.y, y: axis.x };
 }
 
-function applyLegacyAero(bone: RuntimeBone, area: number): void {
+/** Scale linvel down for force math so launch-pad ballistics cannot NaN the world. */
+function cappedLinvel(bone: RuntimeBone): { x: number; y: number } {
   const v = bone.body.linvel();
+  const x = Number.isFinite(v.x) ? v.x : 0;
+  const y = Number.isFinite(v.y) ? v.y : 0;
+  const speed = Math.hypot(x, y);
+  if (speed <= AERO_SPEED_FORCE_CAP || speed < 1e-12) return { x, y };
+  const s = AERO_SPEED_FORCE_CAP / speed;
+  return { x: x * s, y: y * s };
+}
+
+function applyLegacyAero(bone: RuntimeBone, area: number): void {
+  const v = cappedLinvel(bone);
   const speed = Math.hypot(v.x, v.y);
   if (speed < 1e-4) return;
   const nx = v.x / speed;
@@ -54,7 +66,7 @@ function applyLegacyAero(bone: RuntimeBone, area: number): void {
  * Light normal drag both ways for air feel without canceling the stroke.
  */
 function applyWing(bone: RuntimeBone, area: number): void {
-  const v = bone.body.linvel();
+  const v = cappedLinvel(bone);
   const axis = boneAxis(bone);
   const n = boneNormal(axis);
   const vn = v.x * n.x + v.y * n.y;
@@ -72,7 +84,7 @@ function applyWing(bone: RuntimeBone, area: number): void {
 
 /** Glider: rigid sail — lift from forward speed × AoA (pitch). */
 function applyGlider(bone: RuntimeBone, area: number): void {
-  const v = bone.body.linvel();
+  const v = cappedLinvel(bone);
   const speed = Math.hypot(v.x, v.y);
   if (speed < 1e-4) return;
   const vx = v.x / speed;
@@ -108,7 +120,7 @@ function applyGlider(bone: RuntimeBone, area: number): void {
  * Pure / mostly horizontal motion → deflate (stream) so gait forward speed survives.
  */
 function applyParachute(bone: RuntimeBone, area: number): void {
-  const v = bone.body.linvel();
+  const v = cappedLinvel(bone);
   const speed = Math.hypot(v.x, v.y);
   const axis = boneAxis(bone);
   const n = boneNormal(axis);

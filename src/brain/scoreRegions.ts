@@ -1,6 +1,6 @@
 /**
  * C2.9 — score-only AABB regions (no Rapier).
- * Penalty: time-in-zone. Reward: touch-once flat bonus.
+ * Penalty: time-in-zone. Reward: touch-once. Landing: touch-once after airborne.
  */
 import {
   OBSTACLE_MAX_SIZE,
@@ -10,7 +10,11 @@ import type { SpawnedCreature } from '../physics/spawn';
 import { isFeatureEnabled } from '../port/featureFlags';
 import type { EnvironmentDesign, EnvScoreRegion, ScoreRegionKind } from '../env/types';
 import {
+  LANDING_MIN_AIR_TIME,
   SCORE_REGION_DEFAULT_H,
+  SCORE_REGION_DEFAULT_LANDING_H,
+  SCORE_REGION_DEFAULT_LANDING_RATE,
+  SCORE_REGION_DEFAULT_LANDING_W,
   SCORE_REGION_DEFAULT_PENALTY_RATE,
   SCORE_REGION_DEFAULT_REWARD_RATE,
   SCORE_REGION_DEFAULT_W,
@@ -21,14 +25,21 @@ import {
 export interface ScoreRegionAccum {
   /** Accumulated penalty magnitude (≥ 0). */
   penalty: number;
-  /** Accumulated reward magnitude (≥ 0). */
+  /** Accumulated reward magnitude (≥ 0) from `reward` regions. */
   reward: number;
-  /** Reward region ids already granted this episode. */
+  /** Accumulated landing magnitude (≥ 0) from `landing` regions. */
+  landingReward: number;
+  /** Reward / landing region ids already granted this episode. */
   touchedRewardIds: Set<string>;
 }
 
 export function emptyScoreRegionAccum(): ScoreRegionAccum {
-  return { penalty: 0, reward: 0, touchedRewardIds: new Set() };
+  return {
+    penalty: 0,
+    reward: 0,
+    landingReward: 0,
+    touchedRewardIds: new Set(),
+  };
 }
 
 export function clampRegionSize(v: number): number {
@@ -60,6 +71,17 @@ export function defaultScoreRegion(kind: ScoreRegionKind): EnvScoreRegion {
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `region_${Date.now().toString(36)}_${(regionIdSeq++).toString(36)}`;
+  if (kind === 'landing') {
+    return {
+      id,
+      kind,
+      x: 8,
+      y: SCORE_REGION_DEFAULT_LANDING_H / 2,
+      w: SCORE_REGION_DEFAULT_LANDING_W,
+      h: SCORE_REGION_DEFAULT_LANDING_H,
+      rate: SCORE_REGION_DEFAULT_LANDING_RATE,
+    };
+  }
   return {
     id,
     kind,
@@ -80,6 +102,19 @@ export function activeScoreRegions(env: EnvironmentDesign): EnvScoreRegion[] {
   return (env.regions ?? []).map(clampScoreRegion);
 }
 
+function jointsForRegionOverlap(
+  creature: SpawnedCreature,
+  region: EnvScoreRegion,
+): SpawnedCreature['joints'] {
+  if (region.kind === 'landing') {
+    const marked = creature.joints.filter((j) => j.isFoot && !j.isWheel);
+    return marked.length > 0
+      ? marked
+      : creature.joints.filter((j) => !j.isWheel);
+  }
+  return creature.joints;
+}
+
 export function jointOverlapsRegion(
   creature: SpawnedCreature,
   region: EnvScoreRegion,
@@ -87,12 +122,9 @@ export function jointOverlapsRegion(
   const r = clampScoreRegion(region);
   const hx = r.w / 2;
   const hy = r.h / 2;
-  for (const j of creature.joints) {
+  for (const j of jointsForRegionOverlap(creature, r)) {
     const p = j.body.translation();
-    if (
-      Math.abs(p.x - r.x) <= hx &&
-      Math.abs(p.y - r.y) <= hy
-    ) {
+    if (Math.abs(p.x - r.x) <= hx && Math.abs(p.y - r.y) <= hy) {
       return true;
     }
   }
@@ -101,45 +133,68 @@ export function jointOverlapsRegion(
 
 /**
  * Advance region accumulators for one fixed-dt step.
- * Penalty accrues every overlapping step; reward grants once per region id.
+ * Penalty accrues every overlapping step; reward/landing grant once per id.
+ * Landing requires `airTime >= LANDING_MIN_AIR_TIME`.
  */
 export function updateScoreRegionAccum(
   creature: SpawnedCreature,
   regions: EnvScoreRegion[],
   dt: number,
   state: ScoreRegionAccum,
+  airTime = 0,
 ): ScoreRegionAccum {
   if (regions.length === 0 || dt <= 0) return state;
   let penalty = state.penalty;
   let reward = state.reward;
+  let landingReward = state.landingReward;
   let touched = state.touchedRewardIds;
+  const canLand = airTime >= LANDING_MIN_AIR_TIME;
   for (const region of regions) {
     if (!jointOverlapsRegion(creature, region)) continue;
     const r = clampScoreRegion(region);
     if (r.kind === 'penalty') {
       penalty += r.rate * dt;
-    } else if (!touched.has(r.id)) {
-      if (touched === state.touchedRewardIds) {
-        touched = new Set(state.touchedRewardIds);
-      }
-      touched.add(r.id);
-      reward += r.rate;
+      continue;
     }
+    if (touched.has(r.id)) continue;
+    if (r.kind === 'landing' && !canLand) continue;
+    if (touched === state.touchedRewardIds) {
+      touched = new Set(state.touchedRewardIds);
+    }
+    touched.add(r.id);
+    if (r.kind === 'landing') landingReward += r.rate;
+    else reward += r.rate;
   }
   if (
     penalty === state.penalty &&
     reward === state.reward &&
+    landingReward === state.landingReward &&
     touched === state.touchedRewardIds
   ) {
     return state;
   }
-  return { penalty, reward, touchedRewardIds: touched };
+  return { penalty, reward, landingReward, touchedRewardIds: touched };
 }
 
 /** Apply region delta after task base score, before non-negative clamp. */
 export function applyRegionScore(
   baseFitness: number,
   accum: ScoreRegionAccum,
+  landingMult = 1,
 ): number {
-  return baseFitness - accum.penalty + accum.reward;
+  const land = accum.landingReward * Math.max(0, landingMult);
+  return baseFitness - accum.penalty + accum.reward + land;
+}
+
+/** True after any landing region has granted its touch-once bonus. */
+export function hasSuccessfulLanding(accum: ScoreRegionAccum): boolean {
+  return accum.landingReward > 0;
+}
+
+/**
+ * C2.9 deepen — stop this individual's episode after a credited landing.
+ * Does not mark a fall; scoring keeps the landing bonus.
+ */
+export function shouldEndEpisodeOnLanding(accum: ScoreRegionAccum): boolean {
+  return isFeatureEnabled('endEpisodeOnLanding') && hasSuccessfulLanding(accum);
 }

@@ -1,4 +1,10 @@
 import {
+  drawClothMesh,
+  drawClothPinMarkers,
+  previewClothGarment,
+  stepClothGarment,
+} from '../appearance/cloth';
+import {
   drawGooglyEye,
   GOOGLY_BEAD_FRAC,
   GOOGLY_DOME_RADIUS,
@@ -7,14 +13,25 @@ import {
   stepGooglyEye,
 } from '../appearance/googlyEyes';
 import { resolveBodyPartPose } from '../appearance/bodyPartOps';
-import type { AppearanceRig, BodyPartAttachment } from '../appearance/types';
+import type { AppearanceRig, BodyPartAttachment, ClothGarmentDef } from '../appearance/types';
 import { getBodyPart, getBodyPartImage } from '../appearance/bodyPartCatalog';
+import {
+  PARA_VIS_BULGE,
+  PARA_VIS_EDITOR_INFLATION,
+  PARA_VIS_FILL,
+  PARA_VIS_WIDTH_SCALE,
+} from '../appearance/parachuteVisual';
 import { driveGroupStrokeColor, normalizeDriveGroup } from '../brain/driveGroups';
 import type { CreatureDesign } from '../creature/types';
 import { EDITOR_GRID } from '../editor/grid';
 import { GROUND_Y } from '../physics/constants';
 import { isFeatureEnabled } from '../port/featureFlags';
-import { type Camera, screenToWorld, worldToScreen } from './Camera';
+import {
+  type Camera,
+  screenToWorld,
+  worldToScreen,
+  writeWorldToScreen,
+} from './Camera';
 import type { EnvCourseMarker } from '../env/types';
 import type { AgentSnapshot, SimulationSnapshot } from './simulation';
 
@@ -85,6 +102,7 @@ export function clearCanvas(
   w: number,
   h: number,
 ): void {
+  // Fallback when parallax sky is off — flat theme-agnostic clear.
   const g = ctx.createLinearGradient(0, 0, 0, h);
   g.addColorStop(0, '#1a2332');
   g.addColorStop(1, '#0d121a');
@@ -236,10 +254,26 @@ export function drawObstacles(
     const rw = o.hx * 2 * cam.zoom;
     const rh = o.hy * 2 * cam.zoom;
     ctx.fillStyle = obstacleFill(o.kind);
-    ctx.strokeStyle = 'rgba(180, 200, 220, 0.55)';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle =
+      o.kind === 'pad'
+        ? 'rgba(255, 210, 120, 0.9)'
+        : 'rgba(180, 200, 220, 0.55)';
+    ctx.lineWidth = o.kind === 'pad' ? 2 : 1.5;
     ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
     ctx.strokeRect(-rw / 2, -rh / 2, rw, rh);
+    if (o.kind === 'pad' && rw > 10) {
+      // Up-chevrons so the pad reads as a launcher in the editor/sim.
+      ctx.strokeStyle = 'rgba(255, 230, 160, 0.85)';
+      ctx.lineWidth = 1.5;
+      const midY = -rh * 0.05;
+      for (const ox of [-rw * 0.22, 0, rw * 0.22]) {
+        ctx.beginPath();
+        ctx.moveTo(ox - 5, midY + 4);
+        ctx.lineTo(ox, midY - 5);
+        ctx.lineTo(ox + 5, midY + 4);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 }
@@ -262,6 +296,9 @@ export function drawScoreRegions(
     if (r.kind === 'penalty') {
       ctx.fillStyle = 'rgba(190, 70, 70, 0.28)';
       ctx.strokeStyle = 'rgba(220, 110, 100, 0.75)';
+    } else if (r.kind === 'landing') {
+      ctx.fillStyle = 'rgba(210, 160, 50, 0.32)';
+      ctx.strokeStyle = 'rgba(240, 190, 70, 0.9)';
     } else {
       ctx.fillStyle = 'rgba(70, 160, 100, 0.28)';
       ctx.strokeStyle = 'rgba(110, 200, 140, 0.75)';
@@ -398,6 +435,8 @@ function obstacleFill(kind: string): string {
       return 'rgba(110, 90, 80, 0.8)';
     case 'loop':
       return 'rgba(90, 100, 130, 0.7)';
+    case 'pad':
+      return 'rgba(200, 140, 60, 0.88)';
     default:
       return 'rgba(80, 100, 120, 0.8)';
   }
@@ -409,7 +448,7 @@ export function drawSnapshot(
   w: number,
   h: number,
   snap: SimulationSnapshot,
-  options?: { skipScenery?: boolean },
+  options?: { skipScenery?: boolean; clothDt?: number },
 ): void {
   if (!options?.skipScenery) {
     drawTerrain(ctx, cam, w, h, snap.terrain);
@@ -425,6 +464,7 @@ export function drawSnapshot(
           {
             joints: snap.joints,
             bones: snap.bones,
+            struts: snap.struts,
             muscles: snap.muscles,
             opacity: 1,
             focused: true,
@@ -438,7 +478,9 @@ export function drawSnapshot(
     return a.focused ? 1 : -1;
   });
 
+  const clothDt = options?.clothDt ?? 1 / 60;
   for (const agent of ordered) {
+    const agentIndex = agents.indexOf(agent);
     ctx.save();
     ctx.globalAlpha = agent.opacity;
     drawAgent(
@@ -448,8 +490,8 @@ export function drawSnapshot(
       h,
       agent,
       agent.appearance ?? snap.appearance,
-      1 / 60,
-      agent.focused ? 'focus' : 'ghost',
+      clothDt,
+      `a${agentIndex}`,
       snap.hideMuscles === true,
       snap.hideBones === true,
     );
@@ -515,6 +557,56 @@ function drawCourseTimerHud(
   ctx.restore();
 }
 
+/** Scratch points for agent draw — reused to avoid per-part allocations. */
+const _scrA = { x: 0, y: 0 };
+const _scrB = { x: 0, y: 0 };
+const _scrC = { x: 0, y: 0 };
+
+function muscleStrokeStyle(
+  action: SimulationSnapshot['muscles'][number]['action'],
+): string {
+  if (action === 'contract') return '#e85d4c';
+  if (action === 'expand') return '#4c8fe8';
+  return '#8a6a5a';
+}
+
+function muscleWidthBucket(
+  drive: number,
+  action: SimulationSnapshot['muscles'][number]['action'],
+): number {
+  const width = 2 + Math.abs(drive) * 4 + (action === 'idle' ? 0 : 1);
+  // Quantize so same-style muscles can share a single stroke.
+  return Math.max(1, Math.round(width * 2) / 2);
+}
+
+function drawStrut(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  w: number,
+  h: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  selected = false,
+): void {
+  writeWorldToScreen(cam, w, h, ax, ay, _scrA);
+  writeWorldToScreen(cam, w, h, bx, by, _scrB);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = selected ? '#f0c040' : '#3a4554';
+  ctx.lineWidth = Math.max(3, 0.22 * cam.zoom);
+  ctx.beginPath();
+  ctx.moveTo(_scrA.x, _scrA.y);
+  ctx.lineTo(_scrB.x, _scrB.y);
+  ctx.stroke();
+  ctx.strokeStyle = selected ? '#f5d76e' : '#5a6a7c';
+  ctx.lineWidth = Math.max(1.5, 0.12 * cam.zoom);
+  ctx.beginPath();
+  ctx.moveTo(_scrA.x, _scrA.y);
+  ctx.lineTo(_scrB.x, _scrB.y);
+  ctx.stroke();
+}
+
 function drawAgent(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
@@ -523,6 +615,7 @@ function drawAgent(
   agent: {
     joints: SimulationSnapshot['joints'];
     bones: SimulationSnapshot['bones'];
+    struts?: SimulationSnapshot['struts'];
     muscles: SimulationSnapshot['muscles'];
   },
   appearance?: AppearanceRig,
@@ -531,43 +624,127 @@ function drawAgent(
   hideMuscles = false,
   hideBones = false,
 ): void {
-  if (!hideMuscles) {
+  if (!hideMuscles && agent.muscles.length > 0) {
+    // Batch by (action color, quantized width) — one beginPath/stroke per bucket.
+    const buckets = new Map<
+      string,
+      { style: string; width: number; segs: number[] }
+    >();
     for (const m of agent.muscles) {
-      const a = worldToScreen(cam, w, h, m.ax, m.ay);
-      const b = worldToScreen(cam, w, h, m.bx, m.by);
-      const width =
-        2 + Math.abs(m.drive) * 4 + (m.action === 'idle' ? 0 : 1);
-      if (m.action === 'contract') ctx.strokeStyle = '#e85d4c';
-      else if (m.action === 'expand') ctx.strokeStyle = '#4c8fe8';
-      else ctx.strokeStyle = '#8a6a5a';
-      ctx.lineWidth = width;
-      ctx.lineCap = 'round';
+      const width = muscleWidthBucket(m.drive, m.action);
+      const style = muscleStrokeStyle(m.action);
+      const key = `${m.action}:${width}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { style, width, segs: [] };
+        buckets.set(key, bucket);
+      }
+      writeWorldToScreen(cam, w, h, m.ax, m.ay, _scrA);
+      writeWorldToScreen(cam, w, h, m.bx, m.by, _scrB);
+      bucket.segs.push(_scrA.x, _scrA.y, _scrB.x, _scrB.y);
+    }
+    ctx.lineCap = 'round';
+    for (const bucket of buckets.values()) {
+      ctx.strokeStyle = bucket.style;
+      ctx.lineWidth = bucket.width;
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      const segs = bucket.segs;
+      for (let i = 0; i < segs.length; i += 4) {
+        ctx.moveTo(segs[i], segs[i + 1]);
+        ctx.lineTo(segs[i + 2], segs[i + 3]);
+      }
       ctx.stroke();
     }
   }
 
   if (!hideBones) {
     for (const bone of agent.bones) {
-      drawBone(ctx, cam, w, h, bone.x, bone.y, bone.angle, bone.halfLength, bone.halfWidth);
+      if (
+        isFeatureEnabled('parachuteCanopyVisual') &&
+        bone.aeroType === 'parachute'
+      ) {
+        drawParachuteBone(
+          ctx,
+          cam,
+          w,
+          h,
+          bone.x,
+          bone.y,
+          bone.angle,
+          bone.halfLength,
+          bone.halfWidth,
+          bone.chuteInflation ?? 0,
+          PARA_VIS_FILL,
+        );
+      } else {
+        drawBone(
+          ctx,
+          cam,
+          w,
+          h,
+          bone.x,
+          bone.y,
+          bone.angle,
+          bone.halfLength,
+          bone.halfWidth,
+        );
+      }
+    }
+    const struts = agent.struts ?? [];
+    for (const s of struts) {
+      drawStrut(ctx, cam, w, h, s.ax, s.ay, s.bx, s.by);
     }
   }
 
   const hideSkeleton = hideBones || appearance?.hideSkeleton === true;
   if (!hideSkeleton) {
+    ctx.fillStyle = '#d8dde6';
+    ctx.strokeStyle = '#2a3340';
+    ctx.lineWidth = 1.5;
     for (const joint of agent.joints) {
-      const p = worldToScreen(cam, w, h, joint.x, joint.y);
+      writeWorldToScreen(cam, w, h, joint.x, joint.y, _scrA);
       const r = joint.radius * cam.zoom;
-      ctx.fillStyle = '#d8dde6';
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.arc(_scrA.x, _scrA.y, r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#2a3340';
-      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+  }
+
+  const clothGarments =
+    isFeatureEnabled('cosmeticCloth') && appearance?.cloth?.length
+      ? appearance.cloth
+      : [];
+  const clothPose = { joints: agent.joints, bones: agent.bones };
+  const steppedCloth = new Map<
+    string,
+    { garment: ClothGarmentDef; particles: { x: number; y: number }[] }
+  >();
+  for (const garment of clothGarments) {
+    const rt = stepClothGarment(
+      `${creatureKey}:cloth:${garment.id}`,
+      garment,
+      clothPose,
+      dt,
+    );
+    steppedCloth.set(garment.id, {
+      garment,
+      particles: rt.particles.map((p) => ({ x: p.x, y: p.y })),
+    });
+  }
+
+  for (const { garment, particles } of steppedCloth.values()) {
+    if ((garment.layer ?? 'under') !== 'under') continue;
+    drawClothMesh(
+      ctx,
+      cam,
+      w,
+      h,
+      garment.cols,
+      garment.rows,
+      particles,
+      garment.color,
+    );
   }
 
   if (isFeatureEnabled('spriteBodyParts') && appearance?.bodyParts?.length) {
@@ -576,6 +753,20 @@ function drawAgent(
       if (!pose) continue;
       drawBodyPartSprite(ctx, cam, w, h, part, pose);
     }
+  }
+
+  for (const { garment, particles } of steppedCloth.values()) {
+    if ((garment.layer ?? 'under') !== 'over') continue;
+    drawClothMesh(
+      ctx,
+      cam,
+      w,
+      h,
+      garment.cols,
+      garment.rows,
+      particles,
+      garment.color,
+    );
   }
 
   if (isFeatureEnabled('googlyEyes') && appearance?.googlyEyes?.length) {
@@ -618,6 +809,9 @@ export function drawDesign(
     selectedBoneId?: number | null;
     selectedMuscleId?: number | null;
     selectedBodyPartIndex?: number | null;
+    selectedClothIndex?: number | null;
+    /** H9 — joints staged as cloth pins while material-drawing. */
+    clothDraftJointIds?: number[] | null;
     hoverJointId?: number | null;
     hoverBoneId?: number | null;
     dragPreview?: {
@@ -631,6 +825,7 @@ export function drawDesign(
 ): void {
   const selectedJoints = new Set(opts?.selectedJointIds ?? []);
   if (opts?.selectedJointId != null) selectedJoints.add(opts.selectedJointId);
+  const clothDraftJoints = new Set(opts?.clothDraftJointIds ?? []);
   const jointPos = new Map(design.joints.map((j) => [j.id, j]));
   const boneCenter = new Map<number, { x: number; y: number }>();
 
@@ -641,21 +836,48 @@ export function drawDesign(
     const cx = (a.x + b.x) / 2;
     const cy = (a.y + b.y) / 2;
     boneCenter.set(bone.id, { x: cx, y: cy });
-    const angle = Math.atan2(b.y - a.y, b.x - a.x) - Math.PI / 2;
-    const halfLength = Math.hypot(b.x - a.x, b.y - a.y) / 2;
     const selected =
       opts?.selectedBoneId === bone.id || opts?.hoverBoneId === bone.id;
+    if (
+      isFeatureEnabled('rigidStruts') &&
+      bone.rigid === true
+    ) {
+      drawStrut(ctx, cam, w, h, a.x, a.y, b.x, b.y, selected);
+      continue;
+    }
+    const angle = Math.atan2(b.y - a.y, b.x - a.x) - Math.PI / 2;
+    const halfLength = Math.hypot(b.x - a.x, b.y - a.y) / 2;
     const aero = (bone.aeroArea ?? 0) > 0;
     const aeroFill =
       bone.aeroType === 'wing'
         ? '#7ec8a0'
         : bone.aeroType === 'parachute'
-          ? '#d4a06a'
+          ? PARA_VIS_FILL
           : bone.aeroType === 'glider'
             ? '#6ab0c8'
             : '#6ab0c8';
     const fill = selected ? '#f0c040' : aero ? aeroFill : '#6a8aaa';
-    drawBone(ctx, cam, w, h, cx, cy, angle, halfLength, 0.14, fill);
+    if (
+      isFeatureEnabled('parachuteCanopyVisual') &&
+      bone.aeroType === 'parachute' &&
+      aero
+    ) {
+      drawParachuteBone(
+        ctx,
+        cam,
+        w,
+        h,
+        cx,
+        cy,
+        angle,
+        halfLength,
+        0.14,
+        PARA_VIS_EDITOR_INFLATION,
+        fill,
+      );
+    } else {
+      drawBone(ctx, cam, w, h, cx, cy, angle, halfLength, 0.14, fill);
+    }
   }
 
   for (const muscle of design.muscles) {
@@ -707,14 +929,22 @@ export function drawDesign(
     const p = worldToScreen(cam, w, h, joint.x, joint.y);
     const selected =
       selectedJoints.has(joint.id) || opts?.hoverJointId === joint.id;
+    const clothPin = clothDraftJoints.has(joint.id);
     const r = 0.28 * cam.zoom;
-    ctx.fillStyle = selected ? '#f0c040' : '#d8dde6';
+    ctx.fillStyle = selected ? '#f0c040' : clothPin ? '#c9a0e8' : '#d8dde6';
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#2a3340';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = clothPin ? '#6a3d9a' : '#2a3340';
+    ctx.lineWidth = clothPin ? 2.5 : 1.5;
     ctx.stroke();
+    if (clothPin) {
+      ctx.strokeStyle = 'rgba(160, 100, 220, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (joint.isWheel) {
       ctx.strokeStyle = '#d4a04a';
       ctx.lineWidth = 2;
@@ -736,6 +966,49 @@ export function drawDesign(
     }
   }
 
+  const editorClothPose = {
+    joints: design.joints.map((j) => ({ id: j.id, x: j.x, y: j.y })),
+    bones: design.bones.map((b) => {
+      const a = jointPos.get(b.startJointId) ?? { x: 0, y: 0 };
+      const c = jointPos.get(b.endJointId) ?? { x: 0, y: 0 };
+      const dx = c.x - a.x;
+      const dy = c.y - a.y;
+      const len = Math.hypot(dx, dy);
+      return {
+        id: b.id,
+        x: (a.x + c.x) * 0.5,
+        y: (a.y + c.y) * 0.5,
+        angle: Math.atan2(dx, dy),
+        halfLength: len * 0.5,
+      };
+    }),
+  };
+
+  const editorCloth =
+    isFeatureEnabled('cosmeticCloth') && design.appearance?.cloth?.length
+      ? design.appearance.cloth
+      : [];
+
+  for (let i = 0; i < editorCloth.length; i++) {
+    const garment = editorCloth[i]!;
+    if ((garment.layer ?? 'under') !== 'under') continue;
+    const particles = previewClothGarment(garment, editorClothPose);
+    drawClothMesh(
+      ctx,
+      cam,
+      w,
+      h,
+      garment.cols,
+      garment.rows,
+      particles,
+      garment.color,
+      opts?.selectedClothIndex === i,
+    );
+    if (opts?.selectedClothIndex === i) {
+      drawClothPinMarkers(ctx, cam, w, h, garment, particles);
+    }
+  }
+
   // Body-part preview (bone/joint anchored).
   if (isFeatureEnabled('spriteBodyParts') && design.appearance?.bodyParts?.length) {
     design.appearance.bodyParts.forEach((part, index) => {
@@ -751,6 +1024,26 @@ export function drawDesign(
         opts?.selectedBodyPartIndex === index,
       );
     });
+  }
+
+  for (let i = 0; i < editorCloth.length; i++) {
+    const garment = editorCloth[i]!;
+    if ((garment.layer ?? 'under') !== 'over') continue;
+    const particles = previewClothGarment(garment, editorClothPose);
+    drawClothMesh(
+      ctx,
+      cam,
+      w,
+      h,
+      garment.cols,
+      garment.rows,
+      particles,
+      garment.color,
+      opts?.selectedClothIndex === i,
+    );
+    if (opts?.selectedClothIndex === i) {
+      drawClothPinMarkers(ctx, cam, w, h, garment, particles);
+    }
   }
 
   // Static googly preview in the editor (beads at rest).
@@ -784,22 +1077,75 @@ function drawBone(
   halfWidth: number,
   fill = '#7a9bb8',
 ): void {
-  // Bone local Y is along length (Rapier capsule orientation).
-  const c = worldToScreen(cam, w, h, x, y);
-  const len = halfLength * 2 * cam.zoom;
-  const wid = halfWidth * 2 * cam.zoom;
-  ctx.save();
-  ctx.translate(c.x, c.y);
-  // Screen Y is flipped; world angle is CCW from +X.
-  // Body rotation is bone angle (local Y along bone).
-  ctx.rotate(-angle);
-  ctx.fillStyle = fill;
+  // Capsule ≈ thick round-capped stroke along bone local +Y (Rapier orientation).
+  // Avoids per-bone save/translate/rotate/roundRect.
+  const dx = -Math.sin(angle) * halfLength;
+  const dy = Math.cos(angle) * halfLength;
+  writeWorldToScreen(cam, w, h, x - dx, y - dy, _scrA);
+  writeWorldToScreen(cam, w, h, x + dx, y + dy, _scrB);
+  const wid = Math.max(1, halfWidth * 2 * cam.zoom);
+  ctx.lineCap = 'round';
   ctx.strokeStyle = '#2a3340';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, -wid / 2, -len / 2, wid, len, wid / 2);
-  ctx.fill();
+  ctx.lineWidth = wid + 2;
+  ctx.beginPath();
+  ctx.moveTo(_scrA.x, _scrA.y);
+  ctx.lineTo(_scrB.x, _scrB.y);
   ctx.stroke();
-  ctx.restore();
+  ctx.strokeStyle = fill;
+  ctx.lineWidth = wid;
+  ctx.beginPath();
+  ctx.moveTo(_scrA.x, _scrA.y);
+  ctx.lineTo(_scrB.x, _scrB.y);
+  ctx.stroke();
+}
+
+/**
+ * Inflation-driven canopy: endpoints stay on bone tips; mid control point
+ * bulges along world +Y so a descending chute reads as a filled bowl.
+ * At inflation ≈ 0 the chord is straight (matches drawBone).
+ */
+function drawParachuteBone(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  w: number,
+  h: number,
+  x: number,
+  y: number,
+  angle: number,
+  halfLength: number,
+  halfWidth: number,
+  inflation: number,
+  fill = PARA_VIS_FILL,
+): void {
+  const t = Math.min(1, Math.max(0, inflation));
+  const open = t * t;
+  const dx = -Math.sin(angle) * halfLength;
+  const dy = Math.cos(angle) * halfLength;
+  const ax = x - dx;
+  const ay = y - dy;
+  const bx = x + dx;
+  const by = y + dy;
+  const bulge = PARA_VIS_BULGE * halfLength * open;
+  const cx = (ax + bx) * 0.5;
+  const cy = (ay + by) * 0.5 + bulge;
+  writeWorldToScreen(cam, w, h, ax, ay, _scrA);
+  writeWorldToScreen(cam, w, h, bx, by, _scrB);
+  writeWorldToScreen(cam, w, h, cx, cy, _scrC);
+  const widthMul = 1 + (PARA_VIS_WIDTH_SCALE - 1) * open;
+  const wid = Math.max(1, halfWidth * 2 * cam.zoom * widthMul);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#2a3340';
+  ctx.lineWidth = wid + 2;
+  ctx.beginPath();
+  ctx.moveTo(_scrA.x, _scrA.y);
+  ctx.quadraticCurveTo(_scrC.x, _scrC.y, _scrB.x, _scrB.y);
+  ctx.stroke();
+  ctx.strokeStyle = fill;
+  ctx.lineWidth = wid;
+  ctx.beginPath();
+  ctx.moveTo(_scrA.x, _scrA.y);
+  ctx.quadraticCurveTo(_scrC.x, _scrC.y, _scrB.x, _scrB.y);
+  ctx.stroke();
 }
 
 function roundRect(

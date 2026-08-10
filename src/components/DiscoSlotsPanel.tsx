@@ -168,7 +168,7 @@ export function DiscoSlotsPanel({
                       const m = savedModels.find((s) => s.id === v.slice(6));
                       if (m && !loadSaved(i, m)) {
                         window.alert(
-                          'Could not find a matching creature body for that saved model. Save/load the design in Creatures first.',
+                          'Could not find a matching creature body for that saved model. Save/load the design in Edit first.',
                         );
                       }
                     }
@@ -178,7 +178,7 @@ export function DiscoSlotsPanel({
                   <option value="__current__">Current editor design</option>
                   {BUNDLED_MODELS.map((m) => (
                     <option key={m.id} value={`bundled:${m.id}`}>
-                      Bundled · {m.displayName}
+                      Preset · {m.displayName}
                     </option>
                   ))}
                   {packages.slice(0, 16).map((p) => (

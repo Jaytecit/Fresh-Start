@@ -3,6 +3,7 @@ export type EditorSelection =
   | { kind: 'bone'; id: number }
   | { kind: 'muscle'; id: number }
   | { kind: 'bodyPart'; index: number }
+  | { kind: 'cloth'; index: number }
   | null;
 
 /** Normalize joint ids (unique, sorted). Empty → null. */

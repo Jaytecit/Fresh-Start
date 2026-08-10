@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BRAIN_HZ,
   BRAIN_HZ_FAST,
-  EPISODE_LENGTH_PRESETS,
+  clampEpisodeSeconds,
   EPISODE_SECONDS,
+  EPISODE_SECONDS_MAX,
+  EPISODE_SECONDS_MIN,
+  formatEpisodeSeconds,
   LIVE_BATCH_SIZE,
   LIVE_POPULATION_SIZE,
   type BrainHz,
@@ -14,9 +17,18 @@ import {
   type GoalPriorities,
 } from "./brain/goalPriorities";
 import {
+  buildCurriculumFromMarkers,
+  clearAuthoredCurriculum,
+  ensureCourseGates,
+  moveCheckpointOrder,
+  patchCurriculumStage,
+  placeEvenCheckpoints,
+} from "./env/courseAuthoring";
+import {
   applyCourseCurriculumStage,
   clampCourseStageIndex,
-  curriculumForPackageId,
+  hasCourseCurriculum,
+  resolveCourseCurriculum,
 } from "./env/courseCurriculum";
 import {
   defaultGaKnobSet,
@@ -94,25 +106,41 @@ import {
 } from "./appearance/bodyPartOps";
 import { getBodyPart } from "./appearance/bodyPartCatalog";
 import {
+  CLOTH_DEFAULT_FINENESS,
+  CLOTH_DEFAULT_STIFFNESS,
+  CLOTH_DEFAULT_WEIGHT,
+  CLOTH_MAX_COLS,
+  CLOTH_MAX_ROWS,
+  CLOTH_MIN_CELL,
+  CLOTH_MAX_CELL,
+} from "./appearance/clothConstants";
+import {
+  addCapePreset,
+  addCoveringGarment,
+  removeClothGarment,
+  updateClothGarment,
+} from "./appearance/clothOps";
+import {
   jointHasGooglyEyes,
   setJointGooglyEyes,
 } from "./appearance/googlyEyes";
 import { emptyAppearance } from "./appearance/types";
 import { BodyPartCatalogPicker } from "./components/BodyPartCatalogPicker";
-import { CapabilityPanel } from "./components/CapabilityPanel";
 import { CollapsiblePanel } from "./components/CollapsiblePanel";
+import { ContextStrip } from "./components/ContextStrip";
+import {
+  CreaturesPanel,
+  type CreaturesBrowseKey,
+} from "./components/CreaturesPanel";
 import { type DiscoSlotState } from "./components/DiscoSlotsPanel";
 import { DiscoCurriculumPanel } from "./components/DiscoCurriculumPanel";
 import { DiscoTrackLearnPanel } from "./components/DiscoTrackLearnPanel";
 import { DiscoZonePanel } from "./components/DiscoZonePanel";
-import { EnvPicker } from "./components/EnvPicker";
 import {
   HeadToHeadPanel,
   headToHeadEntriesFromModels,
 } from "./components/HeadToHeadPanel";
 import { GoalInfoCard } from "./components/GoalInfoCard";
-import { GoalPicker } from "./components/GoalPicker";
-import { ModelsHub } from "./components/ModelsHub";
 import { NetworkVisualizer } from "./components/NetworkVisualizer";
 import { TrainingSetupPanel } from "./components/TrainingSetupPanel";
 import { PerfDiagnostics } from "./components/PerfDiagnostics";
@@ -151,6 +179,7 @@ import {
 import { AERO_AREA_SLIDER_MAX } from "./editor/flightMetrics";
 import {
   assignDriveGroup,
+  boneHasMuscle,
   clearDriveGroup,
   updateBone,
   updateJoint,
@@ -161,9 +190,16 @@ import {
   DEFAULT_DISCO_BALL_X,
   DEFAULT_DISCO_BALL_Y,
   DEFAULT_DISCO_PUPPET_MODE,
-  DISCO_FOOT_MASS_DEFAULT,
+  FOOT_MASS_DEFAULT,
+  FOOT_MASS_MAX,
+  FOOT_MASS_MIN,
+  WHEEL_MASS_DEFAULT,
+  WHEEL_MASS_MAX,
+  WHEEL_MASS_MIN,
   ANTI_SCOOT,
   ANTI_SCOOT_MAX,
+  clampFootMass,
+  clampWheelMass,
   type DiscoPuppetMode,
 } from "./physics/constants";
 import { EnvEditorCanvas } from "./env/EnvEditorCanvas";
@@ -190,7 +226,6 @@ import { designCandidatePool } from "./library/resolveModelDesign";
 import {
   bodyFingerprint,
   considerBestEver,
-  getBestEver,
   loadBestEver,
   type BestEverEntry,
 } from "./library/bestEver";
@@ -264,7 +299,6 @@ import {
 import {
   loadActiveZone,
   saveActiveZone,
-  ZONE_ORDER,
   ZONES,
   type ZoneId,
 } from "./zones/zones";
@@ -294,6 +328,19 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("edit");
   const [tool, setTool] = useState<EditTool>("joint");
+  /** G8 — bone tool draws solid struts instead of hinge bones. */
+  const [boneRigid, setBoneRigid] = useState(false);
+  /** H9 — material-draw cloth: joints clicked as pins (one at a time). */
+  const [clothDraftPins, setClothDraftPins] = useState<number[]>([]);
+  const [clothDraftFineness, setClothDraftFineness] = useState(
+    CLOTH_DEFAULT_FINENESS,
+  );
+  const [clothDraftWeight, setClothDraftWeight] = useState(
+    CLOTH_DEFAULT_WEIGHT,
+  );
+  const [clothDraftStiffness, setClothDraftStiffness] = useState(
+    CLOTH_DEFAULT_STIFFNESS,
+  );
   const [snapEnabled, setSnapEnabled] = useState(true);
   /** Edit tab: drop creature idle under gravity to preview natural settle. */
   const [editPhysics, setEditPhysics] = useState(false);
@@ -360,11 +407,27 @@ export default function App() {
   const [stageTrainerOn, setStageTrainerOn] = useState(false);
   const [courseCurriculumOn, setCourseCurriculumOn] = useState(false);
   const [courseStageIndex, setCourseStageIndex] = useState(0);
+  /** Full env snapshot while Train course stages is rewriting spawn/finish. */
+  const courseBaseEnvRef = useRef<EnvironmentDesign | null>(null);
   const [raceRecord, setRaceRecord] = useState(false);
   const [messyBodies, setMessyBodies] = useState(false);
+  const [raycastObservationsOn, setRaycastObservationsOn] = useState(() => {
+    try {
+      return localStorage.getItem("freshstart_raycast_obs_v1") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [morphEvolveOn, setMorphEvolveOn] = useState(() => {
     try {
       return localStorage.getItem("freshstart_morph_evolve_v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [structuralMorphOn, setStructuralMorphOn] = useState(() => {
+    try {
+      return localStorage.getItem("freshstart_structural_morph_v1") === "1";
     } catch {
       return false;
     }
@@ -419,7 +482,6 @@ export default function App() {
   const [discoPuppetMode, setDiscoPuppetMode] = useState<DiscoPuppetMode>(
     DEFAULT_DISCO_PUPPET_MODE,
   );
-  const [discoFootMass, setDiscoFootMass] = useState(DISCO_FOOT_MASS_DEFAULT);
   const [discoHideMuscles, setDiscoHideMuscles] = useState(false);
   const [discoHideBones, setDiscoHideBones] = useState(false);
   const [discoGreenscreen, setDiscoGreenscreen] = useState(false);
@@ -500,6 +562,7 @@ export default function App() {
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [dockInset, setDockInset] = useState(0);
   const [feelNotesOpen, setFeelNotesOpen] = useState(false);
+  const [trainMoreOpen, setTrainMoreOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(
     () => !isFeatureEnabled("trainDockIa"),
   );
@@ -515,7 +578,10 @@ export default function App() {
   const [perfFps, setPerfFps] = useState(0);
   const [perfFrameMs, setPerfFrameMs] = useState(0);
   const [immersive, setImmersive] = useState(false);
-  const [creatureFilter, setCreatureFilter] = useState("");
+  /** Edit menu creature picker: `preset:Name` | `pkg:id` | `custom`. */
+  const [selectedCreatureKey, setSelectedCreatureKey] = useState(
+    () => `preset:${PRESETS[0]?.name ?? "Custom"}`,
+  );
   const [worldThemeOpen, setWorldThemeOpen] = useState(true);
   const [worldLibOpen, setWorldLibOpen] = useState(true);
   const [envTool, setEnvTool] = useState<EnvTool>("select");
@@ -523,6 +589,9 @@ export default function App() {
   const [envSnapEnabled, setEnvSnapEnabled] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const envFileInputRef = useRef<HTMLInputElement>(null);
+  /** Cap RAF → React UI updates (~10 Hz) so the canvas isn't fighting setState. */
+  const frameUiLastRef = useRef(0);
+  const perfUiLastRef = useRef(0);
   /** Persist Edit pan/zoom across tool/selection changes and remounts. */
   const editorCamRef = useRef(createCamera());
   const designRef = useRef(design);
@@ -762,12 +831,23 @@ export default function App() {
         selection.index >= design.appearance.bodyParts.length)
     ) {
       setSelection(null);
+    } else if (
+      selection.kind === "cloth" &&
+      (!design.appearance?.cloth ||
+        selection.index < 0 ||
+        selection.index >= design.appearance.cloth.length)
+    ) {
+      setSelection(null);
     }
   }, [design, selection]);
   useEffect(() => {
     if (mode !== "sim" && mode !== "world") setDockInset(0);
   }, [mode]);
   const hasCreature = design.joints.length > 0;
+  const footMass = clampFootMass(design.footMass ?? FOOT_MASS_DEFAULT);
+  const wheelMass = clampWheelMass(design.wheelMass ?? WHEEL_MASS_DEFAULT);
+  const markedFootCount = design.joints.filter((j) => j.isFoot).length;
+  const markedWheelCount = design.joints.filter((j) => j.isWheel).length;
   /** Prefer warm-start from this run’s elite on the next Evolve. */
   const preferBestOfRun = useCallback(() => {
     if (!isFeatureEnabled("trainStartFrom")) return;
@@ -1305,7 +1385,7 @@ export default function App() {
       auto: discoAuto,
       routing: discoRouting,
       puppetMode: discoPuppetMode,
-      footMass: discoFootMass,
+      footMass,
       hideMuscles: discoHideMuscles,
       hideBones: discoHideBones,
       greenscreen: discoGreenscreen,
@@ -1334,7 +1414,7 @@ export default function App() {
     danceGenome,
     danceStage,
     discoAuto,
-    discoFootMass,
+    footMass,
     discoGains,
     discoGreenscreen,
     discoBallPos.x,
@@ -1374,8 +1454,11 @@ export default function App() {
       setDiscoRouting({ ...setup.routing });
       setDiscoPuppetMode(setup.puppetMode);
       simulation.setDiscoPuppetMode(setup.puppetMode);
-      setDiscoFootMass(setup.footMass);
-      simulation.setDiscoFootMass(setup.footMass);
+      setDesign((prev) => ({
+        ...prev,
+        footMass: clampFootMass(setup.footMass),
+      }));
+      simulation.setFootMass(setup.footMass);
       setDiscoHideMuscles(setup.hideMuscles);
       simulation.hideMuscles = setup.hideMuscles;
       setDiscoHideBones(setup.hideBones);
@@ -1677,7 +1760,7 @@ export default function App() {
       simulation.loadDesign(designRef.current);
     }
     simulation.setDiscoPuppetMode(discoPuppetMode);
-    simulation.setDiscoFootMass(discoFootMass);
+    simulation.setFootMass(footMass);
     setMode("sim");
     setSandboxTab("zone");
     if (discoPlayer.hasTrack()) {
@@ -1691,7 +1774,7 @@ export default function App() {
     applyDiscoEnvironment,
     beginDiscoDrive,
     captureLiveElite,
-    discoFootMass,
+    footMass,
     discoPlayer,
     discoPuppetMode,
     simulation,
@@ -1742,7 +1825,7 @@ export default function App() {
       simulation.driveMode = "brain";
       setDiscoFreestyle(true);
       setMode("sim");
-      setSandboxTab("creatures");
+      setSandboxTab("edit");
     },
     [
       activeDiscoDesign,
@@ -1775,6 +1858,10 @@ export default function App() {
       const adapted = adaptEliteToDesign(
         promoted ?? bestGenomeRef.current,
         applied,
+        {
+          raycast:
+            isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+        },
       );
       if (adapted) {
         const prior = promoted ?? bestGenomeRef.current;
@@ -1814,8 +1901,27 @@ export default function App() {
         }
       }
     },
-    [preferBestOfRun, simulation],
+    [preferBestOfRun, raycastObservationsOn, simulation],
   );
+
+  const applyFootMass = useCallback(
+    (mass: number) => {
+      const m = clampFootMass(mass);
+      commitDesign({ ...designRef.current, footMass: m });
+      simulation.setFootMass(m);
+    },
+    [commitDesign, simulation],
+  );
+
+  const applyWheelMass = useCallback(
+    (mass: number) => {
+      const m = clampWheelMass(mass);
+      commitDesign({ ...designRef.current, wheelMass: m });
+      simulation.setWheelMass(m);
+    },
+    [commitDesign, simulation],
+  );
+
   const undo = useCallback(() => {
     const prev = undoStackRef.current.pop();
     if (!prev) return;
@@ -1827,6 +1933,10 @@ export default function App() {
     const adapted = adaptEliteToDesign(
       promoted ?? bestGenomeRef.current,
       prev,
+      {
+        raycast:
+          isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+      },
     );
     if (adapted) {
       setBestGenome(adapted);
@@ -1845,7 +1955,7 @@ export default function App() {
         simulation.driveMode = "idle";
       }
     }
-  }, [preferBestOfRun, simulation]);
+  }, [preferBestOfRun, raycastObservationsOn, simulation]);
   const commitEnv = useCallback(
     (
       next: EnvironmentDesign,
@@ -1873,15 +1983,36 @@ export default function App() {
     setActiveEnvPackageId(null);
     setEnvSelection(null);
   }, []);
-  /** Apply a curriculum stage window onto the active course package. */
+  const courseBaseForResolve = useCallback((): EnvironmentDesign | null => {
+    if (courseBaseEnvRef.current) return courseBaseEnvRef.current;
+    if (activeEnvPackageId) {
+      const pkg = envPackages.find((p) => p.id === activeEnvPackageId);
+      if (pkg) return pkg.environment;
+    }
+    return envDesign;
+  }, [activeEnvPackageId, envDesign, envPackages]);
+
+  /** Apply a curriculum stage window onto the active course package / draft. */
   const applyCourseStage = useCallback(
-    (packageId: string, stageIndex: number, opts?: { selectSprint?: boolean }) => {
-      const curriculum = curriculumForPackageId(packageId);
+    (
+      packageId: string | null,
+      stageIndex: number,
+      opts?: { selectSprint?: boolean; baseEnv?: EnvironmentDesign },
+    ) => {
+      const base =
+        opts?.baseEnv ??
+        courseBaseEnvRef.current ??
+        (packageId
+          ? envPackages.find((p) => p.id === packageId)?.environment
+          : null) ??
+        envDesign;
+      courseBaseEnvRef.current = cloneEnvironment(base);
+      const curriculum = resolveCourseCurriculum(packageId, base);
       if (!curriculum) return false;
       const idx = clampCourseStageIndex(curriculum, stageIndex);
       const staged = applyCourseCurriculumStage(curriculum, idx);
       setEnvDesign(staged);
-      setActiveEnvPackageId(packageId);
+      if (packageId) setActiveEnvPackageId(packageId);
       setCourseStageIndex(idx);
       setEnvSelection(null);
       if (opts?.selectSprint) {
@@ -1889,15 +2020,19 @@ export default function App() {
       }
       return true;
     },
-    [],
+    [envDesign, envPackages],
   );
 
   /** Apply a saved package as the active training / studio environment. */
   const applyTrainingEnv = useCallback(
     (pkg: EnvironmentPackage) => {
-      const curriculum = curriculumForPackageId(pkg.id);
+      courseBaseEnvRef.current = cloneEnvironment(pkg.environment);
+      const curriculum = resolveCourseCurriculum(pkg.id, pkg.environment);
       if (courseCurriculumOn && curriculum) {
-        applyCourseStage(pkg.id, 0, { selectSprint: true });
+        applyCourseStage(pkg.id, 0, {
+          selectSprint: true,
+          baseEnv: pkg.environment,
+        });
         setCourseCurriculumOn(true);
         return;
       }
@@ -1988,6 +2123,15 @@ export default function App() {
         e.preventDefault();
         commitDesign(deleteJointSelection(design, jointIds));
         setSelection(null);
+        return;
+      }
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        selection?.kind === "cloth"
+      ) {
+        e.preventDefault();
+        commitDesign(removeClothGarment(design, selection.index));
+        setSelection(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -2034,10 +2178,14 @@ export default function App() {
       simulation.loadDesign(next);
       setManualDrives(simulation.manualDrives.slice());
       setMode("sim");
-      const adapted = adaptEliteToDesign(elite, next);
+      const adapted = adaptEliteToDesign(elite, next, {
+        raycast:
+          isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+      });
       if (adapted) {
         setBestGenome(adapted);
         preferBestOfRun();
+        simulation.setRaycastObservations(raycastObservationsOn);
         simulation.setBrain(adapted.shape, adapted.genome.weights);
         setDriveMode("brain");
         simulation.driveMode = "brain";
@@ -2143,18 +2291,61 @@ export default function App() {
       setSandboxTab("discoveries");
       return;
     }
+    if (tab === "creatures") {
+      setSandboxTab("creatures");
+      return;
+    }
     setSandboxTab(tab);
   };
-  const loadPreset = (preset: CreatureDesign) => {
+  const loadPreset = (preset: CreatureDesign, creatureKey?: string) => {
     const next = ensureAppearance(cloneDesign(preset));
     commitDesign(next);
     setSaveName(next.name || "Custom");
-    // Keep the sim viewport in sync when picking from Creatures while already simulating.
+    if (creatureKey !== undefined) setSelectedCreatureKey(creatureKey);
+    // Keep the sim viewport in sync when picking a body while already simulating.
     if (mode === "sim" && !simulation.isEvolving) {
       if (syncDesignToSim(next) && editPhysics) {
         setSandboxTab("edit");
         simulation.timeScale = observeSpeed;
       }
+    }
+  };
+  const loadCreatureByKey = (key: string) => {
+    if (key === "custom" || key === "current" || !key) {
+      setSelectedCreatureKey("custom");
+      return;
+    }
+    if (key.startsWith("preset:")) {
+      const name = key.slice("preset:".length);
+      const preset =
+        name === DISCO_DANCER.name
+          ? DISCO_DANCER
+          : name === ULTI_GROOVE_BOT_II.name
+            ? ULTI_GROOVE_BOT_II
+            : PRESETS.find((p) => p.name === name);
+      if (preset) loadPreset(preset, key);
+      return;
+    }
+    if (key.startsWith("pkg:") && isFeatureEnabled("creaturePackages")) {
+      const pkg = packages.find((p) => p.id === key.slice("pkg:".length));
+      if (!pkg) return;
+      loadPreset(
+        {
+          ...cloneDesign(pkg.design),
+          appearance: pkg.appearance,
+          name: pkg.displayName,
+        },
+        key,
+      );
+    }
+  };
+
+  const openCreatureFromBrowser = (key: CreaturesBrowseKey) => {
+    loadCreatureByKey(key);
+    if (mode !== "edit") {
+      returnToEdit();
+    } else {
+      setSandboxTab("edit");
     }
   };
   const clearDesign = () => {
@@ -2166,6 +2357,7 @@ export default function App() {
       appearance: emptyAppearance(),
     });
     setSaveName("Custom");
+    setSelectedCreatureKey("custom");
     returnToEdit();
   };
   const updateManual = (index: number, value: number) => {
@@ -2185,8 +2377,12 @@ export default function App() {
     | undefined => {
     if (seedFrom) return seedFrom;
     if (!isFeatureEnabled("trainStartFrom")) return undefined;
+    const shapeOpts = {
+      raycast:
+        isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+    };
     if (gaKnobs.startFrom === "best_of_run" && bestGenome) {
-      const adapted = adaptEliteToDesign(bestGenome, design);
+      const adapted = adaptEliteToDesign(bestGenome, design, shapeOpts);
       if (adapted) {
         return {
           shape: adapted.shape,
@@ -2202,7 +2398,7 @@ export default function App() {
     if (gaKnobs.startFrom === "saved" && gaKnobs.savedModelId) {
       const model = savedModels.find((m) => m.id === gaKnobs.savedModelId);
       if (!model || model.task === "dance") return undefined;
-      const expected = shapeForDesign(design);
+      const expected = shapeForDesign(design, shapeOpts);
       if (!shapesCompatible(model.shape, expected) || model.task !== activeTask) {
         setError(
           "Saved brain shape/task mismatch — pick a matching creature and goal first.",
@@ -2286,8 +2482,14 @@ export default function App() {
         batchSize,
         morphEvolve:
           isFeatureEnabled("morphEvolve") && morphEvolveOn,
+        structuralMorphEvolve:
+          isFeatureEnabled("structuralMorphEvolve") &&
+          morphEvolveOn &&
+          structuralMorphOn,
         messyBodies:
           isFeatureEnabled("trainExperiences") && messyBodies,
+        raycastObservations:
+          isFeatureEnabled("raycastObservations") && raycastObservationsOn,
         episodeSeconds: trySeconds,
         maxGenerations: maxGens,
         seed: runSeed,
@@ -2307,11 +2509,15 @@ export default function App() {
               shortTriesFirst: isFeatureEnabled("trainSchedules")
                 ? gaKnobs.shortTriesFirst
                 : false,
-              stopAfterFall: isFeatureEnabled("trainSchedules")
-                ? gaKnobs.stopAfterFall
-                : false,
+              stopAfterFall: !Number.isFinite(trySeconds)
+                ? true
+                : isFeatureEnabled("trainSchedules")
+                  ? gaKnobs.stopAfterFall
+                  : false,
             }
-          : undefined,
+          : !Number.isFinite(trySeconds)
+            ? { stopAfterFall: true }
+            : undefined,
         priorities: isFeatureEnabled("goalPriorities")
           ? goalPriorities
           : undefined,
@@ -2349,12 +2555,12 @@ export default function App() {
               simulation.setTask(getGoal(next.goalId as GoalId).task);
             }
           }
-          if (
-            isFeatureEnabled("courseCurriculum") &&
-            courseCurriculumOn &&
-            activeEnvPackageId
-          ) {
-            const curriculum = curriculumForPackageId(activeEnvPackageId);
+          if (isFeatureEnabled("courseCurriculum") && courseCurriculumOn) {
+            const base = courseBaseEnvRef.current;
+            const curriculum = resolveCourseCurriculum(
+              activeEnvPackageId,
+              base,
+            );
             if (curriculum) {
               const idx = clampCourseStageIndex(curriculum, courseStageIndex);
               const step = curriculum.stages[idx];
@@ -2362,6 +2568,7 @@ export default function App() {
               if (step && next && genome.fitness >= step.threshold) {
                 applyCourseStage(activeEnvPackageId, idx + 1, {
                   selectSprint: true,
+                  baseEnv: base ?? undefined,
                 });
               }
             }
@@ -2383,7 +2590,10 @@ export default function App() {
       setError("No elite genome to continue from — Evolve first.");
       return;
     }
-    const adapted = adaptEliteToDesign(bestGenome, design);
+    const adapted = adaptEliteToDesign(bestGenome, design, {
+      raycast:
+        isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+    });
     if (!adapted) {
       setError(
         "Brain layout mismatch — the creature changed too much to continue.",
@@ -2402,7 +2612,10 @@ export default function App() {
       loadDanceFreestyle(model);
       return;
     }
-    const expected = shapeForDesign(design);
+    const expected = shapeForDesign(design, {
+      raycast:
+        isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+    });
     if (!shapesCompatible(model.shape, expected) || model.task !== activeTask) {
       setError(
         "Saved model shape/task mismatch — load a matching creature and goal first.",
@@ -2473,7 +2686,10 @@ export default function App() {
       setError("No elite genome to save.");
       return;
     }
-    const adapted = adaptEliteToDesign(bestGenome, design);
+    const adapted = adaptEliteToDesign(bestGenome, design, {
+      raycast:
+        isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+    });
     if (!adapted) {
       setError("Brain layout mismatch — cannot save this elite for the current body.");
       return;
@@ -2508,7 +2724,10 @@ export default function App() {
     try {
       const elite = captureLiveElite();
       if (!elite) return;
-      const adapted = adaptEliteToDesign(elite, design);
+      const adapted = adaptEliteToDesign(elite, design, {
+        raycast:
+          isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+      });
       if (!adapted) {
         setError(
           "Brain layout mismatch — the creature changed too much to play.",
@@ -2520,6 +2739,7 @@ export default function App() {
       simulation.loadDesign(design);
       setManualDrives(simulation.manualDrives.slice());
       setMode("sim");
+      simulation.setRaycastObservations(raycastObservationsOn);
       simulation.setBrain(adapted.shape, adapted.genome.weights);
       setDriveMode("brain");
       simulation.driveMode = "brain";
@@ -2568,6 +2788,10 @@ export default function App() {
     }
     setSaveName(name);
     refreshPackages();
+    const saved = loadCreaturePackages().find(
+      (p) => p.displayName.toLowerCase() === name.toLowerCase(),
+    );
+    if (saved) setSelectedCreatureKey(`pkg:${saved.id}`);
   };
   const saveCurrentEnv = () => {
     const result = saveNewEnvironmentPackage(envDesign, {
@@ -2650,29 +2874,6 @@ export default function App() {
             {isFeatureEnabled("zoneTabs") && (
               <section>
                 <h2>Zone</h2>
-                <div className="zone-tabs">
-                  {ZONE_ORDER.filter(
-                    (id) => id !== "disco" || isFeatureEnabled("discoMode"),
-                  ).map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={zone === id ? "active" : ""}
-                      style={
-                        zone === id
-                          ? {
-                              borderColor: ZONES[id].accent,
-                              color: ZONES[id].accent,
-                            }
-                          : undefined
-                      }
-                      onClick={() => selectZone(id)}
-                      title={ZONES[id].description}
-                    >
-                      {ZONES[id].shortLabel}
-                    </button>
-                  ))}
-                </div>
                 <p className="hint muted">{ZONES[zone].title}</p>
                 {zone === "disco" && isFeatureEnabled("discoMode") ? (
                   <DiscoTrackLearnPanel
@@ -2729,15 +2930,7 @@ export default function App() {
                   />
                 ) : (
                   isFeatureEnabled("goalCatalog") && (
-                    <>
-                      <h3 className="subhead">Goal</h3>
-                      <GoalPicker
-                        goals={zoneGoals}
-                        selectedId={goalId}
-                        onSelect={selectGoal}
-                      />
-                      <GoalInfoCard goal={getGoal(goalId)} zone={zone} />
-                    </>
+                    <GoalInfoCard goal={getGoal(goalId)} zone={zone} />
                   )
                 )}
                 {zone === "disco" &&
@@ -2796,131 +2989,17 @@ export default function App() {
           </div>
         );
 
-        const discoveriesPanel = (
-          <div className="panel-stack">
-            <section>
-              <h2>Discoveries</h2>
-              <p className="hint muted">
-                Hidden goals unlocked while training and experimenting.
-              </p>
-              {isFeatureEnabled("discoveryUi") ? (
-                <TrophyCabinet discoveries={discoveries} />
-              ) : (
-                <p className="hint muted">Discovery UI is disabled.</p>
-              )}
-            </section>
-          </div>
-        );
-
-        const creaturesPanel = (
-          <div className="panel-stack">
-            <section>
-              <h2>Presets</h2>
-              <div className="button-col">
-                {PRESETS.map((p) => (
-                  <button
-                    key={p.name}
-                    type="button"
-                    onClick={() => loadPreset(p)}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-                <button type="button" onClick={() => loadPreset(DISCO_DANCER)}>
-                  Disco Dancer
-                </button>
-              </div>
-            </section>
-            {isFeatureEnabled("jsonImportExport") && (
-              <section>
-                <h2>Import / Export</h2>
-                <div className="button-row">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      downloadText(
-                        `${design.name.replace(/\s+/g, "_").toLowerCase()}.json`,
-                        exportCreatureJson(design),
-                      )
-                    }
-                  >
-                    Export creature
-                  </button>
-                  <button
-                    type="button"
-                    title="Accepts freshstart-creature or freshstart-model JSON"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Import JSON
-                  </button>
-                </div>
-              </section>
-            )}
-            {isFeatureEnabled("creaturePackages") && (
-              <section>
-                <h2>Library</h2>
-                {isFeatureEnabled("creatureLibrary") && (
-                  <label className="field-row" style={{ marginBottom: "0.35rem" }}>
-                    <span>Filter</span>
-                    <input
-                      type="search"
-                      value={creatureFilter}
-                      onChange={(e) => setCreatureFilter(e.target.value)}
-                      placeholder="Name…"
-                    />
-                  </label>
-                )}
-                <div className="button-col">
-                  {packages.length === 0 && (
-                    <p className="hint muted">No saved packages yet.</p>
-                  )}
-                  {packages
-                    .filter((pkg) =>
-                      creatureFilter.trim()
-                        ? pkg.displayName
-                            .toLowerCase()
-                            .includes(creatureFilter.trim().toLowerCase())
-                        : true,
-                    )
-                    .map((pkg) => (
-                      <div key={pkg.id} className="library-row library-row-rich">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            loadPreset({
-                              ...cloneDesign(pkg.design),
-                              appearance: pkg.appearance,
-                              name: pkg.displayName,
-                            })
-                          }
-                        >
-                          <span className="library-name">{pkg.displayName}</span>
-                          {isFeatureEnabled("creatureLibrary") && (
-                            <span className="hint muted library-meta">
-                              r{pkg.revision} · {pkg.source}
-                              {pkg.notes ? ` · ${pkg.notes}` : ""}
-                              {" · "}
-                              {new Date(pkg.updatedAt).toLocaleDateString()}
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="danger-ghost"
-                          onClick={() => {
-                            deletePackage(pkg.id);
-                            refreshPackages();
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                </div>
-              </section>
-            )}
-          </div>
-        );
+        const trophyRoom =
+          isFeatureEnabled("discoveryUi") ? (
+            <TrophyCabinet discoveries={discoveries} />
+          ) : (
+            <div className="trophy-room">
+              <p className="hint muted">Discovery UI is disabled.</p>
+            </div>
+          );
+        const showTrophyRoom = sandboxTab === "discoveries";
+        const showCreaturesRoom = sandboxTab === "creatures";
+        const showFullBleedRoom = showTrophyRoom || showCreaturesRoom;
 
         const worldPanel = (
           <div className="panel-stack">
@@ -2930,8 +3009,8 @@ export default function App() {
                   <h2>Environment Studio</h2>
                   <p className="hint muted">
                     Place and resize on the canvas with the World dock below.
-                    Save packages here; pick the training course from the Train
-                    dock.
+                    Save packages here; pick the training course from the Zone /
+                    Goal / Env strip above.
                   </p>
                 </section>
                 <CollapsiblePanel
@@ -3071,22 +3150,223 @@ export default function App() {
         const editPanel = (
           <div className="panel-stack">
             <section>
-              <h2>Tools</h2>
-              <div className="button-row">
-                {(["joint", "bone", "muscle", "select"] as EditTool[]).map(
-                  (t) => (
+              <h2>Creature</h2>
+              <label className="field-row">
+                <span>Load</span>
+                <select
+                  value={selectedCreatureKey}
+                  disabled={editPhysics}
+                  onChange={(e) => loadCreatureByKey(e.target.value)}
+                  aria-label="Select creature to edit"
+                >
+                  <option value="custom">Custom (current)</option>
+                  <optgroup label="Presets">
+                    {PRESETS.map((p) => (
+                      <option key={p.name} value={`preset:${p.name}`}>
+                        {p.name}
+                      </option>
+                    ))}
+                    <option value={`preset:${DISCO_DANCER.name}`}>
+                      {DISCO_DANCER.name}
+                    </option>
+                    <option value={`preset:${ULTI_GROOVE_BOT_II.name}`}>
+                      {ULTI_GROOVE_BOT_II.name}
+                    </option>
+                  </optgroup>
+                  {isFeatureEnabled("creaturePackages") && packages.length > 0 && (
+                    <optgroup label="Library">
+                      {packages.map((pkg) => (
+                        <option key={pkg.id} value={`pkg:${pkg.id}`}>
+                          {pkg.displayName}
+                          {isFeatureEnabled("creatureLibrary")
+                            ? ` (r${pkg.revision})`
+                            : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+              {isFeatureEnabled("creaturePackages") &&
+                selectedCreatureKey.startsWith("pkg:") && (
+                  <div className="button-row" style={{ marginTop: "0.35rem" }}>
                     <button
-                      key={t}
                       type="button"
-                      className={tool === t ? "active" : ""}
+                      className="danger-ghost"
                       disabled={editPhysics}
-                      onClick={() => setTool(t)}
+                      onClick={() => {
+                        const id = selectedCreatureKey.slice("pkg:".length);
+                        const pkg = packages.find((p) => p.id === id);
+                        if (!pkg) return;
+                        const ok = window.confirm(
+                          `Delete library creature "${pkg.displayName}"?`,
+                        );
+                        if (!ok) return;
+                        deletePackage(id);
+                        refreshPackages();
+                        setSelectedCreatureKey("custom");
+                      }}
                     >
-                      {t}
+                      Delete from library
                     </button>
-                  ),
+                  </div>
                 )}
+              {isFeatureEnabled("jsonImportExport") && (
+                <div className="button-row" style={{ marginTop: "0.35rem" }}>
+                  <button
+                    type="button"
+                    disabled={editPhysics}
+                    onClick={() =>
+                      downloadText(
+                        `${design.name.replace(/\s+/g, "_").toLowerCase()}.json`,
+                        exportCreatureJson(design),
+                      )
+                    }
+                  >
+                    Export creature
+                  </button>
+                  <button
+                    type="button"
+                    disabled={editPhysics}
+                    title="Accepts freshstart-creature or freshstart-model JSON"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Import JSON
+                  </button>
+                </div>
+              )}
+            </section>
+            <section>
+              <h2>Tools</h2>
+              <div className="button-row wrap">
+                {(
+                  [
+                    "joint",
+                    "bone",
+                    "muscle",
+                    "select",
+                    ...(isFeatureEnabled("cosmeticCloth")
+                      ? (["cloth"] as EditTool[])
+                      : []),
+                  ] as EditTool[]
+                ).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={tool === t ? "active" : ""}
+                    disabled={editPhysics}
+                    onClick={() => {
+                      setTool(t);
+                      if (t !== "cloth") setClothDraftPins([]);
+                    }}
+                  >
+                    {t === "cloth" ? "cloth" : t}
+                  </button>
+                ))}
               </div>
+              {isFeatureEnabled("cosmeticCloth") && tool === "cloth" && (
+                <div className="inspector">
+                  <h3 className="subhead">Material draw</h3>
+                  <p className="hint muted">
+                    Click joints one at a time to pin fabric (
+                    {clothDraftPins.length} pin
+                    {clothDraftPins.length === 1 ? "" : "s"}). Need 2+ to create
+                    a covering.
+                  </p>
+                  <label className="slider-row">
+                    <span>Fineness</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={5}
+                      step={1}
+                      value={clothDraftFineness}
+                      onChange={(e) =>
+                        setClothDraftFineness(Number(e.target.value))
+                      }
+                    />
+                    <span className="val">{clothDraftFineness}</span>
+                  </label>
+                  <label className="slider-row">
+                    <span>Weight</span>
+                    <input
+                      type="range"
+                      min={0.25}
+                      max={3}
+                      step={0.05}
+                      value={clothDraftWeight}
+                      onChange={(e) =>
+                        setClothDraftWeight(Number(e.target.value))
+                      }
+                    />
+                    <span className="val">
+                      {clothDraftWeight.toFixed(2)}
+                    </span>
+                  </label>
+                  <label className="slider-row">
+                    <span>Stiff</span>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={2.5}
+                      step={0.05}
+                      value={clothDraftStiffness}
+                      onChange={(e) =>
+                        setClothDraftStiffness(Number(e.target.value))
+                      }
+                    />
+                    <span className="val">
+                      {clothDraftStiffness.toFixed(2)}
+                    </span>
+                  </label>
+                  <div className="button-row wrap">
+                    <button
+                      type="button"
+                      disabled={editPhysics || clothDraftPins.length < 2}
+                      onClick={() => {
+                        const next = addCoveringGarment(
+                          design,
+                          clothDraftPins,
+                          {
+                            fineness: clothDraftFineness,
+                            weight: clothDraftWeight,
+                            stiffness: clothDraftStiffness,
+                          },
+                        );
+                        commitDesign(next);
+                        const idx =
+                          (next.appearance?.cloth?.length ?? 1) - 1;
+                        setSelection({ kind: "cloth", index: idx });
+                        setClothDraftPins([]);
+                        setTool("select");
+                      }}
+                    >
+                      Create covering
+                    </button>
+                    <button
+                      type="button"
+                      disabled={clothDraftPins.length === 0}
+                      onClick={() => setClothDraftPins([])}
+                    >
+                      Clear pins
+                    </button>
+                  </div>
+                </div>
+              )}
+              {isFeatureEnabled("rigidStruts") && tool === "bone" && (
+                <label
+                  className="toggle-row"
+                  title="Solid strut: fixed link between joints (no bend, no muscle/aero). Use for triangles and squares."
+                >
+                  <input
+                    type="checkbox"
+                    checked={boneRigid}
+                    onChange={(e) => setBoneRigid(e.target.checked)}
+                    disabled={editPhysics}
+                  />
+                  Solid strut
+                </label>
+              )}
               <label className="toggle-row">
                 <input
                   type="checkbox"
@@ -3096,6 +3376,50 @@ export default function App() {
                 />
                 Snap joints to grid
               </label>
+              <label
+                className="slider-row"
+                title="Mass for joints marked as feet — applies in Edit, Play, Train, and Disco"
+              >
+                <span>Foot weight</span>
+                <input
+                  type="range"
+                  min={FOOT_MASS_MIN}
+                  max={FOOT_MASS_MAX}
+                  step={0.25}
+                  value={footMass}
+                  disabled={!hasCreature || markedFootCount === 0}
+                  aria-label="Foot weight for marked feet"
+                  onChange={(e) => applyFootMass(Number(e.target.value))}
+                />
+                <span className="val">{footMass.toFixed(2)}</span>
+              </label>
+              {hasCreature && markedFootCount === 0 && (
+                <p className="hint muted">
+                  Mark at least one joint as a foot to use foot weight.
+                </p>
+              )}
+              <label
+                className="slider-row"
+                title="Mass for joints marked as wheels — applies in Edit, Play, Train, and Disco"
+              >
+                <span>Wheel weight</span>
+                <input
+                  type="range"
+                  min={WHEEL_MASS_MIN}
+                  max={WHEEL_MASS_MAX}
+                  step={0.25}
+                  value={wheelMass}
+                  disabled={!hasCreature || markedWheelCount === 0}
+                  aria-label="Wheel weight for marked wheels"
+                  onChange={(e) => applyWheelMass(Number(e.target.value))}
+                />
+                <span className="val">{wheelMass.toFixed(2)}</span>
+              </label>
+              {hasCreature && markedWheelCount === 0 && (
+                <p className="hint muted">
+                  Mark at least one joint as a wheel to use wheel weight.
+                </p>
+              )}
               <label
                 className="toggle-row"
                 title="Drop the creature under gravity with muscles idle"
@@ -3187,11 +3511,15 @@ export default function App() {
                   (isFeatureEnabled("editorMultiSelectTransforms")
                     ? "Drag empty space to box-select · Shift-click add · Ctrl+A all · Ctrl+D copy · Ctrl+M mirror · handles scale/rotate · Delete removes."
                     : "Click a joint, bone, muscle, or body part · drag joints/parts · corner handles resize parts.")}
-                {tool === "bone" && "Left-drag joint→joint to draw a bone."}
-                {tool === "muscle" && "Left-drag bone→bone to draw a muscle."}
+                {tool === "bone" &&
+                  (boneRigid && isFeatureEnabled("rigidStruts")
+                    ? "Left-drag joint→joint to draw a solid strut (rigid frame)."
+                    : "Left-drag joint→joint to draw a hinge bone.")}
+                {tool === "muscle" &&
+                  "Left-drag hinge-bone→hinge-bone to draw a muscle (not struts)."}
+                {tool === "cloth" &&
+                  "Click joints one at a time to pin fabric · Create covering when 2+ pins are set."}
               </p>
-              <CapabilityPanel design={design} />
-
               {selection?.kind === "joints" &&
                 selection.ids.length > 1 &&
                 isFeatureEnabled("editorMultiSelectTransforms") &&
@@ -3260,6 +3588,30 @@ export default function App() {
                         Drag inside the box to move · corner handles scale ·
                         top handle rotates.
                       </p>
+                      {isFeatureEnabled("cosmeticCloth") &&
+                        selection.ids.length === 2 && (
+                          <div className="button-row wrap">
+                            <button
+                              type="button"
+                              disabled={editPhysics}
+                              onClick={() => {
+                                const [a, b] = selection.ids;
+                                const next = addCapePreset(design, a!, b!, {
+                                  fineness: clothDraftFineness,
+                                  weight: clothDraftWeight,
+                                  stiffness: clothDraftStiffness,
+                                });
+                                commitDesign(next);
+                                const idx =
+                                  (next.appearance?.cloth?.length ?? 1) - 1;
+                                setSelection({ kind: "cloth", index: idx });
+                              }}
+                              title="Pin a flowing cape between the two joints"
+                            >
+                              Add cape
+                            </button>
+                          </div>
+                        )}
                     </div>
                   );
                 })()}
@@ -3325,6 +3677,26 @@ export default function App() {
                         />
                         Mark as foot
                       </label>
+                      {!!joint.isFoot && (
+                        <label
+                          className="slider-row"
+                          title="Shared mass for all marked feet (all modes)"
+                        >
+                          <span>Foot weight</span>
+                          <input
+                            type="range"
+                            min={FOOT_MASS_MIN}
+                            max={FOOT_MASS_MAX}
+                            step={0.25}
+                            value={footMass}
+                            aria-label="Foot weight for marked feet"
+                            onChange={(e) =>
+                              applyFootMass(Number(e.target.value))
+                            }
+                          />
+                          <span className="val">{footMass.toFixed(2)}</span>
+                        </label>
+                      )}
                       <label className="toggle-row">
                         <input
                           type="checkbox"
@@ -3380,6 +3752,26 @@ export default function App() {
                         />
                         Wheel / motor
                       </label>
+                      {!!joint.isWheel && (
+                        <label
+                          className="slider-row"
+                          title="Shared mass for all marked wheels (all modes)"
+                        >
+                          <span>Wheel weight</span>
+                          <input
+                            type="range"
+                            min={WHEEL_MASS_MIN}
+                            max={WHEEL_MASS_MAX}
+                            step={0.25}
+                            value={wheelMass}
+                            aria-label="Wheel weight for marked wheels"
+                            onChange={(e) =>
+                              applyWheelMass(Number(e.target.value))
+                            }
+                          />
+                          <span className="val">{wheelMass.toFixed(2)}</span>
+                        </label>
+                      )}
                       {joint.isWheel && (
                         <label className="slider-row">
                           <span>Torque</span>
@@ -3447,6 +3839,9 @@ export default function App() {
                   const bone = design.bones.find((b) => b.id === selection.id);
                   if (!bone) return null;
                   const structural = isFeatureEnabled("structuralAeroParts");
+                  const isStrut =
+                    isFeatureEnabled("rigidStruts") && bone.rigid === true;
+                  const hasMuscle = boneHasMuscle(design, bone.id);
                   const hasAero = (bone.aeroArea ?? 0) > 0;
                   const boneParts =
                     design.appearance?.bodyParts.filter(
@@ -3454,67 +3849,103 @@ export default function App() {
                     ) ?? [];
                   return (
                     <div className="inspector">
-                      <h3 className="subhead">Bone {bone.id}</h3>
-                      <label className="slider-row">
-                        <span>Aero</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={AERO_AREA_SLIDER_MAX}
-                          step={0.1}
-                          value={Math.min(
-                            AERO_AREA_SLIDER_MAX,
-                            bone.aeroArea ?? 0,
-                          )}
-                          onChange={(e) =>
-                            commitDesign(
-                              updateBone(design, bone.id, {
-                                aeroArea: Number(e.target.value),
-                              }),
-                            )
+                      <h3 className="subhead">
+                        {isStrut ? "Strut" : "Bone"} {bone.id}
+                      </h3>
+                      {isFeatureEnabled("rigidStruts") && (
+                        <label
+                          className="toggle-row"
+                          title={
+                            hasMuscle
+                              ? "Remove muscles from this bone before making it a solid strut."
+                              : "Solid strut locks the two joints; no bend, muscles, or aero."
                           }
-                        />
-                        <span className="val">
-                          {(bone.aeroArea ?? 0).toFixed(1)}
-                        </span>
-                      </label>
-                      {structural && hasAero && (
-                        <label className="slider-row">
-                          <span>Part</span>
-                          <select
-                            value={bone.aeroType ?? "glider"}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isStrut}
+                            disabled={editPhysics || (hasMuscle && !isStrut)}
                             onChange={(e) => {
-                              const v = e.target.value;
+                              if (e.target.checked && hasMuscle) return;
                               commitDesign(
                                 updateBone(design, bone.id, {
-                                  aeroType:
-                                    v === "wing" ||
-                                    v === "glider" ||
-                                    v === "parachute"
-                                      ? v
-                                      : undefined,
+                                  rigid: e.target.checked,
                                 }),
                               );
                             }}
-                          >
-                            {AERO_TYPES.map((t) => (
-                              <option key={t} value={t}>
-                                {aeroTypeLabel(t)}
-                              </option>
-                            ))}
-                          </select>
+                          />
+                          Solid strut
                         </label>
                       )}
-                      {!wingPairOk(design) && (
+                      {isStrut ? (
                         <p className="hint muted">
-                          Wings should be in pairs (even count).
+                          Solid strut — locks these joints. Muscles and aero
+                          attach to hinge bones only.
                         </p>
+                      ) : (
+                        <>
+                          <label className="slider-row">
+                            <span>Aero</span>
+                            <input
+                              type="range"
+                              min={0}
+                              max={AERO_AREA_SLIDER_MAX}
+                              step={0.1}
+                              value={Math.min(
+                                AERO_AREA_SLIDER_MAX,
+                                bone.aeroArea ?? 0,
+                              )}
+                              onChange={(e) =>
+                                commitDesign(
+                                  updateBone(design, bone.id, {
+                                    aeroArea: Number(e.target.value),
+                                  }),
+                                )
+                              }
+                            />
+                            <span className="val">
+                              {(bone.aeroArea ?? 0).toFixed(1)}
+                            </span>
+                          </label>
+                          {structural && hasAero && (
+                            <label className="slider-row">
+                              <span>Part</span>
+                              <select
+                                value={bone.aeroType ?? "glider"}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  commitDesign(
+                                    updateBone(design, bone.id, {
+                                      aeroType:
+                                        v === "wing" ||
+                                        v === "glider" ||
+                                        v === "parachute"
+                                          ? v
+                                          : undefined,
+                                    }),
+                                  );
+                                }}
+                              >
+                                {AERO_TYPES.map((t) => (
+                                  <option key={t} value={t}>
+                                    {aeroTypeLabel(t)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                          {!wingPairOk(design) && (
+                            <p className="hint muted">
+                              Wings should be in pairs (even count).
+                            </p>
+                          )}
+                          <p className="hint muted">
+                            {structural
+                              ? "Wing: flap lift · Glider: pitch sail · Parachute: inflation drag. Higher area helps heavy bodies take off (see Capabilities → Flight readiness)."
+                              : "Area scale for aero-like lift/drag."}
+                          </p>
+                        </>
                       )}
-                      <p className="hint muted">
-                        {structural
-                          ? "Wing: flap lift · Glider: pitch sail · Parachute: inflation drag. Higher area helps heavy bodies take off (see Capabilities → Flight readiness)."
-                          : "Area scale for aero-like lift/drag."}
-                      </p>
                       {isFeatureEnabled("spriteBodyParts") && (
                         <>
                           <h4 className="subhead">Body parts</h4>
@@ -3542,6 +3973,197 @@ export default function App() {
                     </div>
                   );
                 })()}
+
+              {selection?.kind === "cloth" &&
+                (() => {
+                  const garment = design.appearance?.cloth?.[selection.index];
+                  if (!garment) return null;
+                  const pinSummary = garment.pins
+                    .map((p) =>
+                      p.jointId !== undefined
+                        ? `J${p.jointId}`
+                        : p.boneId !== undefined
+                          ? `B${p.boneId}`
+                          : "?",
+                    )
+                    .join(" · ");
+                  const weight = garment.weight ?? CLOTH_DEFAULT_WEIGHT;
+                  const stiffness =
+                    garment.stiffness ?? CLOTH_DEFAULT_STIFFNESS;
+                  return (
+                    <div className="inspector">
+                      <h3 className="subhead">Cloth</h3>
+                      <p className="hint muted">
+                        Pins {pinSummary || "none"} · {garment.cols}×
+                        {garment.rows} grid
+                      </p>
+                      <label className="slider-row">
+                        <span>Cols</span>
+                        <input
+                          type="range"
+                          min={2}
+                          max={CLOTH_MAX_COLS}
+                          step={1}
+                          value={garment.cols}
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                cols: Number(e.target.value),
+                              }),
+                            )
+                          }
+                        />
+                        <span className="val">{garment.cols}</span>
+                      </label>
+                      <label className="slider-row">
+                        <span>Rows</span>
+                        <input
+                          type="range"
+                          min={2}
+                          max={CLOTH_MAX_ROWS}
+                          step={1}
+                          value={garment.rows}
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                rows: Number(e.target.value),
+                              }),
+                            )
+                          }
+                        />
+                        <span className="val">{garment.rows}</span>
+                      </label>
+                      <label className="slider-row">
+                        <span>Cell</span>
+                        <input
+                          type="range"
+                          min={CLOTH_MIN_CELL}
+                          max={CLOTH_MAX_CELL}
+                          step={0.01}
+                          value={garment.cellSize}
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                cellSize: Number(e.target.value),
+                              }),
+                            )
+                          }
+                        />
+                        <span className="val">
+                          {garment.cellSize.toFixed(2)}
+                        </span>
+                      </label>
+                      <label
+                        className="slider-row"
+                        title="Higher weight = heavier drape"
+                      >
+                        <span>Weight</span>
+                        <input
+                          type="range"
+                          min={0.25}
+                          max={3}
+                          step={0.05}
+                          value={weight}
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                weight: Number(e.target.value),
+                              }),
+                            )
+                          }
+                        />
+                        <span className="val">{weight.toFixed(2)}</span>
+                      </label>
+                      <label
+                        className="slider-row"
+                        title="Higher stiffness = less stretchy fabric"
+                      >
+                        <span>Stiff</span>
+                        <input
+                          type="range"
+                          min={0.5}
+                          max={2.5}
+                          step={0.05}
+                          value={stiffness}
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                stiffness: Number(e.target.value),
+                              }),
+                            )
+                          }
+                        />
+                        <span className="val">{stiffness.toFixed(2)}</span>
+                      </label>
+                      <label className="field-row">
+                        <span>Color</span>
+                        <input
+                          type="color"
+                          value={
+                            garment.color?.startsWith("#")
+                              ? garment.color.slice(0, 7)
+                              : "#7848a0"
+                          }
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                color: `${e.target.value}b8`,
+                              }),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={(garment.layer ?? "under") === "over"}
+                          onChange={(e) =>
+                            commitDesign(
+                              updateClothGarment(design, selection.index, {
+                                layer: e.target.checked ? "over" : "under",
+                              }),
+                            )
+                          }
+                        />
+                        Draw over body parts
+                      </label>
+                      <div className="button-row">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            commitDesign(
+                              removeClothGarment(design, selection.index),
+                            );
+                            setSelection(null);
+                          }}
+                        >
+                          Remove cloth
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {isFeatureEnabled("cosmeticCloth") &&
+                (design.appearance?.cloth?.length ?? 0) > 0 &&
+                selection?.kind !== "cloth" && (
+                  <div className="inspector">
+                    <h3 className="subhead">Cloth</h3>
+                    <div className="button-row wrap">
+                      {design.appearance!.cloth!.map((g, i) => (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() =>
+                            setSelection({ kind: "cloth", index: i })
+                          }
+                        >
+                          Cloth {i + 1}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {selection?.kind === "bodyPart" &&
                 (() => {
@@ -3758,7 +4380,7 @@ export default function App() {
                   <div className="train-help-strip">
                     <strong>How to train</strong>
                     <ol>
-                      <li>Pick a Goal</li>
+                      <li>Pick Zone, Goal, and Env above</li>
                       <li>Press Evolve — many brains try the course</li>
                       <li>Play best to watch the winner</li>
                       <li>
@@ -3782,17 +4404,6 @@ export default function App() {
                     </button>
                   </div>
                 )}
-              {isFeatureEnabled("goalCatalog") && (
-                <>
-                  <h3 className="subhead">Goal</h3>
-                  <GoalPicker
-                    goals={zoneGoals}
-                    selectedId={goalId}
-                    onSelect={selectGoal}
-                    compact
-                  />
-                </>
-              )}
               <p className="hint muted">
                 Goal: <strong>{getGoal(goalId).title}</strong>
                 {mode === "sim"
@@ -3858,7 +4469,10 @@ export default function App() {
                     </p>
                   )}
                   {isFeatureEnabled("courseCurriculum") &&
-                    curriculumForPackageId(activeEnvPackageId) && (
+                    hasCourseCurriculum(
+                      activeEnvPackageId,
+                      courseBaseForResolve(),
+                    ) && (
                       <>
                         <label
                           className="toggle-row"
@@ -3871,21 +4485,26 @@ export default function App() {
                             onChange={(e) => {
                               const on = e.target.checked;
                               setCourseCurriculumOn(on);
-                              if (!activeEnvPackageId) return;
+                              const base = courseBaseForResolve();
                               if (on) {
+                                if (!base) return;
                                 applyCourseStage(activeEnvPackageId, 0, {
                                   selectSprint: true,
+                                  baseEnv: base,
                                 });
                               } else {
-                                const pkg = envPackages.find(
-                                  (p) => p.id === activeEnvPackageId,
-                                );
-                                if (pkg) {
-                                  setEnvDesign(
-                                    cloneEnvironment(pkg.environment),
-                                  );
+                                const restore =
+                                  courseBaseEnvRef.current ??
+                                  (activeEnvPackageId
+                                    ? envPackages.find(
+                                        (p) => p.id === activeEnvPackageId,
+                                      )?.environment
+                                    : null);
+                                if (restore) {
+                                  setEnvDesign(cloneEnvironment(restore));
                                   setCourseStageIndex(0);
                                 }
+                                courseBaseEnvRef.current = null;
                               }
                             }}
                           />
@@ -3894,8 +4513,10 @@ export default function App() {
                         {courseCurriculumOn && (
                           <p className="hint muted">
                             {(() => {
-                              const c = curriculumForPackageId(
+                              const c = resolveCourseCurriculum(
                                 activeEnvPackageId,
+                                courseBaseEnvRef.current ??
+                                  courseBaseForResolve(),
                               );
                               if (!c) return null;
                               const idx = clampCourseStageIndex(
@@ -3920,127 +4541,229 @@ export default function App() {
                     )}
                 </div>
               )}
-              {isFeatureEnabled("trainExperiences") && (
-                <div style={{ marginTop: "0.5rem" }}>
-                  <h3 className="subhead">Practice extras</h3>
-                  <label className="toggle-row">
-                    <input
-                      type="checkbox"
-                      checked={raceRecord}
-                      onChange={(e) => setRaceRecord(e.target.checked)}
-                    />
-                    Race your record
-                  </label>
-                  <p className="hint muted">
-                    Keep the prior best on screen when playing (ghost pack).
-                  </p>
-                  <label className="toggle-row">
-                    <input
-                      type="checkbox"
-                      checked={messyBodies}
-                      disabled={evolveProgress.running}
-                      onChange={(e) => setMessyBodies(e.target.checked)}
-                    />
-                    Practice with messy bodies
-                  </label>
-                  <p className="hint muted">
-                    Slight mass/length jitter each try (fixed topology).
-                  </p>
-                </div>
-              )}
-              {isFeatureEnabled("morphEvolve") && (
-                <div style={{ marginTop: "0.5rem" }}>
-                  <h3 className="subhead">Biodiversity</h3>
-                  <label
-                    className="toggle-row"
-                    title="Evolve mass, leg length, aero, and wheels with the brain (same muscle layout)."
-                  >
-                    <input
-                      type="checkbox"
-                      checked={morphEvolveOn}
-                      disabled={evolveProgress.running}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setMorphEvolveOn(on);
-                        try {
-                          localStorage.setItem(
-                            "freshstart_morph_evolve_v1",
-                            on ? "1" : "0",
-                          );
-                        } catch {
-                          /* ignore */
-                        }
-                      }}
-                    />
-                    Evolve body traits
-                  </label>
-                  <p className="hint muted">
-                    Soft morph genes: longer/heavier limbs, aero, wheels — not
-                    new joints. Off by default for classic brain-only runs.
-                  </p>
-                </div>
-              )}
-              {isFeatureEnabled("trainTelemetryLog") && (
-                <div style={{ marginTop: "0.5rem" }}>
-                  <h3 className="subhead">Training log</h3>
-                  <label
-                    className="toggle-row"
-                    title="Capture gen-champion body, metrics, and failure/reward patterns for up to 50 generations."
-                  >
-                    <input
-                      type="checkbox"
-                      checked={trainTelemetryOn}
-                      disabled={evolveProgress.running}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setTrainTelemetryOn(on);
-                        try {
-                          localStorage.setItem(
-                            "freshstart_train_telemetry_v1",
-                            on ? "1" : "0",
-                          );
-                        } catch {
-                          /* ignore */
-                        }
-                        if (!on) {
-                          trainTelemetrySessionRef.current = null;
-                          setTrainTelemetrySession(null);
-                        }
-                      }}
-                    />
-                    Log next run ({TRAIN_TELEMETRY_WINDOW} gens)
-                  </label>
-                  <p className="hint muted">
-                    Records body, gen-champion metrics, and stall contacts
-                    (ramp angle/height, foot slip, what they were touching).
-                    Downloads JSON when the window fills or the run ends.
-                  </p>
-                  {trainTelemetrySession && (
-                    <div className="button-row wrap" style={{ marginTop: "0.35rem" }}>
-                      <button
-                        type="button"
-                        disabled={trainTelemetrySession.generations.length === 0}
-                        onClick={() => {
-                          const final =
-                            trainTelemetrySession.endedAt != null
-                              ? trainTelemetrySession
-                              : finalizeAndMaybeDownloadTelemetry(
-                                  trainTelemetrySession,
-                                  false,
-                                );
-                          downloadText(
-                            telemetryFilename(final),
-                            exportTrainTelemetryJson(final),
-                          );
-                        }}
+              {(isFeatureEnabled("raycastObservations") ||
+                isFeatureEnabled("trainExperiences") ||
+                isFeatureEnabled("morphEvolve") ||
+                isFeatureEnabled("trainTelemetryLog")) && (
+                <CollapsiblePanel
+                  title="More training options"
+                  open={trainMoreOpen}
+                  onToggle={() => setTrainMoreOpen((v) => !v)}
+                >
+                  {isFeatureEnabled("raycastObservations") && (
+                    <div style={{ marginTop: "0.25rem" }}>
+                      <h3 className="subhead">Senses</h3>
+                      <label
+                        className="toggle-row"
+                        title="Append forward/down Rapier ray whiskers to brain inputs. Requires a fresh evolve (layout change)."
                       >
-                        Download log (
-                        {trainTelemetrySession.generations.length}/
-                        {trainTelemetrySession.window})
-                      </button>
+                        <input
+                          type="checkbox"
+                          checked={raycastObservationsOn}
+                          disabled={evolveProgress.running}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setRaycastObservationsOn(on);
+                            simulation.setRaycastObservations(on);
+                            try {
+                              localStorage.setItem(
+                                "freshstart_raycast_obs_v1",
+                                on ? "1" : "0",
+                              );
+                            } catch {
+                              /* ignore */
+                            }
+                          }}
+                        />
+                        Raycast whiskers
+                      </label>
+                      <p className="hint muted">
+                        5 range sensors (forward / up / down). Helps obstacle
+                        courses; changes brain input size — evolve fresh or load
+                        a matching model.
+                      </p>
                     </div>
                   )}
-                </div>
+                  {isFeatureEnabled("trainExperiences") && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <h3 className="subhead">Practice extras</h3>
+                      <label className="toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={raceRecord}
+                          onChange={(e) => setRaceRecord(e.target.checked)}
+                        />
+                        Race your record
+                      </label>
+                      <p className="hint muted">
+                        Keep the prior best on screen when playing (ghost pack).
+                      </p>
+                      <label className="toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={messyBodies}
+                          disabled={evolveProgress.running}
+                          onChange={(e) => setMessyBodies(e.target.checked)}
+                        />
+                        Practice with messy bodies
+                      </label>
+                      <p className="hint muted">
+                        Slight mass/length jitter each try (fixed topology).
+                      </p>
+                    </div>
+                  )}
+                  {isFeatureEnabled("morphEvolve") && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <h3 className="subhead">Biodiversity</h3>
+                      <label
+                        className="toggle-row"
+                        title="Evolve mass, leg length, aero, and wheels with the brain (same muscle layout)."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={morphEvolveOn}
+                          disabled={evolveProgress.running}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setMorphEvolveOn(on);
+                            if (!on) {
+                              setStructuralMorphOn(false);
+                              try {
+                                localStorage.setItem(
+                                  "freshstart_structural_morph_v1",
+                                  "0",
+                                );
+                              } catch {
+                                /* ignore */
+                              }
+                            }
+                            try {
+                              localStorage.setItem(
+                                "freshstart_morph_evolve_v1",
+                                on ? "1" : "0",
+                              );
+                            } catch {
+                              /* ignore */
+                            }
+                          }}
+                        />
+                        Evolve body traits
+                      </label>
+                      <p className="hint muted">
+                        Soft morph genes: longer/heavier limbs, aero, wheels —
+                        not new joints. Off by default for classic brain-only
+                        runs.
+                      </p>
+                      {isFeatureEnabled("structuralMorphEvolve") && (
+                        <>
+                          <label
+                            className="toggle-row"
+                            style={{
+                              marginTop: "0.35rem",
+                              marginLeft: "0.75rem",
+                            }}
+                            title="Grow/prune joints, bones, and muscles from your design. Brain pads to a fixed max."
+                          >
+                            <input
+                              type="checkbox"
+                              checked={structuralMorphOn && morphEvolveOn}
+                              disabled={
+                                evolveProgress.running || !morphEvolveOn
+                              }
+                              onChange={(e) => {
+                                const on = e.target.checked;
+                                setStructuralMorphOn(on);
+                                try {
+                                  localStorage.setItem(
+                                    "freshstart_structural_morph_v1",
+                                    on ? "1" : "0",
+                                  );
+                                } catch {
+                                  /* ignore */
+                                }
+                              }}
+                            />
+                            Evolve structure
+                          </label>
+                          <p
+                            className="hint muted"
+                            style={{ marginLeft: "0.75rem" }}
+                          >
+                            Grow/prune segments and muscles from your design
+                            (padded brain). Requires Evolve body traits.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {isFeatureEnabled("trainTelemetryLog") && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <h3 className="subhead">Training log</h3>
+                      <label
+                        className="toggle-row"
+                        title="Capture gen-champion body, metrics, and failure/reward patterns for up to 50 generations."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={trainTelemetryOn}
+                          disabled={evolveProgress.running}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setTrainTelemetryOn(on);
+                            try {
+                              localStorage.setItem(
+                                "freshstart_train_telemetry_v1",
+                                on ? "1" : "0",
+                              );
+                            } catch {
+                              /* ignore */
+                            }
+                            if (!on) {
+                              trainTelemetrySessionRef.current = null;
+                              setTrainTelemetrySession(null);
+                            }
+                          }}
+                        />
+                        Log next run ({TRAIN_TELEMETRY_WINDOW} gens)
+                      </label>
+                      <p className="hint muted">
+                        Records body, gen-champion metrics, and stall contacts
+                        (ramp angle/height, foot slip, what they were touching).
+                        Downloads JSON when the window fills or the run ends.
+                      </p>
+                      {trainTelemetrySession && (
+                        <div
+                          className="button-row wrap"
+                          style={{ marginTop: "0.35rem" }}
+                        >
+                          <button
+                            type="button"
+                            disabled={
+                              trainTelemetrySession.generations.length === 0
+                            }
+                            onClick={() => {
+                              const final =
+                                trainTelemetrySession.endedAt != null
+                                  ? trainTelemetrySession
+                                  : finalizeAndMaybeDownloadTelemetry(
+                                      trainTelemetrySession,
+                                      false,
+                                    );
+                              downloadText(
+                                telemetryFilename(final),
+                                exportTrainTelemetryJson(final),
+                              );
+                            }}
+                          >
+                            Download log (
+                            {trainTelemetrySession.generations.length}/
+                            {trainTelemetrySession.window})
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CollapsiblePanel>
               )}
               {isFeatureEnabled("experimentPacks") && (
                 <div style={{ marginTop: "0.5rem" }}>
@@ -4144,33 +4867,6 @@ export default function App() {
                   </p>
                 </CollapsiblePanel>
               )}
-            {isFeatureEnabled("savedModels") && (
-              <ModelsHub
-                task={activeTask}
-                savedModels={savedModels}
-                bestEverList={bestEverList}
-                evolving={evolveProgress.running}
-                onContinue={(m) => {
-                  if (
-                    isFeatureEnabled("trainStartFrom") &&
-                    m.task !== "dance"
-                  ) {
-                    setGaKnobs((k) => ({
-                      ...k,
-                      startFrom: "saved",
-                      savedModelId: m.id,
-                      recipeId: "fine_tune",
-                    }));
-                  }
-                  continueFromModel(m);
-                }}
-                onLoadDanceFreestyle={loadDanceFreestyle}
-                onDelete={(id) => {
-                  deleteSavedModel(id);
-                  refreshModels();
-                }}
-              />
-            )}
             {isFeatureEnabled("networkVisualizer") && (
               <section>
                 <h2>Brain {evolveProgress.running ? "(live)" : ""}</h2>
@@ -4327,21 +5023,9 @@ export default function App() {
           </>
         );
 
-        const envPickerControl = isFeatureEnabled("environmentsRepo") ? (
-          <EnvPicker
-            packages={envPackages}
-            selectedPackageId={activeEnvPackageId}
-            activeName={envDesign.name}
-            disabled={evolveProgress.running}
-            onSelect={applyTrainingEnv}
-            compact
-          />
-        ) : null;
-
         const dockSummary = (
           <div className="dock-summary">
             {evolveButtons}
-            {envPickerControl}
             <span className="dock-summary-stats">
               {h2hRunning && h2hProgress
                 ? `H2H ${h2hProgress.episodeT.toFixed(1)}/${h2hProgress.episodeDuration.toFixed(0)}s`
@@ -4362,7 +5046,7 @@ export default function App() {
             trackTime={discoTrackTime}
             trackDuration={discoTrackDuration}
             puppetMode={discoPuppetMode}
-            footMass={discoFootMass}
+            footMass={footMass}
             gains={discoGains}
             motion={discoMotion}
             auto={discoAuto}
@@ -4403,10 +5087,7 @@ export default function App() {
               setDiscoPuppetMode(mode);
               simulation.setDiscoPuppetMode(mode);
             }}
-            onFootMassChange={(mass) => {
-              setDiscoFootMass(mass);
-              simulation.setDiscoFootMass(mass);
-            }}
+            onFootMassChange={applyFootMass}
             onGainsChange={setDiscoGains}
             onMotionChange={setDiscoMotion}
             onAutoChange={(next) => {
@@ -4437,7 +5118,9 @@ export default function App() {
         const dockFull = (
           <div
             className={
-              evolveProgress.running ? "dock-full evolve-running" : "dock-full"
+              evolveProgress.running
+                ? "dock-full dock-full-train evolve-running"
+                : "dock-full dock-full-train"
             }
           >
             {h2hRunning && h2hProgress && (
@@ -4452,348 +5135,350 @@ export default function App() {
                 {h2hResult.fitness[1].toFixed(3)}
               </p>
             )}
-            <div className="dock-col">
-              <h3 className="subhead">Drive</h3>
-              <div className="button-row wrap">
-                {driveButtons.map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={driveMode === id ? "active" : ""}
-                    disabled={
-                      evolveProgress.running ||
-                      h2hRunning ||
-                      (id === "brain" && !bestGenome)
+            <div className="dock-row dock-row-primary">
+              <div className="dock-col">
+                <h3 className="subhead">Drive</h3>
+                <div className="button-row wrap">
+                  {driveButtons.map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={driveMode === id ? "active" : ""}
+                      disabled={
+                        evolveProgress.running ||
+                        h2hRunning ||
+                        (id === "brain" && !bestGenome)
+                      }
+                      onClick={() => {
+                        if (id === "brain" && bestGenome) {
+                          simulation.setBrain(
+                            bestGenome.shape,
+                            bestGenome.genome.weights,
+                          );
+                        }
+                        if (driveMode === "disco" || simulation.isMultiDisco) {
+                          stopDiscoDrive();
+                        }
+                        setDriveMode(id);
+                        simulation.driveMode = id;
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  disabled={evolveProgress.running}
+                  onClick={() => simulation.reset()}
+                >
+                  Reset pose
+                </button>
+                <label
+                  className="toggle-row"
+                  style={{ marginTop: "0.45rem" }}
+                  title="Brain updates every physics step (60 Hz) instead of every other (30 Hz). Muscle forces always apply at 60 Hz; this only changes how often drives are recomputed. Disco imitation recording stays at 30 Hz."
+                >
+                  <input
+                    type="checkbox"
+                    checked={brainHz === BRAIN_HZ_FAST}
+                    onChange={(e) =>
+                      setBrainHz(e.target.checked ? BRAIN_HZ_FAST : BRAIN_HZ)
                     }
-                    onClick={() => {
-                      if (id === "brain" && bestGenome) {
-                        simulation.setBrain(
-                          bestGenome.shape,
-                          bestGenome.genome.weights,
-                        );
-                      }
-                      if (driveMode === "disco" || simulation.isMultiDisco) {
-                        stopDiscoDrive();
-                      }
-                      setDriveMode(id);
-                      simulation.driveMode = id;
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+                  />
+                  Brain 60 Hz
+                  <span className="muted" style={{ marginLeft: "0.35rem" }}>
+                    ({brainHz} Hz)
+                  </span>
+                </label>
+                {driveMode === "manual" && (
+                  <div className="sliders dock-sliders">
+                    {manualDrives.map((v, i) => {
+                      const muscleCh = countBrainActuatorChannels(
+                        design.muscles,
+                      );
+                      const label =
+                        i < muscleCh
+                          ? `M${i + 1}`
+                          : `W${i - muscleCh + 1}`;
+                      return (
+                        <label key={i} className="slider-row">
+                          <span>{label}</span>
+                          <input
+                            type="range"
+                            min={-1}
+                            max={1}
+                            step={0.01}
+                            value={v}
+                            onChange={(e) =>
+                              updateManual(i, Number(e.target.value))
+                            }
+                          />
+                          <span className="val">{v.toFixed(2)}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                disabled={evolveProgress.running}
-                onClick={() => simulation.reset()}
-              >
-                Reset pose
-              </button>
-              <label
-                className="toggle-row"
-                style={{ marginTop: "0.45rem" }}
-                title="Brain updates every physics step (60 Hz) instead of every other (30 Hz). Muscle forces always apply at 60 Hz; this only changes how often drives are recomputed. Disco imitation recording stays at 30 Hz."
-              >
-                <input
-                  type="checkbox"
-                  checked={brainHz === BRAIN_HZ_FAST}
-                  onChange={(e) =>
-                    setBrainHz(e.target.checked ? BRAIN_HZ_FAST : BRAIN_HZ)
-                  }
-                />
-                Brain 60 Hz
-                <span className="muted" style={{ marginLeft: "0.35rem" }}>
-                  ({brainHz} Hz)
-                </span>
-              </label>
-              {driveMode === "manual" && (
-                <div className="sliders dock-sliders">
-                  {manualDrives.map((v, i) => {
-                    const muscleCh = countBrainActuatorChannels(
-                      design.muscles,
-                    );
-                    const label =
-                      i < muscleCh
-                        ? `M${i + 1}`
-                        : `W${i - muscleCh + 1}`;
-                    return (
-                      <label key={i} className="slider-row">
-                        <span>{label}</span>
+
+              <div className="dock-col dock-col-grow">
+                <h3 className="subhead">
+                  {isFeatureEnabled("trainDockIa")
+                    ? `Train · ${getGoal(goalId).title}`
+                    : `Evolve (${getGoal(goalId).title})`}
+                </h3>
+                {evolveButtons}
+                {isFeatureEnabled("environmentsRepo") &&
+                  isFeatureEnabled("courseCurriculum") &&
+                  hasCourseCurriculum(
+                    activeEnvPackageId,
+                    courseBaseForResolve(),
+                  ) && (
+                    <p className="hint muted" style={{ marginTop: "0.35rem" }}>
+                      This course has train stages (Train panel) and a start-line
+                      race timer. Author stages in Environment Studio → Course.
+                    </p>
+                  )}
+              </div>
+
+              {isFeatureEnabled("controlPanel") && (
+                <div className="dock-col">
+                  <h3 className="subhead">
+                    {isFeatureEnabled("trainDockIa")
+                      ? "Watch & speed"
+                      : "Speed"}
+                  </h3>
+                  <p className="hint muted">
+                    Observe
+                    {evolveProgress.running ? " (after stop)" : ""}
+                  </p>
+                  <div className="button-row wrap">
+                    {OBSERVE_SPEEDS.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className={observeSpeed === s ? "active" : ""}
+                        onClick={() => setObserveSpeed(s)}
+                        title={
+                          evolveProgress.running
+                            ? "Used when training stops — train speed stays active now"
+                            : "Playback speed when not training"
+                        }
+                      >
+                        {s}×
+                      </button>
+                    ))}
+                  </div>
+                  <p className="hint muted" style={{ marginTop: "0.25rem" }}>
+                    Train speed
+                    {evolveProgress.running ? " (active)" : ""}
+                  </p>
+                  <div className="button-row wrap">
+                    {TRAIN_SPEEDS.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className={trainSpeed === s ? "active" : ""}
+                        onClick={() => setTrainSpeed(s)}
+                      >
+                        {s === 0 ? "Max" : `${s}×`}
+                      </button>
+                    ))}
+                  </div>
+                  {!isFeatureEnabled("trainRecipes") && (
+                    <>
+                      <p
+                        className="hint muted"
+                        style={{ marginTop: "0.25rem" }}
+                      >
+                        Gen length
+                      </p>
+                      <label
+                        className="slider-row train-try-slider"
+                        title="Simulated seconds per generation episode"
+                      >
+                        <span className="muted">{EPISODE_SECONDS_MIN}s</span>
                         <input
                           type="range"
-                          min={-1}
-                          max={1}
-                          step={0.01}
-                          value={v}
-                          onChange={(e) =>
-                            updateManual(i, Number(e.target.value))
-                          }
-                        />
-                        <span className="val">{v.toFixed(2)}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="dock-col dock-col-grow">
-              <h3 className="subhead">
-                {isFeatureEnabled("trainDockIa")
-                  ? `Train · ${getGoal(goalId).title}`
-                  : `Evolve (${getGoal(goalId).title})`}
-              </h3>
-              {evolveButtons}
-              {isFeatureEnabled("environmentsRepo") && (
-                <>
-                  <p className="hint muted" style={{ marginTop: "0.35rem" }}>
-                    Practice course
-                  </p>
-                  <EnvPicker
-                    packages={envPackages}
-                    selectedPackageId={activeEnvPackageId}
-                    activeName={envDesign.name}
-                    disabled={evolveProgress.running}
-                    onSelect={applyTrainingEnv}
-                  />
-                  {isFeatureEnabled("courseCurriculum") &&
-                    curriculumForPackageId(activeEnvPackageId) && (
-                      <p className="hint muted">
-                        Gauntlet supports course stages (Train panel) and a
-                        start-line race timer.
-                      </p>
-                    )}
-                </>
-              )}
-            </div>
-
-            {isFeatureEnabled("controlPanel") && (
-              <div className="dock-col">
-                <h3 className="subhead">
-                  {isFeatureEnabled("trainDockIa") ? "Watch & speed" : "Speed"}
-                </h3>
-                <p className="hint muted">
-                  Observe
-                  {evolveProgress.running ? " (after stop)" : ""}
-                </p>
-                <div className="button-row wrap">
-                  {OBSERVE_SPEEDS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className={observeSpeed === s ? "active" : ""}
-                      onClick={() => setObserveSpeed(s)}
-                      title={
-                        evolveProgress.running
-                          ? "Used when training stops — train speed stays active now"
-                          : "Playback speed when not training"
-                      }
-                    >
-                      {s}×
-                    </button>
-                  ))}
-                </div>
-                <p className="hint muted" style={{ marginTop: "0.25rem" }}>
-                  Train speed
-                  {evolveProgress.running ? " (active)" : ""}
-                </p>
-                <div className="button-row wrap">
-                  {TRAIN_SPEEDS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className={trainSpeed === s ? "active" : ""}
-                      onClick={() => setTrainSpeed(s)}
-                    >
-                      {s === 0 ? "Max" : `${s}×`}
-                    </button>
-                  ))}
-                </div>
-                {!isFeatureEnabled("trainRecipes") && (
-                  <>
-                    <p className="hint muted" style={{ marginTop: "0.25rem" }}>
-                      Gen length
-                    </p>
-                    <div className="button-row wrap">
-                      {EPISODE_LENGTH_PRESETS.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          className={episodeSeconds === s ? "active" : ""}
-                          onClick={() => {
+                          min={EPISODE_SECONDS_MIN}
+                          max={EPISODE_SECONDS_MAX}
+                          step={1}
+                          value={clampEpisodeSeconds(episodeSeconds)}
+                          onChange={(e) => {
+                            const s = Number(e.target.value);
                             setEpisodeSeconds(s);
+                            setGaKnobs((k) => ({ ...k, episodeSeconds: s }));
                             if (evolveProgress.running) {
                               simulation.setEpisodeSeconds(s);
                             }
                           }}
-                          title="Simulated seconds per generation episode"
-                        >
-                          {s}s
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-                <label
-                  className="toggle-row"
-                  style={{ marginTop: "0.45rem" }}
-                  title="Show the rest of the live batch as translucent ghosts"
-                >
-                  <input
-                    type="checkbox"
-                    checked={showGhostPack || raceRecord}
-                    onChange={(e) => {
-                      setShowGhostPack(e.target.checked);
-                      if (!e.target.checked) setRaceRecord(false);
-                    }}
-                  />
-                  {isFeatureEnabled("trainDockIa")
-                    ? "Show the others"
-                    : "Ghost pack"}
-                </label>
-              </div>
-            )}
-
-            {isFeatureEnabled("trainRecipes") && (
-              <TrainingSetupPanel
-                knobs={gaKnobs}
-                disabled={evolveProgress.running}
-                hasBestOfRun={!!bestGenome}
-                savedBrainOptions={savedModels
-                  .filter((m) => m.task === activeTask)
-                  .map((m) => ({ id: m.id, name: m.name }))}
-                onChange={setGaKnobs}
-                showSchedules={isFeatureEnabled("trainSchedules")}
-              />
-            )}
-
-            <div className="dock-col">
-              <h3 className="subhead">
-                {isFeatureEnabled("trainDockIa") ? "Progress" : "Status"}
-              </h3>
-              {evolveProgress.populationSize > 0 && (
-                <div className="evolve-bar">
-                  <div
-                    className="evolve-bar-fill"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        evolveProgress.episodeDuration
-                          ? (100 * (evolveProgress.episodeT ?? 0)) /
-                              Math.max(1e-6, evolveProgress.episodeDuration)
-                          : (100 * evolveProgress.evaluated) /
-                              Math.max(1, evolveProgress.populationSize),
-                      )}%`,
-                    }}
-                  />
+                        />
+                        <span className="val">
+                          {formatEpisodeSeconds(
+                            clampEpisodeSeconds(episodeSeconds),
+                          )}
+                        </span>
+                      </label>
+                    </>
+                  )}
+                  <label
+                    className="toggle-row"
+                    style={{ marginTop: "0.45rem" }}
+                    title="Show the rest of the live batch as translucent ghosts"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={showGhostPack || raceRecord}
+                      onChange={(e) => {
+                        setShowGhostPack(e.target.checked);
+                        if (!e.target.checked) setRaceRecord(false);
+                      }}
+                    />
+                    {isFeatureEnabled("trainDockIa")
+                      ? "Show the others"
+                      : "Ghost pack"}
+                  </label>
                 </div>
               )}
-              <ul className="stats dock-stats">
-                <li>
-                  {isFeatureEnabled("trainDockIa") ? "Round" : "Gen"}:{" "}
-                  {evolveProgress.generation}
-                </li>
-                <li>
-                  Try:{" "}
-                  {(evolveProgress.episodeT ?? 0).toFixed(1)}/
-                  {(evolveProgress.episodeDuration ?? episodeSeconds).toFixed(0)}
-                  s
-                </li>
-                <li>Best: {evolveProgress.bestFitness.toFixed(3)}</li>
-                <li>Mean: {evolveProgress.meanFitness.toFixed(3)}</li>
-                {bestGenome && !evolveProgress.running && (
-                  <li>Elite fit: {bestGenome.genome.fitness.toFixed(3)}</li>
-                )}
-                {isFeatureEnabled("bestEverLedger") && (
-                  <li>
-                    All-time ({activeTask}):{" "}
-                    {(getBestEver(activeTask)?.fitness ?? 0).toFixed(3)}
-                  </li>
-                )}
-                {isFeatureEnabled("trainStartFrom") && (
-                  <li>
-                    Run # {runSeed}{" "}
-                    <button
-                      type="button"
-                      disabled={evolveProgress.running}
-                      title="Reseed RNG for the next Evolve"
-                      onClick={() => setRunSeed(Date.now() % 1_000_000)}
-                    >
-                      Reseed
-                    </button>
-                  </li>
-                )}
-              </ul>
-              <div className="train-grip-controls">
-                <label
-                  className="slider-row train-grip-slider"
-                  title="How hard planted feet resist sliding the wrong way on every surface (ground, ramps, boxes). Forward (right) is left free; 0 = off."
-                >
-                  <span>Anti-scoot</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={ANTI_SCOOT_MAX}
-                    step={0.05}
-                    value={antiScoot}
-                    onChange={(e) => setAntiScoot(Number(e.target.value))}
-                  />
-                  <span className="val">{antiScoot.toFixed(2)}</span>
-                </label>
-              </div>
-              <p className={evolveProgress.running ? "hint" : "hint muted"}>
-                {evolveProgress.status}
-              </p>
-              {isFeatureEnabled("trainTelemetryLog") &&
-                trainTelemetryOn &&
-                trainTelemetrySession && (
-                  <div className="train-telemetry-live">
-                    <p className="hint">
-                      Log: {trainTelemetrySession.generations.length}/
-                      {trainTelemetrySession.window} gens
-                      {trainTelemetrySession.endedAt
-                        ? " · complete"
-                        : evolveProgress.running
-                          ? " · capturing"
-                          : ""}
-                    </p>
-                    {trainTelemetrySession.morphology && (
-                      <p className="hint muted">
-                        {trainTelemetrySession.morphology.name} ·{" "}
-                        {trainTelemetrySession.morphology.joints}j/
-                        {trainTelemetrySession.morphology.bones}b/
-                        {trainTelemetrySession.morphology.muscles}m · feet{" "}
-                        {trainTelemetrySession.morphology.feet}
-                      </p>
-                    )}
-                    {(() => {
-                      const last =
-                        trainTelemetrySession.generations[
-                          trainTelemetrySession.generations.length - 1
-                        ];
-                      const cause = last?.stall?.summaryCause;
-                      return cause ? (
-                        <p className="hint muted" title={cause}>
-                          Last stall: {cause}
-                        </p>
-                      ) : null;
-                    })()}
-                    {trainTelemetrySession.insights.length > 0 && (
-                      <ul className="stats dock-stats train-telemetry-insights">
-                        {trainTelemetrySession.insights
-                          .slice(0, 5)
-                          .map((ins) => (
-                            <li key={`${ins.kind}-${ins.label}`}>
-                              <span className="muted">{ins.label}:</span>{" "}
-                              {ins.detail}
-                            </li>
-                          ))}
-                      </ul>
-                    )}
+
+              <div className="dock-col">
+                <h3 className="subhead">
+                  {isFeatureEnabled("trainDockIa") ? "Progress" : "Status"}
+                </h3>
+                {evolveProgress.populationSize > 0 && (
+                  <div className="evolve-bar">
+                    <div
+                      className="evolve-bar-fill"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Number.isFinite(evolveProgress.episodeDuration) &&
+                            (evolveProgress.episodeDuration ?? 0) > 0
+                            ? (100 * (evolveProgress.episodeT ?? 0)) /
+                                Math.max(1e-6, evolveProgress.episodeDuration!)
+                            : (100 * evolveProgress.evaluated) /
+                                Math.max(1, evolveProgress.populationSize),
+                        )}%`,
+                      }}
+                    />
                   </div>
                 )}
+                <ul className="stats dock-stats">
+                  <li>
+                    {isFeatureEnabled("trainDockIa") ? "Round" : "Gen"}:{" "}
+                    {evolveProgress.generation}
+                  </li>
+                  <li>
+                    Try: {(evolveProgress.episodeT ?? 0).toFixed(1)}s /{" "}
+                    {formatEpisodeSeconds(
+                      evolveProgress.episodeDuration ?? episodeSeconds,
+                    )}
+                  </li>
+                  <li>Best: {evolveProgress.bestFitness.toFixed(3)}</li>
+                  <li>Mean: {evolveProgress.meanFitness.toFixed(3)}</li>
+                  {bestGenome && !evolveProgress.running && (
+                    <li>Elite fit: {bestGenome.genome.fitness.toFixed(3)}</li>
+                  )}
+                  {isFeatureEnabled("trainStartFrom") && (
+                    <li>
+                      Run # {runSeed}{" "}
+                      <button
+                        type="button"
+                        disabled={evolveProgress.running}
+                        title="Reseed RNG for the next Evolve"
+                        onClick={() => setRunSeed(Date.now() % 1_000_000)}
+                      >
+                        Reseed
+                      </button>
+                    </li>
+                  )}
+                </ul>
+                <div className="train-grip-controls">
+                  <label
+                    className="slider-row train-grip-slider"
+                    title="How hard planted feet stick at low speed and resist sliding the wrong way on every surface (ground, ramps, boxes). Fast forward (right) scoot stays free; 0 = off."
+                  >
+                    <span>Anti-scoot</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={ANTI_SCOOT_MAX}
+                      step={0.05}
+                      value={antiScoot}
+                      onChange={(e) => setAntiScoot(Number(e.target.value))}
+                    />
+                    <span className="val">{antiScoot.toFixed(2)}</span>
+                  </label>
+                </div>
+                <p className={evolveProgress.running ? "hint" : "hint muted"}>
+                  {evolveProgress.status}
+                </p>
+                {isFeatureEnabled("trainTelemetryLog") &&
+                  trainTelemetryOn &&
+                  trainTelemetrySession && (
+                    <div className="train-telemetry-live">
+                      <p className="hint">
+                        Log: {trainTelemetrySession.generations.length}/
+                        {trainTelemetrySession.window} gens
+                        {trainTelemetrySession.endedAt
+                          ? " · complete"
+                          : evolveProgress.running
+                            ? " · capturing"
+                            : ""}
+                      </p>
+                      {trainTelemetrySession.morphology && (
+                        <p className="hint muted">
+                          {trainTelemetrySession.morphology.name} ·{" "}
+                          {trainTelemetrySession.morphology.joints}j/
+                          {trainTelemetrySession.morphology.bones}b/
+                          {trainTelemetrySession.morphology.muscles}m · feet{" "}
+                          {trainTelemetrySession.morphology.feet}
+                        </p>
+                      )}
+                      {(() => {
+                        const last =
+                          trainTelemetrySession.generations[
+                            trainTelemetrySession.generations.length - 1
+                          ];
+                        const cause = last?.stall?.summaryCause;
+                        return cause ? (
+                          <p className="hint muted" title={cause}>
+                            Last stall: {cause}
+                          </p>
+                        ) : null;
+                      })()}
+                      {trainTelemetrySession.insights.length > 0 && (
+                        <ul className="stats dock-stats train-telemetry-insights">
+                          {trainTelemetrySession.insights
+                            .slice(0, 5)
+                            .map((ins) => (
+                              <li key={`${ins.kind}-${ins.label}`}>
+                                <span className="muted">{ins.label}:</span>{" "}
+                                {ins.detail}
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+              </div>
             </div>
+
+            {isFeatureEnabled("trainRecipes") && (
+              <div className="dock-row dock-row-setup">
+                <TrainingSetupPanel
+                  knobs={gaKnobs}
+                  disabled={evolveProgress.running}
+                  hasBestOfRun={!!bestGenome}
+                  savedBrainOptions={savedModels
+                    .filter((m) => m.task === activeTask)
+                    .map((m) => ({ id: m.id, name: m.name }))}
+                  onChange={setGaKnobs}
+                  showSchedules={isFeatureEnabled("trainSchedules")}
+                />
+              </div>
+            )}
           </div>
         );
 
@@ -4813,6 +5498,40 @@ export default function App() {
                   m.id === id ? clampCourseMarker({ ...m, ...patch }) : m,
                 ),
               });
+            }}
+            onPatchObstacle={(id, patch) => {
+              commitEnv({
+                ...envDesign,
+                obstacles: envDesign.obstacles.map((o) =>
+                  o.id === id ? { ...o, ...patch } : o,
+                ),
+              });
+            }}
+            onEnsureCourse={() => {
+              commitEnv(ensureCourseGates(envDesign));
+            }}
+            onPlaceEvenCheckpoints={(count) => {
+              commitEnv(placeEvenCheckpoints(envDesign, count));
+            }}
+            onMoveCheckpoint={(id, delta) => {
+              commitEnv(moveCheckpointOrder(envDesign, id, delta));
+            }}
+            onBuildCurriculum={() => {
+              const gated = ensureCourseGates(envDesign);
+              const curriculum = buildCurriculumFromMarkers(gated);
+              if (!curriculum) {
+                setError(
+                  "Need a finish gate to build curriculum stages.",
+                );
+                return;
+              }
+              commitEnv({ ...gated, curriculum });
+            }}
+            onClearCurriculum={() => {
+              commitEnv(clearAuthoredCurriculum(envDesign));
+            }}
+            onPatchCurriculumStage={(stageId, patch) => {
+              commitEnv(patchCurriculumStage(envDesign, stageId, patch));
             }}
             onDeleteSelected={deleteEnvSelected}
             onUndo={undoEnv}
@@ -4837,6 +5556,17 @@ export default function App() {
               commitEnv({ ...envDesign, tower: undefined });
               setEnvSelection(null);
             }}
+            onClearAll={() => {
+              commitEnv({
+                name: envDesign.name,
+                theme: envDesign.theme,
+                obstacles: [],
+                regions: [],
+                markers: [],
+                spawn: { x: 0, y: 0 },
+              });
+              setEnvSelection(null);
+            }}
             collapsed={dockCollapsed}
           />
         );
@@ -4851,6 +5581,15 @@ export default function App() {
               selection={selection}
               onSelect={setSelection}
               cameraRef={editorCamRef}
+              boneRigid={boneRigid && isFeatureEnabled("rigidStruts")}
+              clothDraftJointIds={clothDraftPins}
+              onClothPinJoint={(jointId) => {
+                setClothDraftPins((prev) =>
+                  prev.includes(jointId)
+                    ? prev.filter((id) => id !== jointId)
+                    : [...prev, jointId],
+                );
+              }}
             />
           ) : mode === "world" ? (
             <EnvEditorCanvas
@@ -4909,10 +5648,16 @@ export default function App() {
                 });
               }}
               onPerf={(perf) => {
+                const now = performance.now();
+                if (now - perfUiLastRef.current < 100) return;
+                perfUiLastRef.current = now;
                 setPerfFps(perf.fps);
                 setPerfFrameMs(perf.frameMs);
               }}
               onFrame={(snap) => {
+                const now = performance.now();
+                if (now - frameUiLastRef.current < 100) return;
+                frameUiLastRef.current = now;
                 setSimTime(snap.time);
                 if (snap.evolve) setEvolveProgress(snap.evolve);
                 if (isFeatureEnabled("statsPanel")) {
@@ -4928,28 +5673,70 @@ export default function App() {
             />
           );
 
+        const creaturesPanel = (
+          <CreaturesPanel
+            currentDesign={design}
+            packages={packages}
+            savedModels={savedModels}
+            bestEverList={bestEverList}
+            discoveries={discoveries}
+            activeTask={activeTask}
+            evolving={evolveProgress.running}
+            onOpenInEditor={openCreatureFromBrowser}
+            onDeletePackage={(id) => {
+              deletePackage(id);
+              refreshPackages();
+              if (selectedCreatureKey === `pkg:${id}`) {
+                setSelectedCreatureKey("custom");
+              }
+            }}
+            onContinueModel={(m) => {
+              if (
+                isFeatureEnabled("trainStartFrom") &&
+                m.task !== "dance"
+              ) {
+                setGaKnobs((k) => ({
+                  ...k,
+                  startFrom: "saved",
+                  savedModelId: m.id,
+                  recipeId: "fine_tune",
+                }));
+              }
+              continueFromModel(m);
+            }}
+            onDeleteModel={(id) => {
+              deleteSavedModel(id);
+              refreshModels();
+            }}
+            onLoadDanceFreestyle={loadDanceFreestyle}
+            onDownloadText={downloadText}
+          />
+        );
+
         const sandboxTabs: SandboxTab[] = [
           { id: "zone", label: "Zone", content: zonePanel },
           ...(isFeatureEnabled("discoveryUi")
             ? [
                 {
                   id: "discoveries" as const,
-                  label: "Discoveries",
-                  content: discoveriesPanel,
+                  label: "Trophy room",
+                  // Full-bleed viewport owns this tab; no side panel body.
+                  content: null,
                 },
               ]
             : []),
+          { id: "edit", label: "Creature builder", content: editPanel },
           {
             id: "creatures",
             label: "Creatures",
-            content: creaturesPanel,
+            // Full-bleed viewport owns this tab; no side panel body.
+            content: null,
           },
-          { id: "edit", label: "Edit", content: editPanel },
           { id: "train", label: "Train", content: trainPanel },
           ...(isFeatureEnabled("headToHead") && h2hPanel
             ? [{ id: "h2h" as const, label: "H2H", content: h2hPanel }]
             : []),
-          { id: "world", label: "World", content: worldPanel },
+          { id: "world", label: "Environment builder", content: worldPanel },
         ];
 
         const topbar = (
@@ -4989,9 +5776,36 @@ export default function App() {
                 activeTab={sandboxTab}
                 onActiveTabChange={onSandboxTabChange}
                 hideTabRail
-                viewport={viewport}
+                hideSidebar={showFullBleedRoom}
+                contextStrip={
+                  showFullBleedRoom || immersive ? null : (
+                    <ContextStrip
+                      zone={zone}
+                      onSelectZone={selectZone}
+                      showZoneTabs={isFeatureEnabled("zoneTabs")}
+                      showDiscoZone={isFeatureEnabled("discoMode")}
+                      goals={zoneGoals}
+                      goalId={goalId}
+                      onSelectGoal={selectGoal}
+                      showGoals={isFeatureEnabled("goalCatalog")}
+                      envPackages={envPackages}
+                      selectedPackageId={activeEnvPackageId}
+                      activeEnvName={envDesign.name}
+                      onSelectEnv={applyTrainingEnv}
+                      showEnv={isFeatureEnabled("environmentsRepo")}
+                      envDisabled={evolveProgress.running}
+                    />
+                  )
+                }
+                viewport={
+                  showCreaturesRoom
+                    ? creaturesPanel
+                    : showTrophyRoom
+                      ? trophyRoom
+                      : viewport
+                }
                 dock={
-                  editPhysics
+                  showFullBleedRoom || editPhysics
                     ? null
                     : mode === "world"
                       ? worldDock
@@ -5022,22 +5836,32 @@ export default function App() {
           <>
             {topbar}
             <div className="main">
-              <aside className="sidebar">
-                {zonePanel}
-                {creaturesPanel}
-                {isFeatureEnabled("discoveryUi") && discoveriesPanel}
-                {worldPanel}
-                {(mode === "edit" || editPhysics) && editPanel}
-                {!editPhysics && mode === "sim" && zone === "disco" && discoDock}
-                {!editPhysics && mode === "sim" && zone !== "disco" && (
-                  <>
-                    {dockFull}
-                    {trainPanel}
-                  </>
-                )}
-                {mode === "world" && worldDock}
-              </aside>
-              <div className="viewport">{viewport}</div>
+              {!showFullBleedRoom && (
+                <aside className="sidebar">
+                  {zonePanel}
+                  {worldPanel}
+                  {(mode === "edit" || editPhysics) && editPanel}
+                  {!editPhysics && mode === "sim" && zone === "disco" && discoDock}
+                  {!editPhysics && mode === "sim" && zone !== "disco" && (
+                    <>
+                      {dockFull}
+                      {trainPanel}
+                    </>
+                  )}
+                  {mode === "world" && worldDock}
+                </aside>
+              )}
+              <div
+                className={
+                  showFullBleedRoom ? "viewport viewport-fullbleed" : "viewport"
+                }
+              >
+                {showCreaturesRoom
+                  ? creaturesPanel
+                  : showTrophyRoom
+                    ? trophyRoom
+                    : viewport}
+              </div>
             </div>
           </>
         );
@@ -5070,7 +5894,7 @@ export default function App() {
                   return;
                 }
                 const m = result.value;
-                loadPreset(m.design);
+                loadPreset(m.design, "custom");
                 setGoalId(m.task);
                 saveActiveGoalId(m.task);
                 simulation.setTask(m.task);
@@ -5108,7 +5932,7 @@ export default function App() {
                 setError(result.error);
                 return;
               }
-              loadPreset(result.value);
+              loadPreset(result.value, "custom");
             }}
           />
           <input
