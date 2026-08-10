@@ -2,33 +2,26 @@
 
 **A serious environment to carry out silly experiments.**
 
-Phase 1: a clean rigid-body creature sandbox inspired by
-[Evolution by Keiwan](https://keiwando.com/evolution/).
+Build little creatures out of joints, bones, and muscles, drop them into a 2D world, and teach them to walk, jump, climb, fly, race courses, or dance. Designs are yours; brains improve by trying many variations and keeping what works.
 
-This is **not** a port of the soft-body sandbox in the parent repo, and **not** a
-copy of Evolution’s source (that project is not redistributable OSS). It
-reimplements the documented feel:
+Inspired by [Evolution by Keiwan](https://keiwando.com/evolution/).
 
-- **Joints** — massy contact points (circles)
-- **Bones** — rigid capsules hinged to joints
-- **Muscles** — always-on springs toward rest length, plus active contract / expand forces along the bone-to-bone axis
-- **Control** — per-muscle `[-1, 1]` (sign = expand/contract, magnitude = force)
+## What you can do
 
-**Phase 2** adds a fixed MLP brain + weight evolution for a run (distance) task.
-See [`PHASE2_NEURAL_NETWORK.md`](./PHASE2_NEURAL_NETWORK.md).
+| Area | What it’s for |
+| --- | --- |
+| **Creature builder** | Draw a body: place joints, connect bones (including solid struts), add muscles, decorate with body parts / eyes / cloth. |
+| **Creatures** | Browse presets and your library, inspect stats, saved brains, best scores, and trophies earned by a body. |
+| **Train** | Pick a goal and environment, then **Evolve** a brain. Watch a pack of try-outs, play the best, save models. |
+| **Environment builder** | Author flat ground, hills, obstacles, launch pads, score regions, and course markers for practice. |
+| **Zone / Goal / Env strip** | Switch skill areas (walk, jump, fly, motor, free, disco) and the training course without leaving the main view. |
+| **Disco** | Load music, route frequency bands to muscles, record / learn dances, run multi-dancer slots. |
+| **Trophy room** | Collect secret goals unlocked while experimenting. |
+| **Head-to-head** | Pit two saved brains against each other on a goal. |
 
-## Feature ports (from parent sandbox)
+**Tip:** Brace limbs with triangles. Long floppy chains tend to pancake under gravity.
 
-Product features from the parent Biomechanics Sandbox may be rewritten into Fresh
-Start **without** importing parent physics, notes, or NEAT.
-
-1. Mark what you want in [`FEATURE_PORT_CHECKLIST.md`](./FEATURE_PORT_CHECKLIST.md) (unmarked items are kept for later)
-2. Refresh [`FEATURE_PORT_BACKLOG.md`](./FEATURE_PORT_BACKLOG.md)
-3. Follow the physics firewall: [`docs/PHYSICS_FIREWALL.md`](./docs/PHYSICS_FIREWALL.md)
-
-Immediate ports already landed include zones, googly eyes, Kenney body parts, creature library, disco mode, and jump/climb/motor/flight tasks (Rapier-native).
-
-## Run
+## Quick start
 
 ```bat
 start.bat
@@ -41,43 +34,52 @@ npm install
 npm run dev
 ```
 
-Opens at **http://localhost:3001/** (port 3001 so it does not clash with the old sandbox on 3000).
+Open **http://localhost:3001/**.
 
-## Use
+### First session
 
-1. Load a **preset** (Triangle Walker / Simple Hopper / Floppy Chain), or build with tools:
-   - **joint** — left-click empty to place; drag a joint to move (bones/muscles resize)
-   - **select** — drag joints to reposition
-   - **bone** — left-drag joint→joint to draw
-   - **muscle** — left-drag bone→bone to draw
-   - **right-click** — delete joint / bone / muscle under the cursor
-   - **Ctrl+Z** (or Undo button) — undo last edit
-2. **Drop / Simulate** — gravity + springs.
-3. Drive muscles with **Idle**, **Manual** sliders, or **Oscillate**.
-4. In simulate mode: **Evolve** runs a live cohort (ghosted peers, camera focus ← →);
-   **Play best** replays the elite genome alone.
+1. Open **Creature builder** and load a preset (e.g. Triangle Walker), or draw your own.
+2. Use the strip above the canvas to pick a **Zone**, **Goal**, and **Env**.
+3. Switch to **Train**, press **Evolve**, then **Play best** when a run finishes.
+4. Save a model from the Train dock; manage bodies and brains in **Creatures**.
 
-**Lesson from Evolution:** brace with triangles. Serial chains pancake under gravity.
+Editor shortcuts: place joints with the joint tool; drag bone/muscle between parts; select to move or multi-select; Undo / Clear as needed. Save current and Import/Export JSON stay in the builder.
 
-## Feel / evolve gates
+---
+
+## For builders & contributors
+
+### Creature model
+
+- **Joints** — massy contact points (circles); can be marked as feet, heads, or wheels.
+- **Bones** — hinged capsules between joints, or **rigid struts** for solid frames.
+- **Muscles** — always-on springs toward rest length, plus active contract / expand along the bone-to-bone axis.
+- **Control** — each actuator channel is `[-1, 1]` (sign = expand/contract, magnitude = strength). Manual, oscillate, or brain-driven.
+
+Physics knobs live in [`src/physics/constants.ts`](src/physics/constants.ts). Simulation steps Rapier at a fixed timestep with force/torque resets each step.
+
+### Learning
+
+Training uses a fixed **MLP** brain and a **genetic algorithm** over weights (and optional body/structure morph genes) — not NEAT. Goals and scoring live under `src/brain/` and `src/goals/`. Background: [`PHASE2_NEURAL_NETWORK.md`](./PHASE2_NEURAL_NETWORK.md).
+
+### Feature tracking & physics rules
+
+1. Mark planned work in [`FEATURE_PORT_CHECKLIST.md`](./FEATURE_PORT_CHECKLIST.md)
+2. Track implementation in [`FEATURE_PORT_BACKLOG.md`](./FEATURE_PORT_BACKLOG.md)
+3. Keep physics changes inside the Rapier-native contract: [`docs/PHYSICS_FIREWALL.md`](./docs/PHYSICS_FIREWALL.md)
+
+Capability ADRs: [`docs/adr/`](./docs/adr/).
+
+### Smoke tests
+
+After physics-adjacent changes, run:
 
 ```bash
-npm run smoke:firewall
-npm run smoke:feel
-npm run smoke:evolve
 npm run smoke:all
 ```
 
-`smoke:firewall` checks fixed-dt / muscle third-law / determinism / no parent physics imports / flags-off.  
-`smoke:feel` checks braced settle, hopper contract/expand, and under-braced collapse.  
-`smoke:evolve` checks that run-task fitness improves vs generation-0 on ≥2/3 seeds.  
-`smoke:all` runs firewall + feel + evolve (required after physics-adjacent ports).
+Suites cover the physics contract (fixed-dt, third-law muscles, determinism), feel (brace / hopper / collapse), evolve progress, tasks/envs, disco dance, training recipes, structure morph, editor selection, raycasts, rigid struts, and cloth.
 
-## Tunables
-
-All physics knobs live in [`src/physics/constants.ts`](src/physics/constants.ts)
-(gravity, spring, damper, max muscle force, damping, friction).
-
-## Stack
+### Stack
 
 Vite + React + TypeScript + Rapier2D (`@dimforge/rapier2d-compat`).
