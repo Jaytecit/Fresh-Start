@@ -1,25 +1,5 @@
 import type { CreatureDesign } from './types';
 
-/** Braced triangle — holds pose under gravity (Keiwan lesson: brace your design). */
-export const TRIANGLE_WALKER: CreatureDesign = {
-  name: 'Triangle Walker',
-  joints: [
-    { id: 1, x: -1.2, y: 1.0, isFoot: true },
-    { id: 2, x: 1.2, y: 1.0, isFoot: true },
-    { id: 3, x: 0.0, y: 2.6, isHead: true },
-  ],
-  bones: [
-    { id: 1, startJointId: 1, endJointId: 2 },
-    { id: 2, startJointId: 2, endJointId: 3 },
-    { id: 3, startJointId: 3, endJointId: 1 },
-  ],
-  muscles: [
-    { id: 1, startBoneId: 1, endBoneId: 2, canExpand: true },
-    { id: 2, startBoneId: 2, endBoneId: 3, canExpand: true },
-    { id: 3, startBoneId: 3, endBoneId: 1, canExpand: true },
-  ],
-};
-
 /** Under-braced serial chain — collapses / pancakes without cross-bracing. */
 export const FLOPPY_CHAIN: CreatureDesign = {
   name: 'Floppy Chain',
@@ -283,7 +263,6 @@ export const CHUTE_DROPPER: CreatureDesign = {
 };
 
 export const PRESETS: CreatureDesign[] = [
-  TRIANGLE_WALKER,
   SIMPLE_HOPPER,
   DART_STRIDER,
   FLOPPY_CHAIN,

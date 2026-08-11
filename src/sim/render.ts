@@ -153,11 +153,7 @@ export function drawGrid(
   ctx.restore();
 }
 
-/**
- * Distance reference marks on the ground plane.
- * Minor ticks every 1 unit; major ticks + labels every 5 (origin emphasized).
- * Ground is an infinite halfspace — draw across the visible viewport only.
- */
+/** Ground halfspace fill + horizon line (distance ticks live on the A6 edge ruler). */
 export function drawGround(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
@@ -174,68 +170,6 @@ export function drawGround(
 
   ctx.fillStyle = '#152028';
   ctx.fillRect(0, left.y, w, h - left.y);
-
-  drawGroundDistanceMarks(ctx, cam, w, h);
-}
-
-function drawGroundDistanceMarks(
-  ctx: CanvasRenderingContext2D,
-  cam: Camera,
-  w: number,
-  h: number,
-): void {
-  const topLeft = screenToWorld(cam, w, h, 0, 0);
-  const bottomRight = screenToWorld(cam, w, h, w, h);
-  const viewMinX = Math.min(topLeft.x, bottomRight.x);
-  const viewMaxX = Math.max(topLeft.x, bottomRight.x);
-  const minX = Math.floor(viewMinX) - 1;
-  const maxX = Math.ceil(viewMaxX) + 1;
-
-  // Skip labels when ticks are too dense on screen (~<28px between majors).
-  const majorStep = 5;
-  const labelSpacing = majorStep * cam.zoom;
-  const showLabels = labelSpacing >= 28;
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.font = '11px "Segoe UI", system-ui, sans-serif';
-
-  for (let x = Math.ceil(minX); x <= maxX; x++) {
-    const major = x % majorStep === 0;
-    const origin = x === 0;
-    const a = worldToScreen(cam, w, h, x, GROUND_Y);
-    // Tick height in screen px (up into the air side of the ground line).
-    const tickH = origin ? 14 : major ? 10 : 5;
-
-    ctx.strokeStyle = origin
-      ? 'rgba(220, 200, 120, 0.85)'
-      : major
-        ? 'rgba(140, 160, 180, 0.7)'
-        : 'rgba(100, 120, 140, 0.4)';
-    ctx.lineWidth = origin ? 2 : 1;
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(a.x, a.y - tickH);
-    ctx.stroke();
-
-    // Short stub into the ground fill for major marks.
-    if (major) {
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(a.x, a.y + (origin ? 8 : 5));
-      ctx.stroke();
-    }
-
-    if (showLabels && major) {
-      ctx.fillStyle = origin
-        ? 'rgba(230, 210, 140, 0.95)'
-        : 'rgba(160, 175, 190, 0.85)';
-      ctx.fillText(String(x), a.x, a.y + 7);
-    }
-  }
-
-  ctx.restore();
 }
 
 export function drawObstacles(
@@ -293,6 +227,7 @@ export function drawScoreRegions(
     const rh = r.h * cam.zoom;
     ctx.save();
     ctx.translate(c.x, c.y);
+    ctx.rotate(-(r.rot ?? 0));
     if (r.kind === 'penalty') {
       ctx.fillStyle = 'rgba(190, 70, 70, 0.28)';
       ctx.strokeStyle = 'rgba(220, 110, 100, 0.75)';
@@ -327,6 +262,7 @@ export function drawCourseMarkers(
     const rh = m.h * cam.zoom;
     ctx.save();
     ctx.translate(c.x, c.y);
+    ctx.rotate(-(m.rot ?? 0));
     if (m.kind === 'start') {
       ctx.fillStyle = 'rgba(60, 200, 220, 0.28)';
       ctx.strokeStyle = 'rgba(90, 230, 240, 0.85)';

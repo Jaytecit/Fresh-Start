@@ -38,11 +38,47 @@ export const DEFAULT_RAMP_DRAW_THICKNESS = 0.28;
 /** World-unit magnet radius for corners / edges / ground. */
 export const RAMP_SNAP_RADIUS = 0.45;
 
+/**
+ * Treat points this far below the ground plane as underground.
+ * Ramps flush on y=0 still have bottom corners slightly under the plane —
+ * those must not become snap magnets (they spawn invisible humps).
+ */
+const GROUND_SNAP_EPS = 1e-4;
+
 /** Min run so spawn `min(h, w*0.35)` does not thin the authored slab. */
 export function minRampDrawLength(
   thickness: number = DEFAULT_RAMP_DRAW_THICKNESS,
 ): number {
   return Math.max(OBSTACLE_MIN_SIZE, thickness / 0.35 + 1e-4);
+}
+
+/** Authored ramp top endpoints stay on/above the walkable ground plane. */
+export function clampRampEndpointToGround(p: Vec2): Vec2 {
+  return {
+    x: p.x,
+    y: Math.max(GROUND_Y, Number.isFinite(p.y) ? p.y : GROUND_Y),
+  };
+}
+
+function aboveGround(p: Vec2): boolean {
+  return p.y >= GROUND_Y - GROUND_SNAP_EPS;
+}
+
+/** Keep only the portion of an edge at/above the ground plane. */
+function clipSegmentAboveGround(
+  a: Vec2,
+  b: Vec2,
+): RampSnapSegment | null {
+  const aOk = aboveGround(a);
+  const bOk = aboveGround(b);
+  if (aOk && bOk) return { a, b };
+  if (!aOk && !bOk) return null;
+  const dy = b.y - a.y;
+  if (Math.abs(dy) < 1e-12) return null;
+  const t = (GROUND_Y - a.y) / dy;
+  if (t < 0 || t > 1) return null;
+  const hit: Vec2 = { x: a.x + t * (b.x - a.x), y: GROUND_Y };
+  return aOk ? { a, b: hit } : { a: hit, b };
 }
 
 function nearly(a: number, b: number, eps = 1e-9): boolean {
@@ -154,11 +190,14 @@ export function collectRampSnapGeometry(
 
   for (const v of visuals) {
     const corners = cuboidCorners(v.x, v.y, v.hx, v.hy, v.rot);
-    for (const p of corners) pushUniquePoint(points, p);
+    for (const p of corners) {
+      if (aboveGround(p)) pushUniquePoint(points, p);
+    }
     for (let i = 0; i < corners.length; i++) {
       const a = corners[i]!;
       const b = corners[(i + 1) % corners.length]!;
-      pushUniqueSegment(segments, a, b);
+      const clipped = clipSegmentAboveGround(a, b);
+      if (clipped) pushUniqueSegment(segments, clipped.a, clipped.b);
     }
   }
 
@@ -211,7 +250,7 @@ export function snapRampEndpoint(
       bestPoint = q;
     }
   }
-  if (bestPoint) return { x: bestPoint.x, y: bestPoint.y };
+  if (bestPoint) return clampRampEndpointToGround(bestPoint);
 
   for (const seg of opts.geometry.segments) {
     const { point, dist } = projectToSegment(p, seg.a, seg.b);
@@ -220,12 +259,12 @@ export function snapRampEndpoint(
       bestPoint = point;
     }
   }
-  if (bestPoint) return { x: bestPoint.x, y: bestPoint.y };
+  if (bestPoint) return clampRampEndpointToGround(bestPoint);
 
   if (opts.gridSnap) {
-    return snapToGrid(x, y, true);
+    return clampRampEndpointToGround(snapToGrid(x, y, true));
   }
-  return p;
+  return clampRampEndpointToGround(p);
 }
 
 /**
@@ -237,8 +276,12 @@ export function rampFromTopEndpoints(
   b: Vec2,
   thickness: number = DEFAULT_RAMP_DRAW_THICKNESS,
 ): EnvObstacle | null {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
+  // Never author a top surface that dives under the infinite ground — that
+  // reads as an invisible hump / single-wave bump in play.
+  const aG = clampRampEndpointToGround(a);
+  const bG = clampRampEndpointToGround(b);
+  const dx = bG.x - aG.x;
+  const dy = bG.y - aG.y;
   const len = Math.hypot(dx, dy);
   const minLen = minRampDrawLength(thickness);
   if (!(len >= minLen) || len > OBSTACLE_MAX_SIZE) return null;
@@ -246,8 +289,8 @@ export function rampFromTopEndpoints(
 
   const rot = Math.atan2(dy, dx);
   const hy = thickness / 2;
-  const midX = (a.x + b.x) / 2;
-  const midY = (a.y + b.y) / 2;
+  const midX = (aG.x + bG.x) / 2;
+  const midY = (aG.y + bG.y) / 2;
   const s = Math.sin(rot);
   const c = Math.cos(rot);
   // Center = top mid − hy · n, n = (−sin, cos) = local +Y.

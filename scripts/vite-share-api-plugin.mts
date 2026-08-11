@@ -5,8 +5,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { Plugin } from 'vite';
+import {
+  galleryEntryFromShareSummary,
+  listCatalogFs,
+  writeCatalogFs,
+} from '../src/library/catalogStoreFs.ts';
 import { createShareId, isValidShareId } from '../src/library/shareIds.ts';
-import { SHARE_MAX_JSON_BYTES } from '../src/library/shareLimits.ts';
+import {
+  GALLERY_MAX_ENTRIES,
+  SHARE_MAX_JSON_BYTES,
+} from '../src/library/shareLimits.ts';
 import {
   renderSharePageHtml,
   sharePageStateFromModel,
@@ -19,6 +27,10 @@ import { validateSharePayload } from '../src/library/shareValidate.ts';
 
 function shareDir(root: string): string {
   return join(root, '.data', 'shares');
+}
+
+function catalogDir(root: string): string {
+  return join(root, '.data', 'catalog');
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -51,8 +63,39 @@ function originFromReq(req: IncomingMessage): string {
   return `${proto}://${host}`;
 }
 
+function parseSharePostBody(raw: string): {
+  modelRaw: string;
+  listPublic: boolean;
+} | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    'model' in (parsed as object)
+  ) {
+    const wrap = parsed as { model: unknown; listPublic?: unknown };
+    if (wrap.model == null) return null;
+    const modelRaw =
+      typeof wrap.model === 'string'
+        ? wrap.model
+        : JSON.stringify(wrap.model);
+    return {
+      modelRaw,
+      listPublic: wrap.listPublic === true,
+    };
+  }
+  return { modelRaw: raw, listPublic: false };
+}
+
 export function solemnShareApiPlugin(projectRoot: string): Plugin {
   const dir = shareDir(projectRoot);
+  const catalog = catalogDir(projectRoot);
 
   const mount = (middlewares: {
     use: (fn: (req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => void) => void;
@@ -63,14 +106,31 @@ export function solemnShareApiPlugin(projectRoot: string): Plugin {
         const url = new URL(req.url, 'http://localhost');
         const { pathname } = url;
 
+        if (pathname === '/api/gallery' && req.method === 'GET') {
+          const entries = await listCatalogFs(catalog, GALLERY_MAX_ENTRIES);
+          res.setHeader('Cache-Control', 'public, max-age=60');
+          return sendJson(res, 200, { entries });
+        }
+
         if (pathname === '/api/share' && req.method === 'POST') {
           const raw = await readBody(req);
-          if (Buffer.byteLength(raw, 'utf8') > SHARE_MAX_JSON_BYTES) {
+          if (Buffer.byteLength(raw, 'utf8') > SHARE_MAX_JSON_BYTES + 512) {
             return sendJson(res, 413, {
               error: 'The creature could not be shared.',
             });
           }
-          const validated = validateSharePayload(raw);
+          const parsed = parseSharePostBody(raw);
+          if (!parsed) {
+            return sendJson(res, 400, {
+              error: 'The creature could not be shared.',
+            });
+          }
+          if (Buffer.byteLength(parsed.modelRaw, 'utf8') > SHARE_MAX_JSON_BYTES) {
+            return sendJson(res, 413, {
+              error: 'The creature could not be shared.',
+            });
+          }
+          const validated = validateSharePayload(parsed.modelRaw);
           if (!validated.ok) {
             return sendJson(res, 400, {
               error: 'The creature could not be shared.',
@@ -78,10 +138,29 @@ export function solemnShareApiPlugin(projectRoot: string): Plugin {
           }
           const id = createShareId();
           await writeShareFs(dir, id, validated.raw);
+          if (parsed.listPublic) {
+            const m = validated.model;
+            await writeCatalogFs(
+              catalog,
+              galleryEntryFromShareSummary(id, {
+                name: m.name,
+                task: m.task,
+                fitness: m.fitness,
+                joints: m.design.joints.length,
+                bones: m.design.bones.length,
+                muscles: m.design.muscles.length,
+                inputCount: m.shape.inputCount,
+                hiddenCount: m.shape.hiddenCount,
+                outputCount: m.shape.outputCount,
+                version: m.version,
+              }),
+            );
+          }
           const origin = originFromReq(req);
           return sendJson(res, 201, {
             id,
             url: `${origin}/share/${id}`,
+            listed: parsed.listPublic,
           });
         }
 

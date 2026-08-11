@@ -13,3 +13,5 @@ export const SHARE_SUPPORTED_MODEL_VERSION = 1;
 export const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{8,16}$/;
 export const SHARE_RATE_LIMIT_WINDOW_MS = 60_000;
 export const SHARE_RATE_LIMIT_MAX_POSTS = 10;
+/** C7 — Max public gallery entries returned by GET /api/gallery. */
+export const GALLERY_MAX_ENTRIES = 100;

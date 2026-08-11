@@ -173,7 +173,6 @@ import {
   saveHoverHelpEnabled,
 } from "./help/hoverHelp";
 import { PRESETS } from "./creature/presets";
-import { DISCO_DANCER } from "./creature/discoDancer";
 import { cloneDesign, type CreatureDesign } from "./creature/types";
 import { EditorCanvas, type EditTool } from "./editor/EditorCanvas";
 import {
@@ -220,8 +219,13 @@ import {
   type DiscoPuppetMode,
 } from "./physics/constants";
 import { EnvEditorCanvas } from "./env/EnvEditorCanvas";
-import { deleteSelection as deleteEnvSelection } from "./env/envEditOps";
-import type { EnvSelection, EnvTool } from "./env/envSelection";
+import type { EnvSelectionList, EnvTool } from "./env/envSelection";
+import {
+  deleteSelectables,
+  duplicateSelection as duplicateEnvSelection,
+  mirrorDuplicateSelection as mirrorEnvSelection,
+  rotateSelection as rotateEnvSelection,
+} from "./env/envSelectionOps";
 import { makeSineTerrain } from "./env/terrainMath";
 import {
   cloneEnvironment,
@@ -295,7 +299,10 @@ import {
   trainedModelName,
   type SavedModel,
 } from "./library/savedModels";
-import { ShareDialog } from "./components/ShareDialog";
+import {
+  ShareDialog,
+  type ShareDialogPhase,
+} from "./components/ShareDialog";
 import type { TaskEpisodeMetrics } from "./brain/taskScore";
 import { evaluateSecretGoals } from "./secrets/eval";
 import {
@@ -347,7 +354,10 @@ export default function App() {
   /** Non-fatal banner (import / share failures). */
   const [flashNotice, setFlashNotice] = useState<string | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareDialogPhase, setShareDialogPhase] =
+    useState<ShareDialogPhase>("confirm");
   const [shareDialogUrl, setShareDialogUrl] = useState("");
+  const [shareDialogListed, setShareDialogListed] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareDialogError, setShareDialogError] = useState<string | null>(null);
   const shareBusyRef = useRef(false);
@@ -618,7 +628,7 @@ export default function App() {
   const [worldThemeOpen, setWorldThemeOpen] = useState(true);
   const [worldLibOpen, setWorldLibOpen] = useState(true);
   const [envTool, setEnvTool] = useState<EnvTool>("select");
-  const [envSelection, setEnvSelection] = useState<EnvSelection>(null);
+  const [envSelection, setEnvSelection] = useState<EnvSelectionList>([]);
   const [envSnapEnabled, setEnvSnapEnabled] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const envFileInputRef = useRef<HTMLInputElement>(null);
@@ -2014,7 +2024,7 @@ export default function App() {
     setEnvUndoCount(envUndoStackRef.current.length);
     setEnvDesign(prev);
     setActiveEnvPackageId(null);
-    setEnvSelection(null);
+    setEnvSelection([]);
   }, []);
   const courseBaseForResolve = useCallback((): EnvironmentDesign | null => {
     if (courseBaseEnvRef.current) return courseBaseEnvRef.current;
@@ -2047,7 +2057,7 @@ export default function App() {
       setEnvDesign(staged);
       if (packageId) setActiveEnvPackageId(packageId);
       setCourseStageIndex(idx);
-      setEnvSelection(null);
+      setEnvSelection([]);
       if (opts?.selectSprint) {
         setGoalId("sprint");
       }
@@ -2071,16 +2081,34 @@ export default function App() {
       }
       setEnvDesign(cloneEnvironment(pkg.environment));
       setActiveEnvPackageId(pkg.id);
-      setEnvSelection(null);
+      setEnvSelection([]);
       setCourseStageIndex(0);
     },
     [applyCourseStage, courseCurriculumOn],
   );
   const deleteEnvSelected = useCallback(() => {
-    const result = deleteEnvSelection(envDesignRef.current, envSelection);
-    if (!envSelection) return;
+    if (envSelection.length === 0) return;
+    commitEnv(deleteSelectables(envDesignRef.current, envSelection));
+    setEnvSelection([]);
+  }, [commitEnv, envSelection]);
+
+  const duplicateEnvSelected = useCallback(() => {
+    if (envSelection.length === 0) return;
+    const result = duplicateEnvSelection(envDesignRef.current, envSelection);
     commitEnv(result.env);
-    setEnvSelection(result.selection);
+    setEnvSelection(result.items);
+  }, [commitEnv, envSelection]);
+
+  const mirrorEnvSelected = useCallback(() => {
+    if (envSelection.length === 0) return;
+    const result = mirrorEnvSelection(envDesignRef.current, envSelection);
+    commitEnv(result.env);
+    setEnvSelection(result.items);
+  }, [commitEnv, envSelection]);
+
+  const rotateEnvSelected = useCallback(() => {
+    if (envSelection.length === 0) return;
+    commitEnv(rotateEnvSelection(envDesignRef.current, envSelection, -Math.PI / 2));
   }, [commitEnv, envSelection]);
   useEffect(() => {
     let cancelled = false;
@@ -2415,11 +2443,26 @@ export default function App() {
     }
   };
 
-  const shareCurrentElite = async () => {
+  const shareCurrentElite = () => {
     if (!isFeatureEnabled("creatureSharing")) return;
     if (shareBusyRef.current) return;
     if (!bestGenome) {
       setFlashNotice("Train or load a brain before sharing.");
+      return;
+    }
+    setShareDialogError(null);
+    setShareDialogUrl("");
+    setShareDialogListed(false);
+    setShareDialogPhase("confirm");
+    setShareDialogOpen(true);
+  };
+
+  const confirmShareElite = async (opts: { listPublic: boolean }) => {
+    if (!isFeatureEnabled("creatureSharing")) return;
+    if (shareBusyRef.current) return;
+    if (!bestGenome) {
+      setShareDialogPhase("error");
+      setShareDialogError("Train or load a brain before sharing.");
       return;
     }
     const adapted = adaptEliteToDesign(bestGenome, design, {
@@ -2427,7 +2470,8 @@ export default function App() {
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     });
     if (!adapted) {
-      setFlashNotice(
+      setShareDialogPhase("error");
+      setShareDialogError(
         "Brain layout mismatch — cannot share this elite for the current body.",
       );
       return;
@@ -2444,20 +2488,50 @@ export default function App() {
     });
     shareBusyRef.current = true;
     setShareBusy(true);
+    setShareDialogPhase("busy");
     setShareDialogError(null);
     setShareDialogUrl("");
-    setShareDialogOpen(true);
+    setShareDialogListed(false);
     try {
-      const result = await createShare(json);
+      const result = await createShare(json, {
+        listPublic:
+          isFeatureEnabled("publicCreationsLibrary") && opts.listPublic,
+      });
       if (!result.ok) {
+        setShareDialogPhase("error");
         setShareDialogError(result.error);
         return;
       }
       setShareDialogUrl(result.url);
+      setShareDialogListed(result.listed);
+      setShareDialogPhase("done");
     } finally {
       shareBusyRef.current = false;
       setShareBusy(false);
     }
+  };
+
+  const openSharedCreature = async (shareId: string) => {
+    if (!isFeatureEnabled("creatureSharing")) return;
+    const result = await fetchShare(shareId);
+    if (!result.ok) {
+      setFlashNotice(result.error);
+      return;
+    }
+    const ok = window.confirm(
+      "Open Shared Creature?\n\nThis will replace the creature currently in the workspace.\nYour saved creatures will not be deleted.",
+    );
+    if (!ok) return;
+    const imported = importModelJson(result.raw);
+    if (!imported.ok) {
+      setFlashNotice(
+        "This shared file is not a valid Solemn Sandbox creature.",
+      );
+      return;
+    }
+    applyImportedModel(imported.value, { persistToLibrary: false });
+    setSandboxTab("creatures");
+    setFlashNotice(`Opened shared creature “${imported.value.name}”.`);
   };
   const loadCreatureByKey = (key: string) => {
     if (key === "custom" || key === "current" || !key) {
@@ -2467,11 +2541,9 @@ export default function App() {
     if (key.startsWith("preset:")) {
       const name = key.slice("preset:".length);
       const preset =
-        name === DISCO_DANCER.name
-          ? DISCO_DANCER
-          : name === ULTI_GROOVE_BOT_II.name
-            ? ULTI_GROOVE_BOT_II
-            : PRESETS.find((p) => p.name === name);
+        name === ULTI_GROOVE_BOT_II.name
+          ? ULTI_GROOVE_BOT_II
+          : PRESETS.find((p) => p.name === name);
       if (preset) loadPreset(preset, key);
       return;
     }
@@ -2993,26 +3065,8 @@ export default function App() {
 
     let cancelled = false;
     void (async () => {
-      const result = await fetchShare(shareId);
       if (cancelled) return;
-      if (!result.ok) {
-        setFlashNotice(result.error);
-        return;
-      }
-      const ok = window.confirm(
-        "Open Shared Creature?\n\nThis will replace the creature currently in the workspace.\nYour saved creatures will not be deleted.",
-      );
-      if (!ok || cancelled) return;
-      const imported = importModelJson(result.raw);
-      if (!imported.ok) {
-        setFlashNotice(
-          "This shared file is not a valid Solemn Sandbox creature.",
-        );
-        return;
-      }
-      applyImportedModel(imported.value, { persistToLibrary: false });
-      setSandboxTab("creatures");
-      setFlashNotice(`Opened shared creature “${imported.value.name}”.`);
+      await openSharedCreature(shareId);
     })();
     return () => {
       cancelled = true;
@@ -3288,7 +3342,7 @@ export default function App() {
                           commitEnv(pkg.environment, {
                             packageId: pkg.id,
                           });
-                          setEnvSelection(null);
+                          setEnvSelection([]);
                         }}
                         title={
                           pkg.source === "builtin"
@@ -3360,9 +3414,6 @@ export default function App() {
                         {p.name}
                       </option>
                     ))}
-                    <option value={`preset:${DISCO_DANCER.name}`}>
-                      {DISCO_DANCER.name}
-                    </option>
                     <option value={`preset:${ULTI_GROOVE_BOT_II.name}`}>
                       {ULTI_GROOVE_BOT_II.name}
                     </option>
@@ -5750,15 +5801,15 @@ export default function App() {
                   sampleCount: envDesign.terrain?.samples.length ?? 41,
                 }),
               });
-              setEnvSelection({ kind: "terrain" });
+              setEnvSelection([{ kind: "terrain" }]);
             }}
             onClearTerrain={() => {
               commitEnv({ ...envDesign, terrain: undefined });
-              setEnvSelection(null);
+              setEnvSelection([]);
             }}
             onClearTower={() => {
               commitEnv({ ...envDesign, tower: undefined });
-              setEnvSelection(null);
+              setEnvSelection([]);
             }}
             onClearAll={() => {
               commitEnv({
@@ -5769,8 +5820,11 @@ export default function App() {
                 markers: [],
                 spawn: { x: 0, y: 0 },
               });
-              setEnvSelection(null);
+              setEnvSelection([]);
             }}
+            onDuplicateSelected={duplicateEnvSelected}
+            onMirrorSelected={mirrorEnvSelected}
+            onRotateSelected={rotateEnvSelected}
             collapsed={dockCollapsed}
           />
         );
@@ -5917,11 +5971,16 @@ export default function App() {
             onImportJson={() => fileInputRef.current?.click()}
             onShareModel={
               isFeatureEnabled("creatureSharing")
-                ? () => void shareCurrentElite()
+                ? () => shareCurrentElite()
                 : undefined
             }
             shareBusy={shareBusy}
             canShareModel={Boolean(bestGenome) && !evolveProgress.running}
+            onOpenPublicShare={
+              isFeatureEnabled("publicCreationsLibrary")
+                ? (id) => void openSharedCreature(id)
+                : undefined
+            }
           />
         );
 
@@ -6190,13 +6249,16 @@ export default function App() {
       {isFeatureEnabled("creatureSharing") && (
         <ShareDialog
           open={shareDialogOpen}
+          phase={shareDialogPhase}
           url={shareDialogUrl}
-          busy={shareBusy}
+          listed={shareDialogListed}
           error={shareDialogError}
+          onConfirm={(opts) => void confirmShareElite(opts)}
           onClose={() => {
-            if (shareBusy) return;
+            if (shareBusy || shareDialogPhase === "busy") return;
             setShareDialogOpen(false);
             setShareDialogError(null);
+            setShareDialogPhase("confirm");
           }}
         />
       )}

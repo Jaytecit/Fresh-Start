@@ -100,8 +100,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
   - [x] **C2.10 Start / finish / checkpoint markers** — **done** (score-only AABBs; Sprint Finish; ADR + smoke)
 - [x] **C5 JSON import/export** (creatures / models / environments with validation)
 - [x] **C6 Public share links** — Vercel Blob (+ local Vite share API); `/share/:id` preview; Open via `?share=`; reuses C5 `freshstart-model`
-
-
+- [x] **C7 Public creations library** — opt-in catalog sidecars (`catalog/{id}.json`); `GET /api/gallery`; Creatures “Public creations” section; Open via existing share import path
 
 ## D. Learning product (MLP/GA stays; no NEAT port)
 

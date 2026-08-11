@@ -15,7 +15,7 @@ import {
 } from '../src/physics/constants.ts';
 import { applyMuscleForces, type RuntimeMuscle } from '../src/control/muscleDrive.ts';
 import { createRng } from '../src/brain/network.ts';
-import { TRIANGLE_WALKER } from '../src/creature/presets.ts';
+import { SIMPLE_HOPPER } from '../src/creature/presets.ts';
 import { cloneDesign } from '../src/creature/types.ts';
 import { Simulation } from '../src/sim/simulation.ts';
 import { featureFlags } from '../src/port/featureFlags.ts';
@@ -118,7 +118,7 @@ async function assertDeterministicIdleSettle(): Promise<void> {
   async function settleAvgY(): Promise<number> {
     const sim = new Simulation();
     await sim.init();
-    sim.loadDesign(cloneDesign(TRIANGLE_WALKER));
+    sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
     sim.driveMode = 'idle';
     for (let i = 0; i < 120; i++) sim.step(FIXED_DT);
     const joints = sim.creature?.joints ?? [];

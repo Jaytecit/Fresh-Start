@@ -87,12 +87,13 @@ function footNearPadTop(
   return aboveTop >= -footRadius * 0.35 && aboveTop <= clearance;
 }
 
-/** Foot joints for pad trigger — marked feet, else non-wheel joints. */
+/** Contact joints for pad trigger — marked feet (incl. wheels), else wheels, else all. */
 function padTriggerFeet(creature: SpawnedCreature): RuntimeJoint[] {
-  const marked = creature.joints.filter((j) => j.isFoot && !j.isWheel);
-  return marked.length > 0
-    ? marked
-    : creature.joints.filter((j) => !j.isWheel);
+  const markedFeet = creature.joints.filter((j) => j.isFoot);
+  if (markedFeet.length > 0) return markedFeet;
+  const wheels = creature.joints.filter((j) => j.isWheel);
+  if (wheels.length > 0) return wheels;
+  return creature.joints;
 }
 
 function allCreatureBodies(creature: SpawnedCreature): RAPIER.RigidBody[] {

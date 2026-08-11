@@ -9,6 +9,9 @@ export type EnvSelection =
   | { kind: 'terrain' }
   | null;
 
+/** Multi-select list; empty = none. Last item is primary for inspector/handles. */
+export type EnvSelectionList = NonNullable<EnvSelection>[];
+
 export type EnvTool =
   | 'select'
   | 'box'

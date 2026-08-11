@@ -61,6 +61,9 @@ export function clampScoreRegion(r: EnvScoreRegion): EnvScoreRegion {
     w: clampRegionSize(r.w),
     h: clampRegionSize(r.h),
     rate: clampRegionRate(r.rate),
+    ...(typeof r.rot === 'number' && Number.isFinite(r.rot)
+      ? { rot: r.rot }
+      : {}),
   };
 }
 
@@ -107,10 +110,12 @@ function jointsForRegionOverlap(
   region: EnvScoreRegion,
 ): SpawnedCreature['joints'] {
   if (region.kind === 'landing') {
-    const marked = creature.joints.filter((j) => j.isFoot && !j.isWheel);
-    return marked.length > 0
-      ? marked
-      : creature.joints.filter((j) => !j.isWheel);
+    // Prefer marked feet (including wheeled feet), then marked wheels, else all joints.
+    const markedFeet = creature.joints.filter((j) => j.isFoot);
+    if (markedFeet.length > 0) return markedFeet;
+    const wheels = creature.joints.filter((j) => j.isWheel);
+    if (wheels.length > 0) return wheels;
+    return creature.joints;
   }
   return creature.joints;
 }
@@ -122,9 +127,16 @@ export function jointOverlapsRegion(
   const r = clampScoreRegion(region);
   const hx = r.w / 2;
   const hy = r.h / 2;
+  const rot = r.rot ?? 0;
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
   for (const j of jointsForRegionOverlap(creature, r)) {
     const p = j.body.translation();
-    if (Math.abs(p.x - r.x) <= hx && Math.abs(p.y - r.y) <= hy) {
+    const dx = p.x - r.x;
+    const dy = p.y - r.y;
+    const lx = dx * c + dy * s;
+    const ly = -dx * s + dy * c;
+    if (Math.abs(lx) <= hx && Math.abs(ly) <= hy) {
       return true;
     }
   }

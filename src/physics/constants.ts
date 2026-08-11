@@ -157,7 +157,12 @@ export const PARA_STREAM_DRAG_SCALE = 0.08;
 
 /** G1 static obstacle size clamps (full widths before half-extents). */
 export const OBSTACLE_MIN_SIZE = 0.12;
-export const OBSTACLE_MAX_SIZE = 40;
+/**
+ * Authored env geometry max — large enough for Environment Studio’s 5× framing
+ * (creature editor default zoom 48 → env default ~9.6). Soft cap only; not “infinite”
+ * so Rapier/JSON stay sane.
+ */
+export const OBSTACLE_MAX_SIZE = 2000;
 /** Default ramp tilt (rad) when EnvObstacle.rot omitted. */
 export const OBSTACLE_DEFAULT_RAMP_ROT = -0.4;
 /** Stair step count for authored stair obstacles. */
@@ -167,10 +172,10 @@ export const OBSTACLE_LOOP_SEGMENTS = 10;
 
 /** G3 terrain heightfield clamps. */
 export const TERRAIN_MIN_SAMPLES = 2;
-export const TERRAIN_MAX_SAMPLES = 256;
+export const TERRAIN_MAX_SAMPLES = 512;
 export const TERRAIN_MIN_WIDTH = 1;
-export const TERRAIN_MAX_WIDTH = 200;
-export const TERRAIN_MAX_AMPLITUDE = 20;
+export const TERRAIN_MAX_WIDTH = 2000;
+export const TERRAIN_MAX_AMPLITUDE = 200;
 /** Obs[8] divisor — grade ≈ dy/dx / TERRAIN_GRADE_SCALE. */
 export const TERRAIN_GRADE_SCALE = 2;
 
@@ -185,10 +190,10 @@ export const ROUGH_COURSE_SAMPLES = 41;
 export const ROUGH_COURSE_WAVES = 2.5;
 
 /** Environment Studio creature spawn marker clamps (world units). */
-export const SPAWN_MIN_X = -200;
-export const SPAWN_MAX_X = 200;
+export const SPAWN_MIN_X = -2000;
+export const SPAWN_MAX_X = 2000;
 export const SPAWN_MIN_Y = 0;
-export const SPAWN_MAX_Y = 80;
+export const SPAWN_MAX_Y = 800;
 
 /**
  * H2 disco arena walls — inner faces near ±DISCO_WALL_X (ruler units).
@@ -325,9 +330,9 @@ export function clampWheelMass(value: number): number {
 
 /** C2.4 launch tower clamps / proportions. */
 export const TOWER_MIN_BASE_W = 0.6;
-export const TOWER_MAX_BASE_W = 30;
+export const TOWER_MAX_BASE_W = 400;
 export const TOWER_MIN_HEIGHT = 0.8;
-export const TOWER_MAX_HEIGHT = 40;
+export const TOWER_MAX_HEIGHT = 800;
 /** Deck slab thickness (world units). */
 export const TOWER_DECK_THICKNESS = 0.22;
 /** Stem width as a fraction of baseW. */

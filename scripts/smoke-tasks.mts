@@ -13,7 +13,6 @@ import {
   SIMPLE_FLAPPER,
   SIMPLE_GLIDER,
   SIMPLE_HOPPER,
-  TRIANGLE_WALKER,
 } from '../src/creature/presets.ts';
 import { cloneDesign, type CreatureDesign } from '../src/creature/types.ts';
 import { countWings, wingPairOk } from '../src/editor/aeroValidation.ts';
@@ -24,7 +23,6 @@ import {
   type AudioBands,
 } from '../src/audio/audioAnalysis.ts';
 import { discoFloorEnv } from '../src/env/discoEnv.ts';
-import { DISCO_DANCER } from '../src/creature/discoDancer.ts';
 import {
   ANTI_SCOOT,
   ANTI_SCOOT_MAX,
@@ -1315,7 +1313,7 @@ function assertCatalogAndZones(): void {
 
 function assertPackages(): void {
   ensureLocalStorage();
-  const saved = saveNewPackage(cloneDesign(TRIANGLE_WALKER), {
+  const saved = saveNewPackage(cloneDesign(SIMPLE_HOPPER), {
     displayName: 'Smoke Pack',
     source: 'user',
   });
@@ -2050,7 +2048,7 @@ async function assertDiscoFloor(): Promise<void> {
   const sim = new Simulation();
   await sim.init();
   sim.setEnvironment(env);
-  sim.loadDesign(cloneDesign(DISCO_DANCER));
+  sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
   sim.driveMode = 'idle';
   for (let i = 0; i < 90; i++) sim.step(FIXED_DT);
   const snap = sim.snapshot();
@@ -2064,7 +2062,7 @@ async function assertDiscoFloor(): Promise<void> {
 }
 
 function assertDiscoBandRouting(): void {
-  const design = cloneDesign(DISCO_DANCER);
+  const design = cloneDesign(SIMPLE_HOPPER);
   const bands: AudioBands = {
     bass: 1,
     lowMid: 0,

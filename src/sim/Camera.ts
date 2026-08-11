@@ -9,8 +9,29 @@ export interface Camera {
   insetBottom?: number;
 }
 
+/** Creature editor / play default (px per world unit). */
+export const CREATURE_CAM_ZOOM_DEFAULT = 48;
+
+/**
+ * Environment Studio default — 5× wider framing than the creature builder
+ * (same world units; lower zoom shows more course).
+ */
+export const ENV_CAM_ZOOM_DEFAULT = CREATURE_CAM_ZOOM_DEFAULT / 5;
+export const ENV_CAM_ZOOM_MIN = 2;
+export const ENV_CAM_ZOOM_MAX = 140;
+export const ENV_CAM_Y_DEFAULT = 8;
+
 export function createCamera(): Camera {
-  return { x: 0, y: 2.2, zoom: 48, insetBottom: 0 };
+  return { x: 0, y: 2.2, zoom: CREATURE_CAM_ZOOM_DEFAULT, insetBottom: 0 };
+}
+
+export function createEnvCamera(): Camera {
+  return {
+    x: 20,
+    y: ENV_CAM_Y_DEFAULT,
+    zoom: ENV_CAM_ZOOM_DEFAULT,
+    insetBottom: 0,
+  };
 }
 
 function framingHeight(canvasH: number, insetBottom: number | undefined): number {

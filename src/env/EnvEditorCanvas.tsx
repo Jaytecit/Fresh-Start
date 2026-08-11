@@ -13,9 +13,15 @@ import {
   drawTower,
 } from '../sim/render';
 import { drawSimAxisRulers } from '../sim/simRulers';
-import { createCamera, screenToWorld, worldToScreen, type Camera } from '../sim/Camera';
 import {
-  deleteSelection,
+  createEnvCamera,
+  ENV_CAM_ZOOM_MAX,
+  ENV_CAM_ZOOM_MIN,
+  screenToWorld,
+  worldToScreen,
+  type Camera,
+} from '../sim/Camera';
+import {
   handleWorldPos,
   hitHandle,
   hitTerrainEndpoint,
@@ -38,11 +44,14 @@ import {
   resizeObstacleByCorner,
   resizeRegionByCorner,
   resizeTowerByHandle,
+  rotateMarker,
   rotateObstacle,
+  rotateRegion,
   selectionFootprint,
   setTerrainEndpoint,
   terrainEndpointWorld,
   towerHandles,
+  worldToLocal,
   type Footprint,
   type HandleId,
   type TerrainEndpoint,
@@ -58,9 +67,22 @@ import {
   isPlaceMarkerTool,
   isPlaceObstacleTool,
   isPlaceRegionTool,
-  type EnvSelection,
+  type EnvSelectionList,
   type EnvTool,
 } from './envSelection';
+import {
+  deleteSelectables,
+  duplicateSelection,
+  mirrorDuplicateSelection,
+  moveSelection,
+  multiSelectionFootprint,
+  primarySelection,
+  rotateSelection,
+  selectableInRect,
+  sameSelectable,
+  toggleSelectable,
+  type EnvSelectable,
+} from './envSelectionOps';
 import {
   collectRampSnapGeometry,
   rampFromTopEndpoints,
@@ -75,8 +97,8 @@ interface Props {
   tool: EnvTool;
   onToolChange?: (tool: EnvTool) => void;
   snapEnabled: boolean;
-  selection: EnvSelection;
-  onSelect: (sel: EnvSelection) => void;
+  selection: EnvSelectionList;
+  onSelect: (sel: EnvSelectionList) => void;
   /** Bottom chrome height in CSS px for camera framing. */
   viewportInsetBottom?: number;
 }
@@ -138,6 +160,36 @@ type DragState =
       moved: boolean;
     }
   | {
+      kind: 'rotateRegion';
+      id: string;
+      moved: boolean;
+    }
+  | {
+      kind: 'rotateMarker';
+      id: string;
+      moved: boolean;
+    }
+  | {
+      kind: 'moveMulti';
+      lastX: number;
+      lastY: number;
+      moved: boolean;
+    }
+  | {
+      kind: 'rotateMulti';
+      startAngle: number;
+      baseEnv: EnvironmentDesign;
+      moved: boolean;
+    }
+  | {
+      kind: 'marquee';
+      startX: number;
+      startY: number;
+      endX: number;
+      endY: number;
+      additive: boolean;
+    }
+  | {
       kind: 'resizeTower';
       handle: 'towerLeft' | 'towerRight' | 'towerTop';
       moved: boolean;
@@ -167,7 +219,7 @@ export function EnvEditorCanvas({
   viewportInsetBottom = 0,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const camRef = useRef<Camera>(createCamera());
+  const camRef = useRef<Camera>(createEnvCamera());
   const panRef = useRef({ active: false, lastX: 0, lastY: 0 });
   const dragRef = useRef<DragState | null>(null);
   const spaceRef = useRef(false);
@@ -237,6 +289,8 @@ export function EnvEditorCanvas({
       if (isFeatureEnabled('courseMarkers')) {
         drawCourseMarkers(ctx, cam, w, h, previewCourseMarkers(env.markers));
       }
+      const selected = selectionRef.current;
+      const primary = primarySelection(selected);
       if (env.terrain) {
         drawTerrainEndpoints(
           ctx,
@@ -244,7 +298,7 @@ export function EnvEditorCanvas({
           w,
           h,
           env.terrain,
-          selectionRef.current?.kind === 'terrain',
+          primary?.kind === 'terrain',
         );
       }
       drawSpawnMarker(
@@ -253,18 +307,34 @@ export function EnvEditorCanvas({
         w,
         h,
         resolveSpawn(env),
-        selectionRef.current?.kind === 'spawn',
+        primary?.kind === 'spawn',
       );
 
-      const sel = selectionRef.current;
-      const fp = selectionFootprint(env, sel);
-      if (
-        fp &&
-        sel &&
-        sel.kind !== 'spawn' &&
-        sel.kind !== 'terrain'
-      ) {
-        drawSelectionOverlay(ctx, cam, w, h, fp, sel, env);
+      // Multi-select outlines (non-primary).
+      for (const item of selected) {
+        if (primary && sameSelectable(item, primary)) continue;
+        const fp = selectionFootprint(env, item);
+        if (fp) drawSelectionOutline(ctx, cam, w, h, fp, false);
+      }
+
+      if (primary && primary.kind !== 'spawn' && primary.kind !== 'terrain') {
+        const fp =
+          selected.length > 1
+            ? multiSelectionFootprint(env, selected)
+            : selectionFootprint(env, primary);
+        if (fp) {
+          if (selected.length > 1) {
+            drawSelectionOutline(ctx, cam, w, h, fp, true);
+            drawRotateHandle(ctx, cam, w, h, fp);
+          } else {
+            drawSelectionOverlay(ctx, cam, w, h, fp, primary, env);
+          }
+        }
+      }
+
+      const marquee = dragRef.current?.kind === 'marquee' ? dragRef.current : null;
+      if (marquee) {
+        drawMarquee(ctx, cam, w, h, marquee);
       }
 
       const drawRamp = dragRef.current?.kind === 'drawRamp' ? dragRef.current : null;
@@ -299,12 +369,12 @@ export function EnvEditorCanvas({
       if (inField) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const sel = selectionRef.current;
-        if (!sel) return;
+        if (sel.length === 0) return;
         e.preventDefault();
-        const result = deleteSelection(envRef.current, sel);
-        envRef.current = result.env;
-        onSelectRef.current(result.selection);
-        onChangeRef.current(result.env);
+        const next = deleteSelectables(envRef.current, sel);
+        envRef.current = next;
+        onSelectRef.current([]);
+        onChangeRef.current(next);
       }
       if (e.key === 'Escape') {
         if (dragRef.current?.kind === 'drawRamp') {
@@ -313,13 +383,42 @@ export function EnvEditorCanvas({
           e.preventDefault();
           return;
         }
-        onSelectRef.current(null);
+        onSelectRef.current([]);
         onToolChangeRef.current?.('select');
       }
       if (e.key === 'v' || e.key === 'V') {
         if (dragRef.current?.kind === 'drawRamp') dragRef.current = null;
         rampHoverRef.current = null;
         onToolChangeRef.current?.('select');
+      }
+      if ((e.key === 'd' || e.key === 'D') && !e.ctrlKey && !e.metaKey) {
+        const sel = selectionRef.current;
+        if (sel.length === 0) return;
+        e.preventDefault();
+        const result = duplicateSelection(envRef.current, sel);
+        envRef.current = result.env;
+        onSelectRef.current(result.items);
+        onChangeRef.current(result.env);
+      }
+      if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey) {
+        const sel = selectionRef.current;
+        if (sel.length === 0) return;
+        e.preventDefault();
+        const result = mirrorDuplicateSelection(envRef.current, sel);
+        envRef.current = result.env;
+        onSelectRef.current(result.items);
+        onChangeRef.current(result.env);
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        const sel = selectionRef.current;
+        if (sel.length === 0) return;
+        e.preventDefault();
+        const next = rotateSelection(envRef.current, sel, -Math.PI / 2);
+        envRef.current = next;
+        onChangeRef.current(next);
+      }
+      if (e.key === 'g' || e.key === 'G') {
+        // Snap toggle is owned by App via WorldDock; Escape/tool only here.
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -356,15 +455,35 @@ export function EnvEditorCanvas({
           obstacles: [...envRef.current.obstacles, ramp],
         };
         envRef.current = next;
-        onSelectRef.current({ kind: 'obstacle', id: ramp.id });
+        onSelectRef.current([{ kind: 'obstacle', id: ramp.id }]);
         onChangeRef.current(next);
         onToolChangeRef.current?.('select');
         rampHoverRef.current = null;
       }
       return;
     }
+    if (drag.kind === 'marquee') {
+      dragRef.current = null;
+      const hits = selectableInRect(
+        envRef.current,
+        drag.startX,
+        drag.startY,
+        drag.endX,
+        drag.endY,
+      );
+      if (drag.additive) {
+        const merged = [...selectionRef.current];
+        for (const h of hits) {
+          if (!merged.some((m) => sameSelectable(m, h))) merged.push(h);
+        }
+        onSelectRef.current(merged);
+      } else {
+        onSelectRef.current(hits);
+      }
+      return;
+    }
     dragRef.current = null;
-    if (drag.moved) {
+    if ('moved' in drag && drag.moved) {
       onChangeRef.current(envRef.current);
     }
   };
@@ -395,10 +514,10 @@ export function EnvEditorCanvas({
       const world = screenToWorld(camRef.current, w, h, x, y);
       const hit = hitTestEnv(envRef.current, world.x, world.y);
       if (hit) {
-        const result = deleteSelection(envRef.current, hit);
-        envRef.current = result.env;
-        onSelectRef.current(result.selection);
-        onChangeRef.current(result.env);
+        const next = deleteSelectables(envRef.current, [hit]);
+        envRef.current = next;
+        onSelectRef.current([]);
+        onChangeRef.current(next);
       }
       return;
     }
@@ -422,7 +541,7 @@ export function EnvEditorCanvas({
       const obs = placeObstacleAt(currentTool, snapped.x, snapped.y);
       const next = { ...env, obstacles: [...env.obstacles, obs] };
       envRef.current = next;
-      onSelectRef.current({ kind: 'obstacle', id: obs.id });
+      onSelectRef.current([{ kind: 'obstacle', id: obs.id }]);
       onChangeRef.current(next);
       onToolChangeRef.current?.('select');
       return;
@@ -435,7 +554,7 @@ export function EnvEditorCanvas({
         regions: [...(env.regions ?? []), region],
       };
       envRef.current = next;
-      onSelectRef.current({ kind: 'region', id: region.id });
+      onSelectRef.current([{ kind: 'region', id: region.id }]);
       onChangeRef.current(next);
       onToolChangeRef.current?.('select');
       return;
@@ -453,7 +572,7 @@ export function EnvEditorCanvas({
         markers: [...(env.markers ?? []), marker],
       };
       envRef.current = next;
-      onSelectRef.current({ kind: 'marker', id: marker.id });
+      onSelectRef.current([{ kind: 'marker', id: marker.id }]);
       onChangeRef.current(next);
       onToolChangeRef.current?.('select');
       return;
@@ -464,11 +583,11 @@ export function EnvEditorCanvas({
         const tower = placeTowerAt(snapped.x);
         const next = { ...env, tower };
         envRef.current = next;
-        onSelectRef.current({ kind: 'tower' });
+        onSelectRef.current([{ kind: 'tower' }]);
         onChangeRef.current(next);
         onToolChangeRef.current?.('select');
       } else {
-        onSelectRef.current({ kind: 'tower' });
+        onSelectRef.current([{ kind: 'tower' }]);
         onToolChangeRef.current?.('select');
       }
       return;
@@ -478,7 +597,7 @@ export function EnvEditorCanvas({
       const spawn = placeSpawnAt(snapped.x, snapped.y);
       const next = { ...env, spawn };
       envRef.current = next;
-      onSelectRef.current({ kind: 'spawn' });
+      onSelectRef.current([{ kind: 'spawn' }]);
       onChangeRef.current(next);
       onToolChangeRef.current?.('select');
       return;
@@ -487,7 +606,7 @@ export function EnvEditorCanvas({
     // Terrain endpoints are always grabbable when hills exist.
     const terrainEnd = hitTerrainEndpoint(env.terrain, world.x, world.y);
     if (terrainEnd && env.terrain) {
-      onSelectRef.current({ kind: 'terrain' });
+      onSelectRef.current([{ kind: 'terrain' }]);
       dragRef.current = {
         kind: 'resizeTerrain',
         endpoint: terrainEnd,
@@ -496,26 +615,63 @@ export function EnvEditorCanvas({
       return;
     }
 
-    // Select tool
-    const sel = selectionRef.current;
-    const fp = selectionFootprint(env, sel);
+    // Select tool — handles on primary / multi footprint.
+    const selected = selectionRef.current;
+    const primary = primarySelection(selected);
+    const groupFp =
+      selected.length > 1 ? multiSelectionFootprint(env, selected) : null;
+    const singleFp = primary ? selectionFootprint(env, primary) : null;
+    const fp = groupFp ?? singleFp;
+
+    if (fp && primary && selected.length > 1) {
+      const rotateHit = hitHandle(
+        world.x,
+        world.y,
+        fp,
+        ['rotate'],
+        HANDLE_HIT_R,
+      );
+      if (rotateHit === 'rotate') {
+        dragRef.current = {
+          kind: 'rotateMulti',
+          startAngle: Math.atan2(world.y - fp.cy, world.x - fp.cx),
+          baseEnv: env,
+          moved: false,
+        };
+        return;
+      }
+      if (
+        Math.abs(worldToLocal(world.x, world.y, fp).lx) <= fp.hw &&
+        Math.abs(worldToLocal(world.x, world.y, fp).ly) <= fp.hh
+      ) {
+        dragRef.current = {
+          kind: 'moveMulti',
+          lastX: world.x,
+          lastY: world.y,
+          moved: false,
+        };
+        return;
+      }
+    }
+
     if (
       fp &&
-      sel &&
-      (sel.kind === 'obstacle' ||
-        sel.kind === 'tower' ||
-        sel.kind === 'region' ||
-        sel.kind === 'marker')
+      primary &&
+      selected.length === 1 &&
+      (primary.kind === 'obstacle' ||
+        primary.kind === 'tower' ||
+        primary.kind === 'region' ||
+        primary.kind === 'marker')
     ) {
       const handles =
-        sel.kind === 'tower'
+        primary.kind === 'tower'
           ? towerHandles()
-          : sel.kind === 'region'
+          : primary.kind === 'region'
             ? regionHandles()
-            : sel.kind === 'marker'
+            : primary.kind === 'marker'
               ? markerHandles()
               : (() => {
-                const o = env.obstacles.find((x) => x.id === sel.id);
+                const o = env.obstacles.find((x) => x.id === primary.id);
                 return o ? obstacleHandles(o) : [];
               })();
       const handle = hitHandle(
@@ -526,7 +682,7 @@ export function EnvEditorCanvas({
         HANDLE_HIT_R,
       );
       if (handle) {
-        if (sel.kind === 'tower') {
+        if (primary.kind === 'tower') {
           if (
             handle === 'towerLeft' ||
             handle === 'towerRight' ||
@@ -538,8 +694,14 @@ export function EnvEditorCanvas({
               moved: false,
             };
           }
-        } else if (sel.kind === 'region') {
-          if (
+        } else if (primary.kind === 'region') {
+          if (handle === 'rotate') {
+            dragRef.current = {
+              kind: 'rotateRegion',
+              id: primary.id,
+              moved: false,
+            };
+          } else if (
             handle === 'nw' ||
             handle === 'ne' ||
             handle === 'sw' ||
@@ -547,13 +709,19 @@ export function EnvEditorCanvas({
           ) {
             dragRef.current = {
               kind: 'resizeRegion',
-              id: sel.id,
+              id: primary.id,
               handle,
               moved: false,
             };
           }
-        } else if (sel.kind === 'marker') {
-          if (
+        } else if (primary.kind === 'marker') {
+          if (handle === 'rotate') {
+            dragRef.current = {
+              kind: 'rotateMarker',
+              id: primary.id,
+              moved: false,
+            };
+          } else if (
             handle === 'nw' ||
             handle === 'ne' ||
             handle === 'sw' ||
@@ -561,7 +729,7 @@ export function EnvEditorCanvas({
           ) {
             dragRef.current = {
               kind: 'resizeMarker',
-              id: sel.id,
+              id: primary.id,
               handle,
               moved: false,
             };
@@ -569,7 +737,7 @@ export function EnvEditorCanvas({
         } else if (handle === 'rotate') {
           dragRef.current = {
             kind: 'rotateObstacle',
-            id: sel.id,
+            id: primary.id,
             moved: false,
           };
         } else if (
@@ -580,7 +748,7 @@ export function EnvEditorCanvas({
         ) {
           dragRef.current = {
             kind: 'resizeObstacle',
-            id: sel.id,
+            id: primary.id,
             handle,
             moved: false,
           };
@@ -590,8 +758,38 @@ export function EnvEditorCanvas({
     }
 
     const hit = hitTestEnv(env, world.x, world.y);
-    onSelectRef.current(hit);
-    if (hit?.kind === 'obstacle') {
+    if (!hit) {
+      dragRef.current = {
+        kind: 'marquee',
+        startX: world.x,
+        startY: world.y,
+        endX: world.x,
+        endY: world.y,
+        additive: e.shiftKey,
+      };
+      if (!e.shiftKey) onSelectRef.current([]);
+      return;
+    }
+
+    if (e.shiftKey) {
+      onSelectRef.current(toggleSelectable(selected, hit));
+    } else if (
+      selected.length > 1 &&
+      selected.some((s) => sameSelectable(s, hit))
+    ) {
+      // Keep multi-selection and start group move.
+      dragRef.current = {
+        kind: 'moveMulti',
+        lastX: world.x,
+        lastY: world.y,
+        moved: false,
+      };
+      return;
+    } else {
+      onSelectRef.current([hit]);
+    }
+
+    if (hit.kind === 'obstacle') {
       dragRef.current = {
         kind: 'moveObstacle',
         id: hit.id,
@@ -599,7 +797,7 @@ export function EnvEditorCanvas({
         lastY: world.y,
         moved: false,
       };
-    } else if (hit?.kind === 'region') {
+    } else if (hit.kind === 'region') {
       dragRef.current = {
         kind: 'moveRegion',
         id: hit.id,
@@ -607,7 +805,7 @@ export function EnvEditorCanvas({
         lastY: world.y,
         moved: false,
       };
-    } else if (hit?.kind === 'marker') {
+    } else if (hit.kind === 'marker') {
       dragRef.current = {
         kind: 'moveMarker',
         id: hit.id,
@@ -615,13 +813,13 @@ export function EnvEditorCanvas({
         lastY: world.y,
         moved: false,
       };
-    } else if (hit?.kind === 'tower') {
+    } else if (hit.kind === 'tower') {
       dragRef.current = {
         kind: 'moveTower',
         lastX: world.x,
         moved: false,
       };
-    } else if (hit?.kind === 'spawn') {
+    } else if (hit.kind === 'spawn') {
       dragRef.current = {
         kind: 'moveSpawn',
         lastX: world.x,
@@ -664,7 +862,44 @@ export function EnvEditorCanvas({
     const drag = dragRef.current;
     if (!drag || drag.kind === 'drawRamp') return;
 
+    if (drag.kind === 'marquee') {
+      drag.endX = world.x;
+      drag.endY = world.y;
+      return;
+    }
+
     let env = envRef.current;
+
+    if (drag.kind === 'moveMulti') {
+      let dx = world.x - drag.lastX;
+      let dy = world.y - drag.lastY;
+      if (snapRef.current) {
+        const fp = multiSelectionFootprint(env, selectionRef.current);
+        if (fp) {
+          const snapped = snapToGrid(fp.cx + dx, fp.cy + dy, true);
+          dx = snapped.x - fp.cx;
+          dy = snapped.y - fp.cy;
+        }
+      }
+      if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return;
+      env = moveSelection(env, selectionRef.current, dx, dy);
+      drag.lastX = world.x;
+      drag.lastY = world.y;
+      drag.moved = true;
+      envRef.current = env;
+      return;
+    }
+
+    if (drag.kind === 'rotateMulti') {
+      const fp = multiSelectionFootprint(drag.baseEnv, selectionRef.current);
+      if (!fp) return;
+      const ang = Math.atan2(world.y - fp.cy, world.x - fp.cx);
+      const delta = ang - drag.startAngle;
+      env = rotateSelection(drag.baseEnv, selectionRef.current, delta);
+      drag.moved = true;
+      envRef.current = env;
+      return;
+    }
 
     if (drag.kind === 'moveObstacle') {
       let dx = world.x - drag.lastX;
@@ -834,6 +1069,30 @@ export function EnvEditorCanvas({
       return;
     }
 
+    if (drag.kind === 'rotateRegion') {
+      env = {
+        ...env,
+        regions: (env.regions ?? []).map((r) =>
+          r.id === drag.id ? rotateRegion(r, world.x, world.y) : r,
+        ),
+      };
+      drag.moved = true;
+      envRef.current = env;
+      return;
+    }
+
+    if (drag.kind === 'rotateMarker') {
+      env = {
+        ...env,
+        markers: (env.markers ?? []).map((m) =>
+          m.id === drag.id ? rotateMarker(m, world.x, world.y) : m,
+        ),
+      };
+      drag.moved = true;
+      envRef.current = env;
+      return;
+    }
+
     if (drag.kind === 'resizeTower' && env.tower) {
       const snapped = snapToGrid(world.x, world.y, snapRef.current);
       env = {
@@ -874,8 +1133,8 @@ export function EnvEditorCanvas({
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       camRef.current.zoom = Math.max(
-        16,
-        Math.min(140, camRef.current.zoom * factor),
+        ENV_CAM_ZOOM_MIN,
+        Math.min(ENV_CAM_ZOOM_MAX, camRef.current.zoom * factor),
       );
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -895,20 +1154,21 @@ export function EnvEditorCanvas({
   );
 }
 
-function drawSelectionOverlay(
+function drawSelectionOutline(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
   w: number,
   h: number,
   fp: Footprint,
-  sel: NonNullable<EnvSelection>,
-  env: EnvironmentDesign,
+  primary: boolean,
 ): void {
   const corners: HandleId[] = ['nw', 'ne', 'se', 'sw'];
   ctx.save();
-  ctx.strokeStyle = 'rgba(120, 200, 255, 0.9)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = primary
+    ? 'rgba(120, 200, 255, 0.95)'
+    : 'rgba(120, 200, 255, 0.45)';
+  ctx.lineWidth = primary ? 1.5 : 1;
+  ctx.setLineDash(primary ? [5, 4] : [3, 3]);
   ctx.beginPath();
   for (let i = 0; i < corners.length; i++) {
     const p = handleWorldPos(fp, corners[i]);
@@ -919,6 +1179,69 @@ function drawSelectionOverlay(
   ctx.closePath();
   ctx.stroke();
   ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawRotateHandle(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  w: number,
+  h: number,
+  fp: Footprint,
+): void {
+  const p = handleWorldPos(fp, 'rotate');
+  const s = worldToScreen(cam, w, h, p.x, p.y);
+  const topMid = localToWorld(0, fp.hh, fp);
+  const a = worldToScreen(cam, w, h, topMid.x, topMid.y);
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(s.x, s.y);
+  ctx.strokeStyle = 'rgba(120, 200, 255, 0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(180, 230, 255, 0.95)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(40, 80, 120, 0.9)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMarquee(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  w: number,
+  h: number,
+  marquee: { startX: number; startY: number; endX: number; endY: number },
+): void {
+  const a = worldToScreen(cam, w, h, marquee.startX, marquee.startY);
+  const b = worldToScreen(cam, w, h, marquee.endX, marquee.endY);
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const rw = Math.abs(b.x - a.x);
+  const rh = Math.abs(b.y - a.y);
+  ctx.save();
+  ctx.fillStyle = 'rgba(100, 180, 255, 0.12)';
+  ctx.strokeStyle = 'rgba(120, 200, 255, 0.85)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.fillRect(x, y, rw, rh);
+  ctx.strokeRect(x, y, rw, rh);
+  ctx.restore();
+}
+
+function drawSelectionOverlay(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  w: number,
+  h: number,
+  fp: Footprint,
+  sel: EnvSelectable,
+  env: EnvironmentDesign,
+): void {
+  drawSelectionOutline(ctx, cam, w, h, fp, true);
 
   const handles: HandleId[] =
     sel.kind === 'tower'
@@ -930,27 +1253,16 @@ function drawSelectionOverlay(
           : sel.kind === 'obstacle'
             ? (() => {
               const o = env.obstacles.find((x) => x.id === sel.id);
-              return o ? obstacleHandles(o) : corners;
+              return o ? obstacleHandles(o) : ['nw', 'ne', 'sw', 'se'];
             })()
           : [];
 
+  ctx.save();
   for (const id of handles) {
     const p = handleWorldPos(fp, id);
     const s = worldToScreen(cam, w, h, p.x, p.y);
     if (id === 'rotate') {
-      const topMid = localToWorld(0, fp.hh, fp);
-      const a = worldToScreen(cam, w, h, topMid.x, topMid.y);
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(s.x, s.y);
-      ctx.strokeStyle = 'rgba(120, 200, 255, 0.7)';
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(180, 230, 255, 0.95)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(40, 80, 120, 0.9)';
-      ctx.stroke();
+      drawRotateHandle(ctx, cam, w, h, fp);
     } else {
       ctx.fillStyle = 'rgba(180, 230, 255, 0.95)';
       ctx.strokeStyle = 'rgba(40, 80, 120, 0.9)';

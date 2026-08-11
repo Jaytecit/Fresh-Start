@@ -11,10 +11,11 @@ import {
   PLACE_MARKER_TOOLS,
   PLACE_OBSTACLE_TOOLS,
   PLACE_REGION_TOOLS,
-  type EnvSelection,
+  type EnvSelectionList,
   type EnvTool,
 } from '../env/envSelection';
 import { selectionLabel } from '../env/envEditOps';
+import { primarySelection } from '../env/envSelectionOps';
 import type {
   AuthoredCurriculumStage,
   EnvironmentDesign,
@@ -28,11 +29,14 @@ interface Props {
   snapEnabled: boolean;
   onSnapChange: (snap: boolean) => void;
   environment: EnvironmentDesign;
-  selection: EnvSelection;
-  onSelect: (sel: EnvSelection) => void;
+  selection: EnvSelectionList;
+  onSelect: (sel: EnvSelectionList) => void;
   onPatchMarker: (id: string, patch: Partial<EnvCourseMarker>) => void;
   onPatchObstacle: (id: string, patch: Partial<EnvObstacle>) => void;
   onDeleteSelected: () => void;
+  onDuplicateSelected?: () => void;
+  onMirrorSelected?: () => void;
+  onRotateSelected?: () => void;
   onUndo: () => void;
   undoDisabled: boolean;
   onSineTerrain: () => void;
@@ -84,6 +88,9 @@ export function WorldDock({
   onPatchMarker,
   onPatchObstacle,
   onDeleteSelected,
+  onDuplicateSelected,
+  onMirrorSelected,
+  onRotateSelected,
   onUndo,
   undoDisabled,
   onSineTerrain,
@@ -98,18 +105,22 @@ export function WorldDock({
   onPatchCurriculumStage,
   collapsed,
 }: Props) {
-  const label = selectionLabel(environment, selection);
+  const primary = primarySelection(selection);
+  const label =
+    selection.length > 1
+      ? `${selection.length} selected`
+      : selectionLabel(environment, primary);
   const markers = orderedMarkers(environment);
   const checkpoints = markers.filter((m) => m.kind === 'checkpoint');
   const gateSummary = courseGateSummary(environment);
   const stages = environment.curriculum?.stages ?? [];
   const selectedMarker =
-    selection?.kind === 'marker'
-      ? markers.find((m) => m.id === selection.id) ?? null
+    primary?.kind === 'marker'
+      ? markers.find((m) => m.id === primary.id) ?? null
       : null;
   const selectedObstacle =
-    selection?.kind === 'obstacle'
-      ? environment.obstacles.find((o) => o.id === selection.id) ?? null
+    primary?.kind === 'obstacle'
+      ? environment.obstacles.find((o) => o.id === primary.id) ?? null
       : null;
 
   if (collapsed) {
@@ -354,13 +365,13 @@ export function WorldDock({
                   key={m.id}
                   type="button"
                   className={
-                    selection?.kind === 'marker' && selection.id === m.id
+                    primary?.kind === 'marker' && primary.id === m.id
                       ? 'active'
                       : ''
                   }
                   onClick={() => {
                     onToolChange('select');
-                    onSelect({ kind: 'marker', id: m.id });
+                    onSelect([{ kind: 'marker', id: m.id }]);
                   }}
                   title={`${markerTag(m)} @ (${m.x.toFixed(1)}, ${m.y.toFixed(1)})`}
                 >
@@ -563,22 +574,49 @@ export function WorldDock({
           />
           Snap to grid
         </label>
+        <p className="hint muted" style={{ marginTop: '0.2rem' }}>
+          Drag a box to multi-select. D duplicate · M mirror · R rotate 90°.
+        </p>
         <div className="button-row wrap" style={{ marginTop: '0.35rem' }}>
           <button type="button" onClick={onUndo} disabled={undoDisabled}>
             Undo
           </button>
           <button
             type="button"
+            disabled={selection.length === 0 || !onDuplicateSelected}
+            onClick={onDuplicateSelected}
+            title="Duplicate selection (D)"
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            disabled={selection.length === 0 || !onMirrorSelected}
+            onClick={onMirrorSelected}
+            title="Mirror-duplicate selection (M)"
+          >
+            Mirror
+          </button>
+          <button
+            type="button"
+            disabled={selection.length === 0 || !onRotateSelected}
+            onClick={onRotateSelected}
+            title="Rotate selection −90° (R)"
+          >
+            Rotate
+          </button>
+          <button
+            type="button"
             className="danger-ghost"
-            disabled={!selection}
+            disabled={selection.length === 0}
             onClick={onDeleteSelected}
             title={
-              selection?.kind === 'spawn'
+              primary?.kind === 'spawn'
                 ? 'Reset spawn to (0, 0)'
                 : 'Remove selection'
             }
           >
-            {selection?.kind === 'spawn' ? 'Reset spawn' : 'Delete'}
+            {primary?.kind === 'spawn' ? 'Reset spawn' : 'Delete'}
           </button>
           {isFeatureEnabled('launchTower') && (
             <button

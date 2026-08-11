@@ -1,5 +1,7 @@
 node_modules
 dist
+itch-upload
+solemn-sandbox-itch.zip
 .DS_Store
 *.local
 # Large bundled disco audio (see public/disco/README.md)

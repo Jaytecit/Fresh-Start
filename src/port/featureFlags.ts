@@ -46,6 +46,8 @@ export const featureFlags = {
   jsonImportExport: true,
   /** C6 — public share links (Vercel Blob / local share API) */
   creatureSharing: true,
+  /** C7 — opt-in public creations library (catalog + Creatures gallery) */
+  publicCreationsLibrary: true,
 
   /** D2 — elite replay */
   eliteReplay: false,

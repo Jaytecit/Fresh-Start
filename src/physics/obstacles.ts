@@ -44,6 +44,22 @@ function clampSize(v: number): number {
   return Math.min(OBSTACLE_MAX_SIZE, Math.max(OBSTACLE_MIN_SIZE, Math.abs(v)));
 }
 
+/** Rotate a local composition point around an authored origin. */
+function rotateAround(
+  px: number,
+  py: number,
+  ox: number,
+  oy: number,
+  rot: number,
+): { x: number; y: number } {
+  if (!rot) return { x: px, y: py };
+  const dx = px - ox;
+  const dy = py - oy;
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
+  return { x: ox + dx * c - dy * s, y: oy + dx * s + dy * c };
+}
+
 function addCuboid(
   world: RAPIER.World,
   handle: ObstacleHandle,
@@ -118,13 +134,17 @@ function spawnStair(
   const h = clampSize(o.h);
   const n = OBSTACLE_STAIR_STEPS;
   const stepW = w / n;
+  const ox = o.x + w / 2;
+  const oy = o.y + h / 2;
+  const baseRot = o.rot ?? 0;
   for (let i = 0; i < n; i++) {
     const top = ((i + 1) / n) * h;
     const hy = top / 2;
     const hx = stepW / 2;
     const cx = o.x + (i + 0.5) * stepW;
     const cy = o.y + hy;
-    addCuboid(world, handle, 'stair', cx, cy, hx, hy, 0, grip);
+    const p = rotateAround(cx, cy, ox, oy, baseRot);
+    addCuboid(world, handle, 'stair', p.x, p.y, hx, hy, baseRot, grip);
   }
 }
 
@@ -140,28 +160,13 @@ function spawnPit(
   const hy = wallH / 2;
   const hx = platformW / 2;
   const cy = o.y + hy;
-  addCuboid(
-    world,
-    handle,
-    'pit',
-    o.x - gap / 2 - hx,
-    cy,
-    hx,
-    hy,
-    0,
-    grip,
-  );
-  addCuboid(
-    world,
-    handle,
-    'pit',
-    o.x + gap / 2 + hx,
-    cy,
-    hx,
-    hy,
-    0,
-    grip,
-  );
+  const ox = o.x;
+  const oy = cy;
+  const baseRot = o.rot ?? 0;
+  for (const cx of [o.x - gap / 2 - hx, o.x + gap / 2 + hx]) {
+    const p = rotateAround(cx, cy, ox, oy, baseRot);
+    addCuboid(world, handle, 'pit', p.x, p.y, hx, hy, baseRot, grip);
+  }
 }
 
 function spawnLoop(
@@ -175,19 +180,21 @@ function spawnLoop(
   const thickness = Math.max(OBSTACLE_MIN_SIZE, radius * 0.12);
   const arc = (2 * Math.PI) / segments;
   const slabLen = radius * arc * 1.05;
+  const baseRot = o.rot ?? 0;
   for (let i = 0; i < segments; i++) {
     const angle = -Math.PI / 2 + arc * (i + 0.5);
     // Open gap near the bottom so creatures can enter.
     if (Math.sin(angle) < -0.55) continue;
     const cx = o.x + radius * Math.cos(angle);
     const cy = o.y + radius * Math.sin(angle);
-    const rot = angle + Math.PI / 2;
+    const p = rotateAround(cx, cy, o.x, o.y, baseRot);
+    const rot = angle + Math.PI / 2 + baseRot;
     addCuboid(
       world,
       handle,
       'loop',
-      cx,
-      cy,
+      p.x,
+      p.y,
       slabLen / 2,
       thickness / 2,
       rot,

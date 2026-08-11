@@ -1,13 +1,19 @@
 /**
- * C6 — Share payload validation + local store round-trip.
+ * C6/C7 — Share payload validation, local store, and catalog gallery.
  * Run: npm run smoke:share
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRng, makeShape, randomWeights } from '../src/brain/network.ts';
-import { TRIANGLE_WALKER } from '../src/creature/presets.ts';
+import { SIMPLE_HOPPER } from '../src/creature/presets.ts';
 import { cloneDesign } from '../src/creature/types.ts';
+import {
+  galleryEntryFromShareSummary,
+  listCatalogFs,
+  readCatalogFs,
+  writeCatalogFs,
+} from '../src/library/catalogStoreFs.ts';
 import {
   exportModelJson,
   importModelJson,
@@ -26,7 +32,7 @@ function assert(cond: boolean, msg: string): void {
 }
 
 function buildSampleModelJson(): string {
-  const design = cloneDesign(TRIANGLE_WALKER);
+  const design = cloneDesign(SIMPLE_HOPPER);
   const shape = makeShape(design.muscles.length);
   const weights = randomWeights(shape, createRng(42));
   return exportModelJson({
@@ -95,7 +101,7 @@ function testRejectInvalid(): void {
       shape: { inputCount: 1, hiddenCount: 1, outputCount: 1, weightCount: 1 },
       weightsB64: 'AA==',
       fitness: 0,
-      design: cloneDesign(TRIANGLE_WALKER),
+      design: cloneDesign(SIMPLE_HOPPER),
     }),
   );
   assert(
@@ -152,11 +158,64 @@ function testIdUtility(): void {
   console.log('share id utility OK');
 }
 
+async function testCatalogOptIn(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'solemn-catalog-'));
+  const shareDir = join(root, 'shares');
+  const catalogDir = join(root, 'catalog');
+  try {
+    const json = buildSampleModelJson();
+    const validated = validateSharePayload(json);
+    assert(validated.ok, 'sample must validate');
+    if (!validated.ok) return;
+
+    const unlistedId = createShareId();
+    await writeShareFs(shareDir, unlistedId, validated.raw);
+    let gallery = await listCatalogFs(catalogDir);
+    assert(gallery.length === 0, 'unlisted share must not appear in gallery');
+
+    const listedId = createShareId();
+    await writeShareFs(shareDir, listedId, validated.raw);
+    const m = validated.model;
+    const entry = galleryEntryFromShareSummary(listedId, {
+      name: m.name,
+      task: m.task,
+      fitness: m.fitness,
+      joints: m.design.joints.length,
+      bones: m.design.bones.length,
+      muscles: m.design.muscles.length,
+      inputCount: m.shape.inputCount,
+      hiddenCount: m.shape.hiddenCount,
+      outputCount: m.shape.outputCount,
+      version: m.version,
+    });
+    await writeCatalogFs(catalogDir, entry);
+
+    const loaded = await readCatalogFs(catalogDir, listedId);
+    assert(loaded !== null, 'catalog entry must load');
+    assert(loaded!.id === listedId, 'catalog id matches');
+    assert(!('weightsB64' in (loaded as object)), 'catalog has no weights');
+
+    gallery = await listCatalogFs(catalogDir);
+    assert(gallery.length === 1, 'gallery returns only listed entries');
+    assert(gallery[0]!.id === listedId, 'gallery entry id matches');
+
+    const shareRaw = await readShareFs(shareDir, listedId);
+    assert(shareRaw !== null, 'full share still loads');
+    const imported = importModelJson(shareRaw!);
+    assert(imported.ok, 'listed share still imports via canonical path');
+
+    console.log('catalog opt-in / gallery OK');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   testIdUtility();
   testSerializeUnchanged();
   testRejectInvalid();
   await testFsStoreRoundTrip();
+  await testCatalogOptIn();
   console.log('smoke:share passed');
 }
 

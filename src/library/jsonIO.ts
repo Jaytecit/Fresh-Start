@@ -363,6 +363,7 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
             w: r.w,
             h: r.h,
             rate: r.rate,
+            ...(typeof r.rot === 'number' ? { rot: r.rot } : {}),
           }),
         );
       }
@@ -396,6 +397,7 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
             y: m.y,
             w: m.w,
             h: m.h,
+            ...(typeof m.rot === 'number' ? { rot: m.rot } : {}),
             ...(m.kind === 'checkpoint' && typeof m.order === 'number'
               ? { order: m.order }
               : {}),

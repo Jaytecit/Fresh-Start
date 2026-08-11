@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TRIANGLE_WALKER, SIMPLE_HOPPER, FLOPPY_CHAIN } from '../src/creature/presets.ts';
+import { SIMPLE_HOPPER, FLOPPY_CHAIN } from '../src/creature/presets.ts';
 import { cloneDesign } from '../src/creature/types.ts';
 import { importCreatureJson } from '../src/library/jsonIO.ts';
 import {
@@ -55,7 +55,7 @@ async function main() {
   await sim.init();
 
   // 1) Braced triangle settles onto ground but keeps a torso above feet
-  sim.loadDesign(cloneDesign(TRIANGLE_WALKER));
+  sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
   sim.driveMode = 'idle';
   for (let i = 0; i < 180; i++) sim.step(1 / 60);
   const triMin = minJointY(sim);

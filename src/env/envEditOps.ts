@@ -72,7 +72,7 @@ export function obstacleFootprint(o: EnvObstacle): Footprint {
         cy: o.y + clampSize(o.h) / 2,
         hw: clampSize(o.w) / 2,
         hh: clampSize(o.h) / 2,
-        rot: 0,
+        rot: o.rot ?? 0,
       };
     case 'pit': {
       const gap = clampSize(o.w);
@@ -84,12 +84,12 @@ export function obstacleFootprint(o: EnvObstacle): Footprint {
         cy: o.y + wallH / 2,
         hw: totalW / 2,
         hh: wallH / 2,
-        rot: 0,
+        rot: o.rot ?? 0,
       };
     }
     case 'loop': {
       const r = clampSize(Math.max(o.w, o.h)) / 2;
-      return { cx: o.x, cy: o.y, hw: r, hh: r, rot: 0 };
+      return { cx: o.x, cy: o.y, hw: r, hh: r, rot: o.rot ?? 0 };
     }
     default:
       return { cx: o.x, cy: o.y, hw: 0.5, hh: 0.5, rot: 0 };
@@ -114,7 +114,7 @@ export function regionFootprint(r: EnvScoreRegion): Footprint {
     cy: c.y,
     hw: c.w / 2,
     hh: c.h / 2,
-    rot: 0,
+    rot: c.rot ?? 0,
   };
 }
 
@@ -125,7 +125,7 @@ export function markerFootprint(m: EnvCourseMarker): Footprint {
     cy: c.y,
     hw: c.w / 2,
     hh: c.h / 2,
-    rot: 0,
+    rot: c.rot ?? 0,
   };
 }
 
@@ -401,14 +401,16 @@ export function placeSpawnAt(wx: number, wy: number): EnvSpawn {
   return clampSpawn({ x: wx, y: Math.max(0, wy) });
 }
 
-/** Resize footprint keeping the opposite corner fixed (world). */
-export function resizeObstacleByCorner(
-  o: EnvObstacle,
+/**
+ * Resize keeping the opposite corner fixed in local space.
+ * Crossing the fixed corner clamps at min size (no flip-to-expand).
+ */
+function resizeFootprintByCorner(
+  fp: Footprint,
   handle: 'nw' | 'ne' | 'sw' | 'se',
   wx: number,
   wy: number,
-): EnvObstacle {
-  const fp = obstacleFootprint(o);
+): { center: { x: number; y: number }; w: number; h: number } {
   const opposite: Record<'nw' | 'ne' | 'sw' | 'se', 'nw' | 'ne' | 'sw' | 'se'> =
     {
       nw: 'se',
@@ -417,31 +419,35 @@ export function resizeObstacleByCorner(
       se: 'nw',
     };
   const fixed = handleWorldPos(fp, opposite[handle]);
-  const localPtr = worldToLocal(wx, wy, fp);
   const localFix = worldToLocal(fixed.x, fixed.y, fp);
+  const localPtr = worldToLocal(wx, wy, fp);
 
-  const minHalf = OBSTACLE_MIN_SIZE / 2;
-  let x0 = Math.min(localPtr.lx, localFix.lx);
-  let x1 = Math.max(localPtr.lx, localFix.lx);
-  let y0 = Math.min(localPtr.ly, localFix.ly);
-  let y1 = Math.max(localPtr.ly, localFix.ly);
-  if (x1 - x0 < OBSTACLE_MIN_SIZE) {
-    const mid = (x0 + x1) / 2;
-    x0 = mid - minHalf;
-    x1 = mid + minHalf;
-  }
-  if (y1 - y0 < OBSTACLE_MIN_SIZE) {
-    const mid = (y0 + y1) / 2;
-    y0 = mid - minHalf;
-    y1 = mid + minHalf;
-  }
-  const newHw = Math.min(OBSTACLE_MAX_SIZE / 2, (x1 - x0) / 2);
-  const newHh = Math.min(OBSTACLE_MAX_SIZE / 2, (y1 - y0) / 2);
-  const localCx = (x0 + x1) / 2;
-  const localCy = (y0 + y1) / 2;
-  const center = localToWorld(localCx, localCy, fp);
-  const w = newHw * 2;
-  const h = newHh * 2;
+  // Signed size from the fixed corner toward the dragged handle.
+  const signX = handle === 'nw' || handle === 'sw' ? -1 : 1;
+  const signY = handle === 'sw' || handle === 'se' ? -1 : 1;
+  let w = (localPtr.lx - localFix.lx) * signX;
+  let h = (localPtr.ly - localFix.ly) * signY;
+  w = Math.min(OBSTACLE_MAX_SIZE, Math.max(OBSTACLE_MIN_SIZE, w));
+  h = Math.min(OBSTACLE_MAX_SIZE, Math.max(OBSTACLE_MIN_SIZE, h));
+
+  const localCx = localFix.lx + signX * (w / 2);
+  const localCy = localFix.ly + signY * (h / 2);
+  return {
+    center: localToWorld(localCx, localCy, fp),
+    w,
+    h,
+  };
+}
+
+/** Resize footprint keeping the opposite corner fixed (world). */
+export function resizeObstacleByCorner(
+  o: EnvObstacle,
+  handle: 'nw' | 'ne' | 'sw' | 'se',
+  wx: number,
+  wy: number,
+): EnvObstacle {
+  const fp = obstacleFootprint(o);
+  const { center, w, h } = resizeFootprintByCorner(fp, handle, wx, wy);
 
   switch (o.kind) {
     case 'box':
@@ -457,13 +463,13 @@ export function resizeObstacleByCorner(
         h,
       };
     case 'pit': {
-      // Keep gap ≈ w of footprint interior; map footprint width back to gap.
-      // Footprint totalW = gap + 2*max(2,gap). Invert approximately: use w as gap.
+      // Footprint width = gap + 2*max(2, gap). Invert for gap ≈ w/3 when gap≥2.
+      const gap = clampSize(w / 3);
       return {
         ...o,
         x: center.x,
         y: Math.max(0, center.y - h / 2),
-        w: clampSize(w * 0.35),
+        w: gap,
         h,
       };
     }
@@ -477,9 +483,19 @@ export function resizeObstacleByCorner(
 }
 
 export function rotateObstacle(o: EnvObstacle, wx: number, wy: number): EnvObstacle {
-  if (o.kind !== 'box' && o.kind !== 'ramp' && o.kind !== 'pad') return o;
-  const ang = Math.atan2(wy - o.y, wx - o.x) - Math.PI / 2;
+  const fp = obstacleFootprint(o);
+  const ang = Math.atan2(wy - fp.cy, wx - fp.cx) - Math.PI / 2;
   return { ...o, rot: ang };
+}
+
+export function rotateRegion(r: EnvScoreRegion, wx: number, wy: number): EnvScoreRegion {
+  const ang = Math.atan2(wy - r.y, wx - r.x) - Math.PI / 2;
+  return clampScoreRegion({ ...r, rot: ang });
+}
+
+export function rotateMarker(m: EnvCourseMarker, wx: number, wy: number): EnvCourseMarker {
+  const ang = Math.atan2(wy - m.y, wx - m.x) - Math.PI / 2;
+  return clampCourseMarker({ ...m, rot: ang });
 }
 
 export function resizeTowerByHandle(
@@ -568,43 +584,13 @@ export function resizeRegionByCorner(
   wy: number,
 ): EnvScoreRegion {
   const fp = regionFootprint(r);
-  const opposite: Record<'nw' | 'ne' | 'sw' | 'se', 'nw' | 'ne' | 'sw' | 'se'> =
-    {
-      nw: 'se',
-      ne: 'sw',
-      sw: 'ne',
-      se: 'nw',
-    };
-  const fixed = handleWorldPos(fp, opposite[handle]);
-  const localPtr = worldToLocal(wx, wy, fp);
-  const localFix = worldToLocal(fixed.x, fixed.y, fp);
-
-  const minHalf = OBSTACLE_MIN_SIZE / 2;
-  let x0 = Math.min(localPtr.lx, localFix.lx);
-  let x1 = Math.max(localPtr.lx, localFix.lx);
-  let y0 = Math.min(localPtr.ly, localFix.ly);
-  let y1 = Math.max(localPtr.ly, localFix.ly);
-  if (x1 - x0 < OBSTACLE_MIN_SIZE) {
-    const mid = (x0 + x1) / 2;
-    x0 = mid - minHalf;
-    x1 = mid + minHalf;
-  }
-  if (y1 - y0 < OBSTACLE_MIN_SIZE) {
-    const mid = (y0 + y1) / 2;
-    y0 = mid - minHalf;
-    y1 = mid + minHalf;
-  }
-  const newHw = Math.min(OBSTACLE_MAX_SIZE / 2, (x1 - x0) / 2);
-  const newHh = Math.min(OBSTACLE_MAX_SIZE / 2, (y1 - y0) / 2);
-  const localCx = (x0 + x1) / 2;
-  const localCy = (y0 + y1) / 2;
-  const center = localToWorld(localCx, localCy, fp);
+  const { center, w, h } = resizeFootprintByCorner(fp, handle, wx, wy);
   return clampScoreRegion({
     ...r,
     x: center.x,
     y: center.y,
-    w: newHw * 2,
-    h: newHh * 2,
+    w,
+    h,
   });
 }
 
@@ -616,43 +602,13 @@ export function resizeMarkerByCorner(
   wy: number,
 ): EnvCourseMarker {
   const fp = markerFootprint(m);
-  const opposite: Record<'nw' | 'ne' | 'sw' | 'se', 'nw' | 'ne' | 'sw' | 'se'> =
-    {
-      nw: 'se',
-      ne: 'sw',
-      sw: 'ne',
-      se: 'nw',
-    };
-  const fixed = handleWorldPos(fp, opposite[handle]);
-  const localPtr = worldToLocal(wx, wy, fp);
-  const localFix = worldToLocal(fixed.x, fixed.y, fp);
-
-  const minHalf = OBSTACLE_MIN_SIZE / 2;
-  let x0 = Math.min(localPtr.lx, localFix.lx);
-  let x1 = Math.max(localPtr.lx, localFix.lx);
-  let y0 = Math.min(localPtr.ly, localFix.ly);
-  let y1 = Math.max(localPtr.ly, localFix.ly);
-  if (x1 - x0 < OBSTACLE_MIN_SIZE) {
-    const mid = (x0 + x1) / 2;
-    x0 = mid - minHalf;
-    x1 = mid + minHalf;
-  }
-  if (y1 - y0 < OBSTACLE_MIN_SIZE) {
-    const mid = (y0 + y1) / 2;
-    y0 = mid - minHalf;
-    y1 = mid + minHalf;
-  }
-  const newHw = Math.min(OBSTACLE_MAX_SIZE / 2, (x1 - x0) / 2);
-  const newHh = Math.min(OBSTACLE_MAX_SIZE / 2, (y1 - y0) / 2);
-  const localCx = (x0 + x1) / 2;
-  const localCy = (y0 + y1) / 2;
-  const center = localToWorld(localCx, localCy, fp);
+  const { center, w, h } = resizeFootprintByCorner(fp, handle, wx, wy);
   return clampCourseMarker({
     ...m,
     x: center.x,
     y: center.y,
-    w: newHw * 2,
-    h: newHh * 2,
+    w,
+    h,
   });
 }
 
@@ -701,20 +657,16 @@ export function deleteSelection(
   };
 }
 
-export function obstacleHandles(o: EnvObstacle): HandleId[] {
-  const corners: HandleId[] = ['nw', 'ne', 'sw', 'se'];
-  if (o.kind === 'box' || o.kind === 'ramp' || o.kind === 'pad') {
-    return [...corners, 'rotate'];
-  }
-  return corners;
+export function obstacleHandles(_o: EnvObstacle): HandleId[] {
+  return ['nw', 'ne', 'sw', 'se', 'rotate'];
 }
 
 export function regionHandles(): HandleId[] {
-  return ['nw', 'ne', 'sw', 'se'];
+  return ['nw', 'ne', 'sw', 'se', 'rotate'];
 }
 
 export function markerHandles(): HandleId[] {
-  return ['nw', 'ne', 'sw', 'se'];
+  return ['nw', 'ne', 'sw', 'se', 'rotate'];
 }
 
 export function towerHandles(): HandleId[] {

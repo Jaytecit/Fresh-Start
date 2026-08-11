@@ -336,7 +336,10 @@ export const DEFAULT_DISCO_ROUTING: DiscoBandRouting = {
 };
 
 /** Bundled default disco track (served from /public/disco/). */
-export const DEFAULT_DISCO_TRACK_URL = '/disco/default-track.mp3';
+export const DEFAULT_DISCO_TRACK_URL = `${
+  (import.meta as ImportMeta & { env?: { BASE_URL?: string } }).env?.BASE_URL ??
+  '/'
+}disco/default-track.mp3`;
 export const DEFAULT_DISCO_TRACK_NAME =
   'Tita Lau LIVE — Get Closer (Tech House)';
 

@@ -44,7 +44,7 @@ See the short starter guide: [`docs/TUTORIAL.md`](./docs/TUTORIAL.md).
 2. Use the strip above the canvas to pick a **Skill**, **Goal**, and **Env**.
 3. Switch to **Train**, press **Evolve**, then **Play best** when a run finishes.
 4. Save a model from the Train dock; manage bodies and brains in **Creatures**.
-5. After you have a trained elite, use **Share** to get a public link (see [`SHARING.md`](./SHARING.md)).
+5. After you have a trained elite, use **Share** to get a public link (optional: list it in **Public creations**). See [`SHARING.md`](./SHARING.md).
 
 Editor shortcuts: place joints with the joint tool; drag bone/muscle between parts; select to move or multi-select; Undo / Clear as needed. Save current and Import/Export JSON stay in the builder.
 

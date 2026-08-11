@@ -1,5 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
+  catalogEntryFromSummary,
+  parseSharePostBody,
+} from './_lib/catalog.js';
+import {
   allowSharePost,
   clientIp,
   readRawBody,
@@ -8,7 +12,7 @@ import {
 } from './_lib/http.js';
 import { createShareId } from './_lib/shareIds.js';
 import { SHARE_MAX_JSON_BYTES } from './_lib/shareLimits.js';
-import { storeShareJson } from './_lib/store.js';
+import { storeCatalogEntry, storeShareJson } from './_lib/store.js';
 import { validateShareBody } from './_lib/validateShare.js';
 
 export default async function handler(
@@ -39,12 +43,23 @@ export default async function handler(
     return;
   }
 
-  if (!raw || Buffer.byteLength(raw, 'utf8') > SHARE_MAX_JSON_BYTES) {
+  if (!raw || Buffer.byteLength(raw, 'utf8') > SHARE_MAX_JSON_BYTES + 512) {
     res.status(413).json({ error: 'The creature could not be shared.' });
     return;
   }
 
-  const validated = validateShareBody(raw);
+  const parsed = parseSharePostBody(raw);
+  if (!parsed) {
+    res.status(400).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  if (Buffer.byteLength(parsed.modelRaw, 'utf8') > SHARE_MAX_JSON_BYTES) {
+    res.status(413).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  const validated = validateShareBody(parsed.modelRaw);
   if (!validated.ok) {
     res.status(400).json({ error: 'The creature could not be shared.' });
     return;
@@ -53,6 +68,11 @@ export default async function handler(
   const id = createShareId();
   try {
     await storeShareJson(id, validated.raw);
+    if (parsed.listPublic) {
+      await storeCatalogEntry(
+        catalogEntryFromSummary(id, validated.summary),
+      );
+    }
   } catch (err) {
     console.error('[share] store failed', err);
     res.status(500).json({ error: 'The creature could not be shared.' });
@@ -63,5 +83,6 @@ export default async function handler(
   res.status(201).json({
     id,
     url: `${origin}/share/${id}`,
+    listed: parsed.listPublic,
   });
 }

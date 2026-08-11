@@ -1,6 +1,10 @@
 /**
- * C6 — Client helpers for creating and loading public shares.
+ * C6/C7 — Client helpers for creating shares and loading the public gallery.
  */
+import {
+  isGalleryEntry,
+  type GalleryEntry,
+} from './galleryTypes';
 import { isValidShareId } from './shareIds';
 import {
   userFacingShareLoadError,
@@ -9,7 +13,7 @@ import {
 } from './shareValidate';
 
 export type CreateShareResult =
-  | { ok: true; id: string; url: string }
+  | { ok: true; id: string; url: string; listed: boolean }
   | { ok: false; error: string };
 
 export type FetchShareResult =
@@ -19,6 +23,10 @@ export type FetchShareResult =
       code: ShareValidateErrorCode | 'not_found' | 'network';
       error: string;
     };
+
+export type FetchGalleryResult =
+  | { ok: true; entries: GalleryEntry[] }
+  | { ok: false; error: string };
 
 export function sharePagePath(id: string): string {
   return `/share/${id}`;
@@ -32,16 +40,23 @@ export function absoluteShareUrl(id: string, origin = window.location.origin): s
   return `${origin.replace(/\/$/, '')}${sharePagePath(id)}`;
 }
 
-export async function createShare(modelJson: string): Promise<CreateShareResult> {
+export async function createShare(
+  modelJson: string,
+  opts?: { listPublic?: boolean },
+): Promise<CreateShareResult> {
   const validated = validateSharePayload(modelJson);
   if (!validated.ok) {
     return { ok: false, error: 'The creature could not be shared.' };
   }
+  const listPublic = opts?.listPublic === true;
   try {
     const res = await fetch('/api/share', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: validated.raw,
+      body: JSON.stringify({
+        model: JSON.parse(validated.raw) as unknown,
+        listPublic,
+      }),
     });
     if (!res.ok) {
       let message = 'The creature could not be shared.';
@@ -55,7 +70,11 @@ export async function createShare(modelJson: string): Promise<CreateShareResult>
       }
       return { ok: false, error: message };
     }
-    const body = (await res.json()) as { id?: string; url?: string };
+    const body = (await res.json()) as {
+      id?: string;
+      url?: string;
+      listed?: boolean;
+    };
     if (typeof body.id !== 'string' || !isValidShareId(body.id)) {
       return { ok: false, error: 'The creature could not be shared.' };
     }
@@ -63,7 +82,12 @@ export async function createShare(modelJson: string): Promise<CreateShareResult>
       typeof body.url === 'string' && body.url
         ? body.url
         : absoluteShareUrl(body.id);
-    return { ok: true, id: body.id, url };
+    return {
+      ok: true,
+      id: body.id,
+      url,
+      listed: body.listed === true || listPublic,
+    };
   } catch (err) {
     console.error('[share] create failed', err);
     return { ok: false, error: 'The creature could not be shared.' };
@@ -110,6 +134,36 @@ export async function fetchShare(id: string): Promise<FetchShareResult> {
       ok: false,
       code: 'network',
       error: userFacingShareLoadError('network'),
+    };
+  }
+}
+
+export async function fetchGallery(): Promise<FetchGalleryResult> {
+  try {
+    const res = await fetch('/api/gallery');
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          'The public creations library could not be loaded. Check your connection and try again.',
+      };
+    }
+    const body = (await res.json()) as { entries?: unknown };
+    if (!Array.isArray(body.entries)) {
+      return {
+        ok: false,
+        error:
+          'The public creations library could not be loaded. Check your connection and try again.',
+      };
+    }
+    const entries = body.entries.filter(isGalleryEntry);
+    return { ok: true, entries };
+  } catch (err) {
+    console.error('[gallery] fetch failed', err);
+    return {
+      ok: false,
+      error:
+        'The public creations library could not be loaded. Check your connection and try again.',
     };
   }
 }

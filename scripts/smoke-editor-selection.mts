@@ -121,6 +121,26 @@ function main(): void {
 
   assert(rampFromTopEndpoints({ x: 0, y: 0 }, { x: 0.1, y: 0 }) == null, 'reject short');
 
+  // Buried top endpoints must clamp to ground (no invisible straddling hump).
+  const buried = rampFromTopEndpoints({ x: 53, y: 1.38 }, { x: 37, y: -1.61 })!;
+  assert(buried != null, 'buried endpoints still author after clamp');
+  const buriedEnds = rampTopEndpoints(buried);
+  assert(buriedEnds.a.y >= -1e-9 && buriedEnds.b.y >= -1e-9, 'top surface ≥ ground');
+  assert(nearly(Math.min(buriedEnds.a.y, buriedEnds.b.y), 0), 'low end flush to ground');
+
+  // After a ground-flush ramp, bottom corners sit slightly underground — they
+  // must not become snap magnets for the next draw.
+  const seeded: EnvironmentDesign = {
+    ...flatGroundEnv(),
+    obstacles: [up],
+  };
+  const seededGeom = collectRampSnapGeometry(seeded);
+  for (const p of seededGeom.points) {
+    assert(p.y >= -1e-4, `snap point underground at (${p.x}, ${p.y})`);
+  }
+  const lure = snapRampEndpoint(upEnds.a.x + 0.05, -0.15, { geometry: seededGeom });
+  assert(lure.y >= -1e-9, 'underground lure clamps to ground');
+
   console.log('smoke-editor-selection OK');
 }
 

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import type { TaskId } from '../brain/types';
-import { DISCO_DANCER } from '../creature/discoDancer';
 import { PRESETS } from '../creature/presets';
 import { ULTI_GROOVE_BOT_II } from '../creature/ultiGrooveBotII';
 import { cloneDesign, type CreatureDesign } from '../creature/types';
@@ -16,9 +15,10 @@ import type { SecretGoalDiscovery } from '../secrets/progress';
 import { CapabilityPanel } from './CapabilityPanel';
 import { CreatureDesignPreview } from './CreatureDesignPreview';
 import { ModelsHub } from './ModelsHub';
+import { PublicCreationsHub } from './PublicCreationsHub';
 
 /** Preset-like bodies that are not in PRESETS[] (shown once under Presets). */
-const EXTRA_PRESETS: CreatureDesign[] = [DISCO_DANCER, ULTI_GROOVE_BOT_II];
+const EXTRA_PRESETS: CreatureDesign[] = [ULTI_GROOVE_BOT_II];
 
 export type CreaturesBrowseKey =
   | 'current'
@@ -51,6 +51,8 @@ interface Props {
   onShareModel?: () => void;
   shareBusy?: boolean;
   canShareModel?: boolean;
+  /** C7 — open a public gallery share into the workspace. */
+  onOpenPublicShare?: (id: string) => void;
 }
 
 function resolveBrowseDesign(
@@ -105,6 +107,7 @@ export function CreaturesPanel({
   onShareModel,
   shareBusy = false,
   canShareModel = false,
+  onOpenPublicShare,
 }: Props) {
   const [browseKey, setBrowseKey] = useState<CreaturesBrowseKey>('current');
 
@@ -366,6 +369,17 @@ export function CreaturesPanel({
             />
           </section>
         )}
+
+        {isFeatureEnabled('publicCreationsLibrary') &&
+          isFeatureEnabled('creatureSharing') &&
+          onOpenPublicShare && (
+            <section className="creatures-careers">
+              <PublicCreationsHub
+                evolving={evolving}
+                onOpen={onOpenPublicShare}
+              />
+            </section>
+          )}
       </div>
     </div>
   );

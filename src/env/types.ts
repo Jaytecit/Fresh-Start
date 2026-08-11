@@ -66,6 +66,8 @@ export interface EnvScoreRegion {
   y: number;
   w: number;
   h: number;
+  /** Radians; omitted → axis-aligned. */
+  rot?: number;
   /**
    * Magnitude (≥ 0). Penalty: fitness / second while overlapping.
    * Reward: flat fitness bonus on first touch.
@@ -98,6 +100,8 @@ export interface EnvCourseMarker {
   y: number;
   w: number;
   h: number;
+  /** Radians; omitted → axis-aligned. */
+  rot?: number;
   /** Checkpoint sequence index (0-based). Ignored for start/finish. */
   order?: number;
 }
@@ -266,8 +270,14 @@ export function cloneEnvironment(env: EnvironmentDesign): EnvironmentDesign {
     name: env.name,
     theme: env.theme,
     obstacles: env.obstacles.map((o) => ({ ...o })),
-    regions: (env.regions ?? []).map((r) => ({ ...r })),
-    markers: (env.markers ?? []).map((m) => ({ ...m })),
+    regions: (env.regions ?? []).map((r) => ({
+      ...r,
+      ...(typeof r.rot === 'number' ? { rot: r.rot } : {}),
+    })),
+    markers: (env.markers ?? []).map((m) => ({
+      ...m,
+      ...(typeof m.rot === 'number' ? { rot: m.rot } : {}),
+    })),
     curriculum: env.curriculum
       ? {
           stages: env.curriculum.stages.map((s) => ({

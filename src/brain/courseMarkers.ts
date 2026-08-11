@@ -81,6 +81,9 @@ export function clampCourseMarker(m: EnvCourseMarker): EnvCourseMarker {
     y: Number.isFinite(m.y) ? m.y : 0,
     w: clampMarkerSize(m.w),
     h: clampMarkerSize(m.h),
+    ...(typeof m.rot === 'number' && Number.isFinite(m.rot)
+      ? { rot: m.rot }
+      : {}),
     ...(order !== undefined ? { order } : {}),
   };
 }
@@ -125,9 +128,16 @@ export function jointOverlapsMarker(
   const m = clampCourseMarker(marker);
   const hx = m.w / 2;
   const hy = m.h / 2;
+  const rot = m.rot ?? 0;
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
   for (const j of creature.joints) {
     const p = j.body.translation();
-    if (Math.abs(p.x - m.x) <= hx && Math.abs(p.y - m.y) <= hy) {
+    const dx = p.x - m.x;
+    const dy = p.y - m.y;
+    const lx = dx * c + dy * s;
+    const ly = -dx * s + dy * c;
+    if (Math.abs(lx) <= hx && Math.abs(ly) <= hy) {
       return true;
     }
   }
