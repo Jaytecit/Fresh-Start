@@ -99,6 +99,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
   - [x] **C2.9 Score regions** (penalty / reward / landing; score-only AABBs; landing = airborne→foot touch; end-on-landing)
   - [x] **C2.10 Start / finish / checkpoint markers** — **done** (score-only AABBs; Sprint Finish; ADR + smoke)
 - [x] **C5 JSON import/export** (creatures / models / environments with validation)
+- [x] **C6 Public share links** — Vercel Blob (+ local Vite share API); `/share/:id` preview; Open via `?share=`; reuses C5 `freshstart-model`
 
 
 

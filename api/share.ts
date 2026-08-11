@@ -1,0 +1,67 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createShareId } from '../src/library/shareIds';
+import { SHARE_MAX_JSON_BYTES } from '../src/library/shareLimits';
+import { validateSharePayload } from '../src/library/shareValidate';
+import {
+  allowSharePost,
+  clientIp,
+  readRawBody,
+  requestOrigin,
+  setCors,
+} from './lib/http';
+import { storeShareJson } from './lib/store';
+
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<void> {
+  setCors(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  if (!allowSharePost(clientIp(req))) {
+    res.status(429).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  let raw: string;
+  try {
+    raw = await readRawBody(req);
+  } catch (err) {
+    console.error('[share] body read failed', err);
+    res.status(400).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  if (!raw || Buffer.byteLength(raw, 'utf8') > SHARE_MAX_JSON_BYTES) {
+    res.status(413).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  const validated = validateSharePayload(raw);
+  if (!validated.ok) {
+    res.status(400).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  const id = createShareId();
+  try {
+    await storeShareJson(id, validated.raw);
+  } catch (err) {
+    console.error('[share] store failed', err);
+    res.status(500).json({ error: 'The creature could not be shared.' });
+    return;
+  }
+
+  const origin = requestOrigin(req);
+  res.status(201).json({
+    id,
+    url: `${origin}/share/${id}`,
+  });
+}

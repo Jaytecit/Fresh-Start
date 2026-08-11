@@ -52,7 +52,12 @@ import {
   fitImitation,
   imitationFitness,
 } from "./brain/imitate";
-import type { EvolutionProgress, Genome, NetworkShape } from "./brain/types";
+import type {
+  EvolutionProgress,
+  Genome,
+  NetworkShape,
+  TaskId,
+} from "./brain/types";
 import { adaptEliteToDesign } from "./brain/adaptElite";
 import {
   analyzeTrainTelemetry,
@@ -279,6 +284,7 @@ import {
   importEnvironmentJson,
   importModelJson,
 } from "./library/jsonIO";
+import { createShare, fetchShare } from "./library/shareApi";
 import { clampCourseMarker } from "./brain/courseMarkers";
 import {
   deleteSavedModel,
@@ -289,6 +295,7 @@ import {
   trainedModelName,
   type SavedModel,
 } from "./library/savedModels";
+import { ShareDialog } from "./components/ShareDialog";
 import type { TaskEpisodeMetrics } from "./brain/taskScore";
 import { evaluateSecretGoals } from "./secrets/eval";
 import {
@@ -337,6 +344,13 @@ export default function App() {
   const discoPlayer = useMemo(() => createDiscoAudioPlayer(), []);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Non-fatal banner (import / share failures). */
+  const [flashNotice, setFlashNotice] = useState<string | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareDialogUrl, setShareDialogUrl] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareDialogError, setShareDialogError] = useState<string | null>(null);
+  const shareBusyRef = useRef(false);
   const [mode, setMode] = useState<Mode>("edit");
   const [tool, setTool] = useState<EditTool>("joint");
   /** G8 — bone tool draws solid struts instead of hinge bones. */
@@ -2341,6 +2355,7 @@ export default function App() {
     setHoverHelpEnabled(on);
     saveHoverHelpEnabled(on);
   };
+
   const loadPreset = (preset: CreatureDesign, creatureKey?: string) => {
     const next = ensureAppearance(cloneDesign(preset));
     commitDesign(next);
@@ -2352,6 +2367,96 @@ export default function App() {
         setSandboxTab("edit");
         simulation.timeScale = observeSpeed;
       }
+    }
+  };
+
+  const applyImportedModel = (
+    m: {
+      name: string;
+      task: TaskId;
+      shape: NetworkShape;
+      weights: Float32Array;
+      fitness: number;
+      design: CreatureDesign;
+      danceMeta?: import("./library/savedModels").DanceCurriculumMeta;
+    },
+    opts: { persistToLibrary: boolean },
+  ) => {
+    loadPreset(m.design, "custom");
+    setGoalId(m.task as GoalId);
+    saveActiveGoalId(m.task as GoalId);
+    simulation.setTask(m.task);
+    setBestGenome({
+      shape: m.shape,
+      genome: { weights: m.weights, fitness: m.fitness },
+    });
+    if (opts.persistToLibrary && isFeatureEnabled("savedModels")) {
+      saveModel({
+        name: m.name,
+        task: m.task,
+        shape: m.shape,
+        genome: { weights: m.weights, fitness: m.fitness },
+        design: m.design,
+        ...(m.danceMeta ? { danceMeta: m.danceMeta } : {}),
+      });
+      refreshModels();
+    }
+    if (mode === "sim" && !simulation.isEvolving) {
+      try {
+        const body = ensureAppearance(cloneDesign(m.design));
+        simulation.loadDesign(body);
+        setManualDrives(simulation.manualDrives.slice());
+        simulation.setBrain(m.shape, m.weights);
+        setDriveMode("brain");
+        simulation.driveMode = "brain";
+      } catch (err) {
+        setFlashNotice(err instanceof Error ? err.message : String(err));
+      }
+    }
+  };
+
+  const shareCurrentElite = async () => {
+    if (!isFeatureEnabled("creatureSharing")) return;
+    if (shareBusyRef.current) return;
+    if (!bestGenome) {
+      setFlashNotice("Train or load a brain before sharing.");
+      return;
+    }
+    const adapted = adaptEliteToDesign(bestGenome, design, {
+      raycast:
+        isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+    });
+    if (!adapted) {
+      setFlashNotice(
+        "Brain layout mismatch — cannot share this elite for the current body.",
+      );
+      return;
+    }
+    if (adapted !== bestGenome) setBestGenome(adapted);
+    const name = trainedModelName(design.name);
+    const json = exportModelJson({
+      name,
+      task: activeTask,
+      shape: adapted.shape,
+      weights: adapted.genome.weights,
+      fitness: adapted.genome.fitness,
+      design,
+    });
+    shareBusyRef.current = true;
+    setShareBusy(true);
+    setShareDialogError(null);
+    setShareDialogUrl("");
+    setShareDialogOpen(true);
+    try {
+      const result = await createShare(json);
+      if (!result.ok) {
+        setShareDialogError(result.error);
+        return;
+      }
+      setShareDialogUrl(result.url);
+    } finally {
+      shareBusyRef.current = false;
+      setShareBusy(false);
     }
   };
   const loadCreatureByKey = (key: string) => {
@@ -2874,6 +2979,48 @@ export default function App() {
     document.addEventListener("fullscreenchange", onFs);
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
+
+  /** Open a shared model from `?share=id` without auto-saving into the library. */
+  useEffect(() => {
+    if (!ready || !isFeatureEnabled("creatureSharing")) return;
+    const params = new URLSearchParams(window.location.search);
+    const shareId = params.get("share");
+    if (!shareId) return;
+    params.delete("share");
+    const qs = params.toString();
+    const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchShare(shareId);
+      if (cancelled) return;
+      if (!result.ok) {
+        setFlashNotice(result.error);
+        return;
+      }
+      const ok = window.confirm(
+        "Open Shared Creature?\n\nThis will replace the creature currently in the workspace.\nYour saved creatures will not be deleted.",
+      );
+      if (!ok || cancelled) return;
+      const imported = importModelJson(result.raw);
+      if (!imported.ok) {
+        setFlashNotice(
+          "This shared file is not a valid Solemn Sandbox creature.",
+        );
+        return;
+      }
+      applyImportedModel(imported.value, { persistToLibrary: false });
+      setSandboxTab("creatures");
+      setFlashNotice(`Opened shared creature “${imported.value.name}”.`);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally once when physics becomes ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
   if (error) {
     return (
       <div className="app error">
@@ -5044,6 +5191,22 @@ export default function App() {
                   </button>
                 </HelpTip>
               )}
+              {isFeatureEnabled("creatureSharing") && (
+                <HelpTip tip="Upload this trained creature and copy a public link others can open.">
+                  <button
+                    type="button"
+                    disabled={
+                      !bestGenome ||
+                      evolveProgress.running ||
+                      h2hRunning ||
+                      shareBusy
+                    }
+                    onClick={() => void shareCurrentElite()}
+                  >
+                    {shareBusy ? "Sharing…" : "Share"}
+                  </button>
+                </HelpTip>
+              )}
             </div>
             {evolveProgress.running && (
               <div className="button-row" style={{ marginTop: "0.35rem" }}>
@@ -5752,6 +5915,13 @@ export default function App() {
             onLoadDanceFreestyle={loadDanceFreestyle}
             onDownloadText={downloadText}
             onImportJson={() => fileInputRef.current?.click()}
+            onShareModel={
+              isFeatureEnabled("creatureSharing")
+                ? () => void shareCurrentElite()
+                : undefined
+            }
+            shareBusy={shareBusy}
+            canShareModel={Boolean(bestGenome) && !evolveProgress.running}
           />
         );
 
@@ -5982,46 +6152,15 @@ export default function App() {
               if (kind === "freshstart-model") {
                 const result = importModelJson(text);
                 if (!result.ok) {
-                  setError(result.error);
+                  setFlashNotice(result.error);
                   return;
                 }
-                const m = result.value;
-                loadPreset(m.design, "custom");
-                setGoalId(m.task);
-                saveActiveGoalId(m.task);
-                simulation.setTask(m.task);
-                setBestGenome({
-                  shape: m.shape,
-                  genome: { weights: m.weights, fitness: m.fitness },
-                });
-                saveModel({
-                  name: m.name,
-                  task: m.task,
-                  shape: m.shape,
-                  genome: { weights: m.weights, fitness: m.fitness },
-                  design: m.design,
-                  ...(m.danceMeta ? { danceMeta: m.danceMeta } : {}),
-                });
-                refreshModels();
-                if (mode === "sim" && !simulation.isEvolving) {
-                  try {
-                    const body = ensureAppearance(cloneDesign(m.design));
-                    simulation.loadDesign(body);
-                    setManualDrives(simulation.manualDrives.slice());
-                    simulation.setBrain(m.shape, m.weights);
-                    setDriveMode("brain");
-                    simulation.driveMode = "brain";
-                  } catch (err) {
-                    setError(
-                      err instanceof Error ? err.message : String(err),
-                    );
-                  }
-                }
+                applyImportedModel(result.value, { persistToLibrary: true });
                 return;
               }
               const result = importCreatureJson(text);
               if (!result.ok) {
-                setError(result.error);
+                setFlashNotice(result.error);
                 return;
               }
               loadPreset(result.value, "custom");
@@ -6039,13 +6178,36 @@ export default function App() {
               const text = await file.text();
               const result = importEnvironmentJson(text);
               if (!result.ok) {
-                setError(result.error);
+                setFlashNotice(result.error);
                 return;
               }
               commitEnv(result.value);
             }}
           />
         </>
+      )}
+
+      {isFeatureEnabled("creatureSharing") && (
+        <ShareDialog
+          open={shareDialogOpen}
+          url={shareDialogUrl}
+          busy={shareBusy}
+          error={shareDialogError}
+          onClose={() => {
+            if (shareBusy) return;
+            setShareDialogOpen(false);
+            setShareDialogError(null);
+          }}
+        />
+      )}
+
+      {flashNotice && (
+        <div className="flash-notice" role="status">
+          <p>{flashNotice}</p>
+          <button type="button" onClick={() => setFlashNotice(null)}>
+            Dismiss
+          </button>
+        </div>
       )}
 
       {isFeatureEnabled("secretGoals") && (

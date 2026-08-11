@@ -152,7 +152,25 @@ export function importModelJson(raw: string): JsonResult<{
     if (data.kind !== 'freshstart-model') {
       return { ok: false, error: 'Invalid model JSON: expected freshstart-model' };
     }
+    if (data.version !== 1) {
+      return {
+        ok: false,
+        error: 'Invalid model JSON: unsupported version',
+      };
+    }
     if (!isTaskId(data.task) || !isNetworkShape(data.shape)) {
+      return { ok: false, error: 'Invalid model JSON: bad task/shape' };
+    }
+    if (
+      typeof data.shape.inputCount !== 'number' ||
+      !Number.isFinite(data.shape.inputCount) ||
+      typeof data.shape.hiddenCount !== 'number' ||
+      !Number.isFinite(data.shape.hiddenCount) ||
+      typeof data.shape.outputCount !== 'number' ||
+      !Number.isFinite(data.shape.outputCount) ||
+      typeof data.shape.weightCount !== 'number' ||
+      !Number.isFinite(data.shape.weightCount)
+    ) {
       return { ok: false, error: 'Invalid model JSON: bad task/shape' };
     }
     if (typeof data.weightsB64 !== 'string' || !data.weightsB64) {

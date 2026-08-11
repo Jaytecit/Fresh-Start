@@ -47,6 +47,10 @@ interface Props {
   onLoadDanceFreestyle?: (m: SavedModel) => void;
   onDownloadText: (filename: string, text: string) => void;
   onImportJson?: () => void;
+  /** C6 — share current elite (body + trained brain). */
+  onShareModel?: () => void;
+  shareBusy?: boolean;
+  canShareModel?: boolean;
 }
 
 function resolveBrowseDesign(
@@ -98,6 +102,9 @@ export function CreaturesPanel({
   onLoadDanceFreestyle,
   onDownloadText,
   onImportJson,
+  onShareModel,
+  shareBusy = false,
+  canShareModel = false,
 }: Props) {
   const [browseKey, setBrowseKey] = useState<CreaturesBrowseKey>('current');
 
@@ -256,6 +263,16 @@ export function CreaturesPanel({
                   </button>
                 )}
               </>
+            )}
+            {onShareModel && isFeatureEnabled('creatureSharing') && (
+              <button
+                type="button"
+                disabled={!canShareModel || evolving || shareBusy}
+                title="Create a public link for the current trained creature"
+                onClick={onShareModel}
+              >
+                {shareBusy ? 'Sharing…' : 'Share'}
+              </button>
             )}
             {selectedPkg && (
               <>
