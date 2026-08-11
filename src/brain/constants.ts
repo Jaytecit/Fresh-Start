@@ -191,3 +191,30 @@ export const FLIGHT_AERO_AREA_FULL = 1.5;
 export const FLIGHT_AERO_MATCH_FLOOR = 0.25;
 /** Rough terrain: forward distance divisor (run-like × lift quality). */
 export const ROUGH_DIST_SCALE = 1;
+
+/** Clear-the-bar: height that counts as a clear (meters). */
+export const CLEAR_BAR_HEIGHT = 2;
+/** Bonus when peak height reaches the bar. */
+export const CLEAR_BAR_CLEAR_BONUS = 1.25;
+/** Hop series: credit per foot-lift (bounce proxy). */
+export const HOP_LIFT_SCALE = 0.35;
+/** Hop series: air-time weight. */
+export const HOP_AIR_SCALE = 0.2;
+/** Soft-cap peak height — taller one-offs are lightly penalized. */
+export const HOP_PEAK_SOFT_CAP = 2.5;
+export const HOP_PEAK_PENALTY = 0.15;
+/** Flight Height goal weights. */
+export const FLIGHT_HEIGHT_GOAL_PEAK = 0.55;
+export const FLIGHT_HEIGHT_GOAL_MEAN = 0.35;
+export const FLIGHT_HEIGHT_GOAL_AIR = 0.1;
+/** Flight Distance goal weights. */
+export const FLIGHT_DIST_GOAL_TRAVEL = 0.55;
+export const FLIGHT_DIST_GOAL_MEAN = 0.25;
+export const FLIGHT_DIST_GOAL_AIR = 0.2;
+export const FLIGHT_DIST_TRAVEL_SCALE = 10;
+/** Motor ramp jump: air + height mix on top of wheeled distance. */
+export const MOTOR_RAMP_AIR_SCALE = 0.45;
+export const MOTOR_RAMP_HEIGHT_SCALE = 0.3;
+/** Motor gap: credit distance past the pit center. */
+export const MOTOR_GAP_PAST_X = 7;
+export const MOTOR_GAP_DIST_SCALE = 1.2;

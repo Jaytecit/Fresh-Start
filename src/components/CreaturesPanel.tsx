@@ -8,6 +8,7 @@ import type { BestEverEntry } from '../library/bestEver';
 import { bodyFingerprint } from '../library/bestEver';
 import type { CreaturePackage } from '../library/creaturePackages';
 import { exportCreaturePackage } from '../library/creaturePackages';
+import { exportCreatureJson } from '../library/jsonIO';
 import type { SavedModel } from '../library/savedModels';
 import { isFeatureEnabled } from '../port/featureFlags';
 import { SECRET_GOALS } from '../secrets/definitions';
@@ -45,6 +46,7 @@ interface Props {
   onDeleteModel: (id: string) => void;
   onLoadDanceFreestyle?: (m: SavedModel) => void;
   onDownloadText: (filename: string, text: string) => void;
+  onImportJson?: () => void;
 }
 
 function resolveBrowseDesign(
@@ -95,6 +97,7 @@ export function CreaturesPanel({
   onDeleteModel,
   onLoadDanceFreestyle,
   onDownloadText,
+  onImportJson,
 }: Props) {
   const [browseKey, setBrowseKey] = useState<CreaturesBrowseKey>('current');
 
@@ -139,10 +142,11 @@ export function CreaturesPanel({
       <header className="creatures-room-header">
         <div>
           <p className="creatures-room-eyebrow">Solemn Sandbox</p>
-          <h1>Creatures</h1>
+          <h1>Creature Library</h1>
           <p className="creatures-room-lede">
-            Browse bodies, stats, saved brains, and achievements. Open a design
-            in the editor to change it; Train still runs live sessions.
+            Browse bodies, stats, saved brains, and achievements. Import or
+            export designs here; open one in the editor to change it. Train still
+            runs live sessions.
           </p>
         </div>
       </header>
@@ -226,6 +230,33 @@ export function CreaturesPanel({
             >
               Open in editor
             </button>
+            {isFeatureEnabled('jsonImportExport') && (
+              <>
+                <button
+                  type="button"
+                  disabled={selectedDesign.joints.length === 0}
+                  onClick={() =>
+                    onDownloadText(
+                      `${(selectedDesign.name || 'creature')
+                        .replace(/\s+/g, '_')
+                        .toLowerCase()}.json`,
+                      exportCreatureJson(selectedDesign),
+                    )
+                  }
+                >
+                  Export creature
+                </button>
+                {onImportJson && (
+                  <button
+                    type="button"
+                    title="Accepts freshstart-creature or freshstart-model JSON"
+                    onClick={onImportJson}
+                  >
+                    Import JSON
+                  </button>
+                )}
+              </>
+            )}
             {selectedPkg && (
               <>
                 <button

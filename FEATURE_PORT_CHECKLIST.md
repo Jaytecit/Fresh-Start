@@ -138,10 +138,10 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
   - [x] E5.5 Trophy cabinet scaled for 100 (category filters / progress)
 - [x] **E6 Goal families** (Rapier-native formulas) — core expansion shipped; further parent mirrors optional deepen
   - [x] E6.1 Locomotion — run · **Max Speed** · **Sprint Finish** (C2.10) · **Stay Tall** · rough
-  - [x] E6.2 Jump — jump height · **Hang Time** · **Long Jump** (Clear the Bar / flips / hops = later deepen)
+  - [x] E6.2 Jump — jump height · **Hang Time** · **Long Jump** · **Clear the Bar** · **Hop Series**
   - [x] E6.3 Climb — step course (stair/obstacles/beam/park = later deepen)
-  - [x] E6.5 Motor / wheeled — minimal drive (ramp/gap/hurdles/technical = later deepen via markers)
-  - [x] E6.6 Flight / glide / para — generic flight + wing / glider / para specialists (launch+land)
+  - [x] E6.5 Motor / wheeled — drive · **Ramp Jump** · **Gap Cross** · **Hurdles** · **Motor Sprint**
+  - [x] E6.6 Flight / glide / para — generic flight + **Flight Height** / **Flight Distance** + wing / glider / para specialists (launch+land)
   - [x] E6.8 Rough terrain — done
 
 

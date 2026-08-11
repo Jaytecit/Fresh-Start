@@ -4,3 +4,6 @@ dist
 *.local
 # Large bundled disco audio (see public/disco/README.md)
 public/disco/*.mp3
+
+.vercel
+.env*

@@ -3,15 +3,29 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import { HelpTip } from './HelpTip';
+
+const TAB_TIPS: Partial<Record<SandboxTabId, string>> = {
+  skill:
+    'Skill chooses the challenge family — walk, jump, fly, motor, free play, or disco.',
+  edit: 'Creature builder — draw joints, bones, and muscles, or load a preset.',
+  creatures: 'Library of presets, saved bodies, brains, and trophies.',
+  train: 'Evolve brains, watch the pack, play the best, and save models.',
+  world: 'Environment builder — author courses, obstacles, and markers.',
+  h2h: 'Head-to-Head — pit two saved brains against each other.',
+  discoveries: 'Trophy room — secret goals unlocked while experimenting.',
+  tutorial: 'Tutorial — optional pointers, quick start, and the hover-help toggle.',
+};
 
 export type SandboxTabId =
-  | 'zone'
+  | 'skill'
   | 'edit'
   | 'creatures'
   | 'train'
   | 'world'
   | 'h2h'
-  | 'discoveries';
+  | 'discoveries'
+  | 'tutorial';
 
 export interface SandboxTab {
   id: SandboxTabId;
@@ -24,7 +38,7 @@ interface Props {
   activeTab: SandboxTabId;
   onActiveTabChange: (id: SandboxTabId) => void;
   viewport: ReactNode;
-  /** Full-width band above sidebar + viewport (Zone / Goal / Env). */
+  /** Full-width band above sidebar + viewport (Skill / Goal / Env). */
   contextStrip?: ReactNode | null;
   /** Bottom chrome overlaid under the ground band (Train or World). */
   dock?: ReactNode | null;
@@ -55,18 +69,33 @@ export function SandboxTabRail({
 }) {
   return (
     <div className="topbar-tabs" role="tablist" aria-label="Sandbox panels">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={tab.id === activeTab}
-          className={tab.id === activeTab ? 'active' : ''}
-          onClick={() => onActiveTabChange(tab.id)}
-        >
-          {tab.label}
-        </button>
-      ))}
+      {tabs.map((tab) => {
+        const classes = [
+          tab.id === activeTab ? 'active' : '',
+          tab.id === 'tutorial' ? 'topbar-tab-tutorial' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        const tip = TAB_TIPS[tab.id];
+        const btn = (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab.id === activeTab}
+            className={classes || undefined}
+            onClick={() => onActiveTabChange(tab.id)}
+          >
+            {tab.label}
+          </button>
+        );
+        return tip ? (
+          <HelpTip key={tab.id} tip={tip}>
+            {btn}
+          </HelpTip>
+        ) : (
+          <span key={tab.id}>{btn}</span>
+        );
+      })}
     </div>
   );
 }

@@ -13,6 +13,10 @@ export type TaskId =
   | 'flight_glider'
   /** E6.6 deepen — parachute soft descent + landing. */
   | 'flight_para'
+  /** Aero-agnostic peak / mean altitude. */
+  | 'flight_height'
+  /** Aero-agnostic airborne range. */
+  | 'flight_distance'
   | 'rough'
   /** Timed course via C2.10 markers. */
   | 'sprint'
@@ -24,6 +28,18 @@ export type TaskId =
   | 'hang'
   /** Isolated long jump (horizontal). */
   | 'longjump'
+  /** Clear a virtual height bar. */
+  | 'clear_bar'
+  /** Repeated short hops (bounce cadence). */
+  | 'hop'
+  /** Wheeled ramp launch + air. */
+  | 'motor_ramp'
+  /** Wheeled gap / pit cross. */
+  | 'motor_gap'
+  /** Wheeled low-obstacle sequence. */
+  | 'motor_hurdles'
+  /** Wheeled race (markers when present). */
+  | 'motor_sprint'
   /** H6 — disco imitation / freestyle (not GA-evolved). */
   | 'dance';
 
@@ -33,7 +49,20 @@ export function isFlightTask(task: TaskId): boolean {
     task === 'flight' ||
     task === 'flight_wing' ||
     task === 'flight_glider' ||
-    task === 'flight_para'
+    task === 'flight_para' ||
+    task === 'flight_height' ||
+    task === 'flight_distance'
+  );
+}
+
+/** Wheeled motor family (skip plant-slide brake like classic motor). */
+export function isMotorTask(task: TaskId): boolean {
+  return (
+    task === 'motor' ||
+    task === 'motor_ramp' ||
+    task === 'motor_gap' ||
+    task === 'motor_hurdles' ||
+    task === 'motor_sprint'
   );
 }
 

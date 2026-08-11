@@ -1273,14 +1273,30 @@ function assertCatalogAndZones(): void {
   );
   const pngCount = countPngs(assets);
   assert(pngCount > 50, `expected body-part PNGs, got ${pngCount}`);
-  assert(ZONE_ORDER.length === 6, 'six zones');
+  assert(ZONE_ORDER.length === 6, 'six skills');
   assert(ZONES.walking.defaultTask === 'run', 'walking → run');
   assert(ZONES.jumping.defaultTask === 'jump', 'jumping → jump');
-  assert(ZONES.disco.shortLabel === 'Disco', 'disco zone present');
+  assert(ZONES.disco.shortLabel === 'Disco', 'disco skill present');
   assert(BUNDLED_MODELS.length >= 3, 'bundled models present');
   assert(GOAL_CATALOG.length >= 6, 'goal catalog has task families');
   assert(goalsForZone('walking').some((g) => g.id === 'run'), 'walking lists run');
   assert(goalsForZone('walking').some((g) => g.id === 'rough'), 'walking lists rough');
+  assert(goalsForZone('walking').length >= 5, 'walking ≥5 goals');
+  assert(goalsForZone('jumping').length >= 5, 'jumping ≥5 goals');
+  assert(goalsForZone('flying').length >= 5, 'flying ≥5 goals');
+  assert(goalsForZone('motor').length >= 5, 'motor ≥5 goals');
+  assert(
+    goalsForZone('jumping').some((g) => g.id === 'clear_bar'),
+    'jumping lists clear_bar',
+  );
+  assert(
+    goalsForZone('flying').some((g) => g.id === 'flight_height'),
+    'flying lists flight_height',
+  );
+  assert(
+    goalsForZone('motor').some((g) => g.id === 'motor_ramp'),
+    'motor lists motor_ramp',
+  );
   assert(
     goalsForZone('free').length ===
       GOAL_CATALOG.filter((g) => g.id !== 'dance').length,
@@ -1291,9 +1307,9 @@ function assertCatalogAndZones(): void {
     GOAL_CATALOG.some((g) => g.id === 'dance'),
     'dance goal present for saved-model labeling',
   );
-  assert(defaultGoalForZone('motor').task === 'motor', 'motor zone default');
+  assert(defaultGoalForZone('motor').task === 'motor', 'motor skill default');
   console.log(
-    `catalog OK pngs=${pngCount} zones=${ZONE_ORDER.length} goals=${GOAL_CATALOG.length} bundled=${BUNDLED_MODELS.length}`,
+    `catalog OK pngs=${pngCount} skills=${ZONE_ORDER.length} goals=${GOAL_CATALOG.length} bundled=${BUNDLED_MODELS.length}`,
   );
 }
 
@@ -2078,14 +2094,20 @@ function assertDiscoBandRouting(): void {
 }
 
 async function assertSpecialistFlightGoals(): Promise<void> {
-  for (const id of ['flight_wing', 'flight_glider', 'flight_para'] as const) {
+  for (const id of [
+    'flight_wing',
+    'flight_glider',
+    'flight_para',
+    'flight_height',
+    'flight_distance',
+  ] as const) {
     assert(
       GOAL_CATALOG.some((g) => g.id === id),
       `${id} should be in goal catalog`,
     );
     assert(
       goalsForZone('flying').some((g) => g.id === id),
-      `${id} should appear in flying zone`,
+      `${id} should appear in flying skill`,
     );
   }
 

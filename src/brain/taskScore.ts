@@ -9,15 +9,32 @@ import {
   FLIGHT_AERO_AREA_FULL,
   FLIGHT_AERO_MATCH_FLOOR,
   FLIGHT_AIR_SCALE,
+  FLIGHT_DIST_GOAL_AIR,
+  FLIGHT_DIST_GOAL_MEAN,
+  FLIGHT_DIST_GOAL_TRAVEL,
+  FLIGHT_DIST_TRAVEL_SCALE,
   FLIGHT_GLIDER_DIST_SCALE,
+  FLIGHT_HEIGHT_GOAL_AIR,
+  FLIGHT_HEIGHT_GOAL_MEAN,
+  FLIGHT_HEIGHT_GOAL_PEAK,
   FLIGHT_HEIGHT_SCALE,
   FLIGHT_LANDING_REWARD_MULT,
   FLIGHT_MEAN_HEIGHT_SCALE,
   FLIGHT_PARA_IMPACT_SCALE,
   FLIGHT_SOFT_LAND_Y,
   FLIGHT_WING_DIST_SCALE,
+  CLEAR_BAR_CLEAR_BONUS,
+  CLEAR_BAR_HEIGHT,
+  HOP_AIR_SCALE,
+  HOP_LIFT_SCALE,
+  HOP_PEAK_PENALTY,
+  HOP_PEAK_SOFT_CAP,
   MIN_DESIGNED_HEAD_Y,
   MOTOR_DIST_SCALE,
+  MOTOR_GAP_DIST_SCALE,
+  MOTOR_GAP_PAST_X,
+  MOTOR_RAMP_AIR_SCALE,
+  MOTOR_RAMP_HEIGHT_SCALE,
   CLIMB_HEIGHT_SCALE,
   ROUGH_DIST_SCALE,
   SPRINT_CHECKPOINT_BONUS,
@@ -432,6 +449,56 @@ export function scoreTaskPerformance(
     );
   }
 
+  if (task === 'clear_bar') {
+    const heightScore = Math.max(0, peakHeight) / JUMP_HEIGHT_SCALE;
+    const cleared = peakHeight >= CLEAR_BAR_HEIGHT ? CLEAR_BAR_CLEAR_BONUS : 0;
+    const base =
+      heightScore + cleared + airTime * 0.08 - (fell ? FALL_PENALTY : 0);
+    const gated = applyUprightGate(creature, task, Math.max(0, base), uprightMean);
+    return finish(
+      withRegionScore(
+        {
+          fitness: gated.fitness,
+          distance: avgJointX(creature) - startX,
+          fell,
+          footLifts,
+          uprightQuality: gated.uprightQuality,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
+  if (task === 'hop') {
+    const overPeak = Math.max(0, peakHeight - HOP_PEAK_SOFT_CAP);
+    const base =
+      footLifts * HOP_LIFT_SCALE +
+      airTime * HOP_AIR_SCALE -
+      overPeak * HOP_PEAK_PENALTY -
+      (fell ? FALL_PENALTY : 0);
+    const gated = applyUprightGate(creature, task, Math.max(0, base), uprightMean);
+    return finish(
+      withRegionScore(
+        {
+          fitness: gated.fitness,
+          distance: avgJointX(creature) - startX,
+          fell,
+          footLifts,
+          uprightQuality: gated.uprightQuality,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
   if (task === 'climb') {
     const height = Math.max(0, peakHeight) / CLIMB_HEIGHT_SCALE;
     const forward = Math.max(0, avgJointX(creature) - startX) * 0.05;
@@ -478,6 +545,111 @@ export function scoreTaskPerformance(
     );
   }
 
+  if (task === 'motor_ramp') {
+    const distance = Math.max(0, peakDistance ?? avgJointX(creature) - startX);
+    const base =
+      distance / MOTOR_DIST_SCALE +
+      airTime * MOTOR_RAMP_AIR_SCALE +
+      Math.max(0, peakHeight) * MOTOR_RAMP_HEIGHT_SCALE -
+      (fell ? FALL_PENALTY : 0);
+    const gated = applyUprightGate(creature, task, Math.max(0, base), uprightMean);
+    return finish(
+      withRegionScore(
+        {
+          fitness: gated.fitness,
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: gated.uprightQuality,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
+  if (task === 'motor_gap') {
+    const endX = avgJointX(creature) - startX;
+    const distance = Math.max(0, peakDistance ?? endX, endX);
+    const pastGap = Math.max(0, distance - MOTOR_GAP_PAST_X);
+    const base =
+      pastGap / MOTOR_GAP_DIST_SCALE +
+      distance * 0.15 -
+      (fell ? FALL_PENALTY : 0);
+    const gated = applyUprightGate(creature, task, Math.max(0, base), uprightMean);
+    return finish(
+      withRegionScore(
+        {
+          fitness: gated.fitness,
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: gated.uprightQuality,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
+  if (task === 'motor_hurdles') {
+    const distance = Math.max(0, peakDistance ?? avgJointX(creature) - startX);
+    const base =
+      distance / MOTOR_DIST_SCALE +
+      course.checkpointsHit * SPRINT_CHECKPOINT_BONUS * 0.5 -
+      (fell ? FALL_PENALTY : 0);
+    const gated = applyUprightGate(creature, task, Math.max(0, base), uprightMean);
+    return finish(
+      withRegionScore(
+        {
+          fitness: gated.fitness,
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: gated.uprightQuality,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
+  if (task === 'motor_sprint') {
+    const s = scoreSprint(
+      creature,
+      startX,
+      fell,
+      course,
+      uprightMean,
+      peakDistance,
+    );
+    return finish(
+      withRegionScore(
+        {
+          fitness: s.fitness,
+          distance: s.distance,
+          fell,
+          footLifts,
+          uprightQuality: s.uprightQuality,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
   if (task === 'rough') {
     const distance = avgJointX(creature) - startX;
     const liftQuality = runLiftQuality(distance, footLifts);
@@ -510,9 +682,62 @@ export function scoreTaskPerformance(
   const peakScore = Math.max(0, peakHeight) / FLIGHT_HEIGHT_SCALE;
   const meanScore = Math.max(0, meanAirHeight) / FLIGHT_MEAN_HEIGHT_SCALE;
   const airScore = airTime / FLIGHT_AIR_SCALE;
-  const landMult = isFlightTask(task) && task !== 'flight'
-    ? FLIGHT_LANDING_REWARD_MULT
-    : 1;
+  const landMult =
+    task === 'flight_wing' ||
+    task === 'flight_glider' ||
+    task === 'flight_para'
+      ? FLIGHT_LANDING_REWARD_MULT
+      : 1;
+
+  if (task === 'flight_height') {
+    const base =
+      peakScore * FLIGHT_HEIGHT_GOAL_PEAK +
+      meanScore * FLIGHT_HEIGHT_GOAL_MEAN +
+      airScore * FLIGHT_HEIGHT_GOAL_AIR -
+      (fell ? FALL_PENALTY * 0.5 : 0);
+    return finish(
+      withRegionScore(
+        {
+          fitness: Math.max(0, base),
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: 1,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
+
+  if (task === 'flight_distance') {
+    const travel =
+      Math.max(distance * 0.35, airborneTravel) / FLIGHT_DIST_TRAVEL_SCALE;
+    const base =
+      travel * FLIGHT_DIST_GOAL_TRAVEL +
+      meanScore * FLIGHT_DIST_GOAL_MEAN +
+      airScore * FLIGHT_DIST_GOAL_AIR -
+      (fell ? FALL_PENALTY * 0.5 : 0);
+    return finish(
+      withRegionScore(
+        {
+          fitness: Math.max(0, base),
+          distance,
+          fell,
+          footLifts,
+          uprightQuality: 1,
+          peakHeight,
+          airTime,
+          meanAirHeight,
+          peakSpeed,
+        },
+        regionAccum,
+      ),
+    );
+  }
 
   if (task === 'flight_wing') {
     const distScore = distance / FLIGHT_WING_DIST_SCALE;
@@ -775,6 +1000,44 @@ export function explainTaskScore(
         value: `${metrics.peakHeight.toFixed(2)} m`,
       },
     );
+  } else if (task === 'clear_bar') {
+    terms.push(
+      {
+        label: 'Peak height',
+        value: `${metrics.peakHeight.toFixed(2)} m`,
+        note: `÷ ${JUMP_HEIGHT_SCALE}`,
+      },
+      {
+        label: 'Bar cleared',
+        value: metrics.peakHeight >= CLEAR_BAR_HEIGHT ? 'yes' : 'no',
+        note: `${CLEAR_BAR_HEIGHT} m bar · +${CLEAR_BAR_CLEAR_BONUS} bonus`,
+      },
+      {
+        label: 'Air time',
+        value: `${metrics.airTime.toFixed(2)} s`,
+        note: '× 0.08',
+      },
+      { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
+    );
+  } else if (task === 'hop') {
+    terms.push(
+      {
+        label: 'Foot lifts',
+        value: String(lifts),
+        note: `× ${HOP_LIFT_SCALE}`,
+      },
+      {
+        label: 'Air time',
+        value: `${metrics.airTime.toFixed(2)} s`,
+        note: `× ${HOP_AIR_SCALE}`,
+      },
+      {
+        label: 'Peak height',
+        value: `${metrics.peakHeight.toFixed(2)} m`,
+        note: `soft cap ${HOP_PEAK_SOFT_CAP} m — taller is penalized`,
+      },
+      { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
+    );
   } else if (task === 'longjump') {
     terms.push(
       {
@@ -809,6 +1072,67 @@ export function explainTaskScore(
         value: `${dist.toFixed(2)} m`,
         note: `÷ ${MOTOR_DIST_SCALE}`,
       },
+      { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
+    );
+  } else if (task === 'motor_ramp') {
+    terms.push(
+      {
+        label: 'Distance',
+        value: `${dist.toFixed(2)} m`,
+        note: `÷ ${MOTOR_DIST_SCALE}`,
+      },
+      {
+        label: 'Air time',
+        value: `${metrics.airTime.toFixed(2)} s`,
+        note: `× ${MOTOR_RAMP_AIR_SCALE}`,
+      },
+      {
+        label: 'Peak height',
+        value: `${metrics.peakHeight.toFixed(2)} m`,
+        note: `× ${MOTOR_RAMP_HEIGHT_SCALE}`,
+      },
+      { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
+    );
+  } else if (task === 'motor_gap') {
+    terms.push(
+      {
+        label: 'Past gap',
+        value: `${Math.max(0, dist - MOTOR_GAP_PAST_X).toFixed(2)} m`,
+        note: `beyond x=${MOTOR_GAP_PAST_X} · ÷ ${MOTOR_GAP_DIST_SCALE}`,
+      },
+      {
+        label: 'Distance',
+        value: `${dist.toFixed(2)} m`,
+        note: '× 0.15',
+      },
+      { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
+    );
+  } else if (task === 'motor_hurdles') {
+    terms.push(
+      {
+        label: 'Distance',
+        value: `${dist.toFixed(2)} m`,
+        note: `÷ ${MOTOR_DIST_SCALE}`,
+      },
+      {
+        label: 'Checkpoints',
+        value: String(metrics.checkpointsHit),
+        note: `× ${SPRINT_CHECKPOINT_BONUS * 0.5}`,
+      },
+      { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
+    );
+  } else if (task === 'motor_sprint') {
+    terms.push(
+      { label: 'Checkpoints', value: String(metrics.checkpointsHit) },
+      {
+        label: 'Finished',
+        value: metrics.finished ? 'yes' : 'no',
+        note:
+          metrics.finishTime != null
+            ? `t=${metrics.finishTime.toFixed(2)}s`
+            : undefined,
+      },
+      { label: 'Distance', value: `${dist.toFixed(2)} m` },
       { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
     );
   } else if (isFlightTask(task)) {
@@ -901,13 +1225,52 @@ export function scoringLegendForTask(task: TaskId): string {
       return 'Air time (primary) + light peak height − fall.' + zoneNote;
     case 'longjump':
       return 'Horizontal jump distance + light air time × upright − fall.' + zoneNote;
+    case 'clear_bar':
+      return (
+        `Peak height toward a ${CLEAR_BAR_HEIGHT} m bar + clear bonus × upright − fall.` +
+        zoneNote
+      );
+    case 'hop':
+      return (
+        'Foot-lifts + air time; very tall single peaks are lightly penalized × upright − fall.' +
+        zoneNote
+      );
     case 'climb':
       return 'Peak height + slight forward × upright − fall.' + zoneNote;
     case 'motor':
       return 'Wheeled forward distance × upright − fall.' + zoneNote;
+    case 'motor_ramp':
+      return (
+        'Wheeled distance + air time + peak height on the ramp course × upright − fall.' +
+        zoneNote
+      );
+    case 'motor_gap':
+      return (
+        'Distance past the gap (plus light travel) × upright − fall.' + zoneNote
+      );
+    case 'motor_hurdles':
+      return (
+        'Wheeled progress through hurdles (+ checkpoints if marked) × upright − fall.' +
+        zoneNote
+      );
+    case 'motor_sprint':
+      return (
+        'Wheeled race: peak progress + checkpoints + finish-time bonus × upright. Place start/finish in World.' +
+        zoneNote
+      );
     case 'flight':
       return (
         'Mean airborne height (50%) + air time (30%) + peak (20%) − light fall. One-flap coasts score poorly.' +
+        zoneNote
+      );
+    case 'flight_height':
+      return (
+        'Peak + mean altitude (aero-agnostic) − light fall. Complements wing/glider/chute specialists.' +
+        zoneNote
+      );
+    case 'flight_distance':
+      return (
+        'Airborne travel range (aero-agnostic) − light fall. Complements wing/glider/chute specialists.' +
         zoneNote
       );
     case 'flight_wing':

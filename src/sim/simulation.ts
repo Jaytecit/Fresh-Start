@@ -90,7 +90,8 @@ import type {
   NetworkShape,
   TaskId,
 } from '../brain/types';
-import { isFlightTask } from '../brain/types';
+import { isFlightTask, isMotorTask } from '../brain/types';
+import { CLEAR_BAR_HEIGHT } from '../brain/constants';
 import type { AudioBands } from '../audio/audioAnalysis';
 import type { AeroType, CreatureDesign } from '../creature/types';
 import { cloneDesign } from '../creature/types';
@@ -106,7 +107,11 @@ import {
   destroyCourse,
   destroyRoughCourse,
   applyWorldGripToCourse,
+  spawnClearBarCourse,
   spawnClimbCourse,
+  spawnMotorGapCourse,
+  spawnMotorHurdlesCourse,
+  spawnMotorRampCourse,
   spawnRoughCourse,
   type CourseHandle,
   type RoughCourseHandle,
@@ -1073,6 +1078,22 @@ export class Simulation {
     if (task === 'rough' && isFeatureEnabled('roughTerrainCourse')) {
       this.roughCourse = spawnRoughCourse(this.world, this.worldGrip);
     }
+    if (task === 'clear_bar') {
+      this.course = spawnClearBarCourse(
+        this.world,
+        this.worldGrip,
+        CLEAR_BAR_HEIGHT,
+      );
+    }
+    if (task === 'motor_ramp') {
+      this.course = spawnMotorRampCourse(this.world, this.worldGrip);
+    }
+    if (task === 'motor_gap') {
+      this.course = spawnMotorGapCourse(this.world, this.worldGrip);
+    }
+    if (task === 'motor_hurdles') {
+      this.course = spawnMotorHurdlesCourse(this.world, this.worldGrip);
+    }
   }
 
   /** Active terrain for obs / plant / fall (course preferred over studio). */
@@ -1915,7 +1936,7 @@ export class Simulation {
     // Skip flight/motor and disco freestyle (dance brain + arena feel).
     const skipPlantBrake =
       isFlightTask(this.task) ||
-      this.task === 'motor' ||
+      isMotorTask(this.task) ||
       (this.discoArenaFeel &&
         this.driveMode === 'brain' &&
         this.brainShape?.inputCount === DANCE_OBS_COUNT);
@@ -2123,7 +2144,7 @@ export class Simulation {
           skipAero: isLaunchBoosting(this.launchCooldownFor(dancer.creature)),
         },
       );
-      if (!isFlightTask(this.task) && this.task !== 'motor') {
+      if (!isFlightTask(this.task) && !isMotorTask(this.task)) {
         applyPlantSlideBrake(
           dancer.creature,
           this.activeTerrain(),
@@ -2216,7 +2237,7 @@ export class Simulation {
     this.h2h.episodeT += dt;
 
     const terrain = this.activeTerrain();
-    if (!isFlightTask(this.h2h.task) && this.h2h.task !== 'motor') {
+    if (!isFlightTask(this.h2h.task) && !isMotorTask(this.h2h.task)) {
       for (const member of this.cohort) {
         if (!member.fell && !member.landed) {
           applyPlantSlideBrake(
@@ -2405,7 +2426,7 @@ export class Simulation {
     this.live.episodeT += dt;
 
     const terrain = this.activeTerrain();
-    if (!isFlightTask(this.live.task) && this.live.task !== 'motor') {
+    if (!isFlightTask(this.live.task) && !isMotorTask(this.live.task)) {
       for (const member of this.cohort) {
         if (!member.fell && !member.landed) {
           applyPlantSlideBrake(
@@ -2543,6 +2564,7 @@ export class Simulation {
         uprightQuality: result.uprightQuality,
         fell: result.fell,
         priorities: live.priorities,
+        task: live.task,
       });
       live.population[member.genomeIndex].fitness = result.fitness;
       if (result.fitness > live.bestOverall.fitness) {

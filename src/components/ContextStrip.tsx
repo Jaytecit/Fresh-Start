@@ -1,15 +1,16 @@
 import type { EnvironmentPackage } from '../library/environmentPackages';
 import type { GoalDef, GoalId } from '../goals/catalog';
-import type { ZoneId } from '../zones/zones';
-import { ZONE_ORDER, ZONES } from '../zones/zones';
+import type { SkillId } from '../skills/skills';
+import { SKILL_ORDER, SKILLS } from '../skills/skills';
 import { EnvPicker } from './EnvPicker';
 import { GoalPicker } from './GoalPicker';
+import { HelpTip } from './HelpTip';
 
 interface Props {
-  zone: ZoneId;
-  onSelectZone: (id: ZoneId) => void;
-  showZoneTabs: boolean;
-  showDiscoZone: boolean;
+  skill: SkillId;
+  onSelectSkill: (id: SkillId) => void;
+  showSkillTabs: boolean;
+  showDiscoSkill: boolean;
   goals: GoalDef[];
   goalId: GoalId;
   onSelectGoal: (id: GoalId) => void;
@@ -22,12 +23,12 @@ interface Props {
   envDisabled?: boolean;
 }
 
-/** Full-width Zone / Goal / Env band above the sandbox body. */
+/** Full-width Skill / Goal / Env band above the sandbox body. */
 export function ContextStrip({
-  zone,
-  onSelectZone,
-  showZoneTabs,
-  showDiscoZone,
+  skill,
+  onSelectSkill,
+  showSkillTabs,
+  showDiscoSkill,
   goals,
   goalId,
   onSelectGoal,
@@ -39,37 +40,40 @@ export function ContextStrip({
   showEnv,
   envDisabled,
 }: Props) {
-  if (!showZoneTabs && !showGoals && !showEnv) return null;
+  if (!showSkillTabs && !showGoals && !showEnv) return null;
 
-  const zoneIds = ZONE_ORDER.filter(
-    (id) => id !== 'disco' || showDiscoZone,
+  const skillIds = SKILL_ORDER.filter(
+    (id) => id !== 'disco' || showDiscoSkill,
   );
 
   return (
     <div className="context-strip" aria-label="Training context">
-      {showZoneTabs && (
-        <div className="context-strip-zones">
-          <span className="context-strip-label">Zone</span>
-          <div className="zone-tabs context-strip-zone-tabs" role="tablist">
-            {zoneIds.map((id) => (
+      {showSkillTabs && (
+        <div className="context-strip-skills">
+          <HelpTip
+            tip="Skill picks the family of challenges — walk, jump, fly, motor, free play, or disco. Goals below change to match."
+          >
+            <span className="context-strip-label">Skill</span>
+          </HelpTip>
+          <div className="skill-tabs context-strip-skill-tabs" role="tablist">
+            {skillIds.map((id) => (
               <button
                 key={id}
                 type="button"
                 role="tab"
-                aria-selected={zone === id}
-                className={zone === id ? 'active' : ''}
+                aria-selected={skill === id}
+                className={skill === id ? 'active' : ''}
                 style={
-                  zone === id
+                  skill === id
                     ? {
-                        borderColor: ZONES[id].accent,
-                        color: ZONES[id].accent,
+                        borderColor: SKILLS[id].accent,
+                        color: SKILLS[id].accent,
                       }
                     : undefined
                 }
-                onClick={() => onSelectZone(id)}
-                title={ZONES[id].description}
+                onClick={() => onSelectSkill(id)}
               >
-                {ZONES[id].shortLabel}
+                {SKILLS[id].shortLabel}
               </button>
             ))}
           </div>
@@ -77,9 +81,11 @@ export function ContextStrip({
       )}
 
       <div className="context-strip-goals">
-        {showGoals && zone !== 'disco' ? (
+        {showGoals && skill !== 'disco' ? (
           <>
-            <span className="context-strip-label">Goal</span>
+            <HelpTip tip="Goal is what training scores for — distance, height, finish time, soft landing, and so on.">
+              <span className="context-strip-label">Goal</span>
+            </HelpTip>
             <GoalPicker
               goals={goals}
               selectedId={goalId}
@@ -87,15 +93,18 @@ export function ContextStrip({
               compact
             />
           </>
-        ) : showZoneTabs && zone === 'disco' ? (
+        ) : showSkillTabs && skill === 'disco' ? (
           <p className="hint muted context-strip-disco-hint">
-            Disco — track &amp; learn live in the Zone panel
+            Disco — track &amp; learn live in the Skill panel
           </p>
         ) : null}
       </div>
 
       {showEnv && (
         <div className="context-strip-env">
+          <HelpTip tip="Env is the course or ground your creature trains on. Flat is easiest; custom courses live in Environment builder.">
+            <span className="context-strip-label">Env</span>
+          </HelpTip>
           <EnvPicker
             packages={envPackages}
             selectedPackageId={selectedPackageId}
@@ -103,6 +112,7 @@ export function ContextStrip({
             disabled={envDisabled}
             onSelect={onSelectEnv}
             compact
+            hideLabel
           />
         </div>
       )}

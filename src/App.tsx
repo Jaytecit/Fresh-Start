@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_GOAL_PRIORITIES,
   DEFAULT_RUN_STAGES,
+  relevantPriorityKeys,
   type GoalPriorities,
 } from "./brain/goalPriorities";
 import {
@@ -153,8 +154,19 @@ import {
 } from "./components/SandboxShell";
 import { SecretGoalRevealOverlay } from "./components/SecretGoalRevealOverlay";
 import { StatsPanel } from "./components/StatsPanel";
+import { HelpTip } from "./components/HelpTip";
+import { TutorialHelpPanel } from "./components/TutorialHelpPanel";
+import {
+  TutorialPanel,
+  type TutorialJump,
+} from "./components/TutorialPanel";
 import { TrophyCabinet } from "./components/TrophyCabinet";
 import { WorldDock } from "./components/WorldDock";
+import { HoverHelpProvider } from "./help/HoverHelpContext";
+import {
+  loadHoverHelpEnabled,
+  saveHoverHelpEnabled,
+} from "./help/hoverHelp";
 import { PRESETS } from "./creature/presets";
 import { DISCO_DANCER } from "./creature/discoDancer";
 import { cloneDesign, type CreatureDesign } from "./creature/types";
@@ -214,9 +226,9 @@ import {
   type EnvironmentDesign,
 } from "./env/types";
 import {
-  defaultGoalForZone,
+  defaultGoalForSkill,
   getGoal,
-  goalsForZone,
+  goalsForSkill,
   loadActiveGoalId,
   saveActiveGoalId,
   type GoalId,
@@ -261,7 +273,6 @@ import {
 } from "./library/experimentPacks";
 import {
   downloadText,
-  exportCreatureJson,
   exportEnvironmentJson,
   exportModelJson,
   importCreatureJson,
@@ -297,11 +308,11 @@ import {
   type LiveFocusStats,
 } from "./sim/simulation";
 import {
-  loadActiveZone,
-  saveActiveZone,
-  ZONES,
-  type ZoneId,
-} from "./zones/zones";
+  loadActiveSkill,
+  saveActiveSkill,
+  SKILLS,
+  type SkillId,
+} from "./skills/skills";
 const OBSERVE_SPEEDS = [0.25, 1, 2, 4] as const;
 const TRAIN_SPEEDS = [1, 4, 16, 0] as const; // 0 = max
 /** edit = creature builder · world = env studio preview · sim = train/play */
@@ -344,14 +355,14 @@ export default function App() {
   const [snapEnabled, setSnapEnabled] = useState(true);
   /** Edit tab: drop creature idle under gravity to preview natural settle. */
   const [editPhysics, setEditPhysics] = useState(false);
-  const [zone, setZone] = useState<ZoneId>(() => loadActiveZone());
+  const [skill, setSkill] = useState<SkillId>(() => loadActiveSkill());
   const [goalId, setGoalId] = useState<GoalId>(() => {
-    const z = loadActiveZone();
-    const saved = loadActiveGoalId(defaultGoalForZone(z).id);
-    const allowed = goalsForZone(z);
+    const z = loadActiveSkill();
+    const saved = loadActiveGoalId(defaultGoalForSkill(z).id);
+    const allowed = goalsForSkill(z);
     return allowed.some((g) => g.id === saved)
       ? saved
-      : defaultGoalForZone(z).id;
+      : defaultGoalForSkill(z).id;
   });
   const [design, setDesign] = useState<CreatureDesign>(() =>
     ensureAppearance(cloneDesign(PRESETS[0])),
@@ -558,7 +569,15 @@ export default function App() {
     SecretGoalDiscovery[]
   >([]);
   const [discoveries, setDiscoveries] = useState<SecretGoalDiscovery[]>([]);
-  const [sandboxTab, setSandboxTab] = useState<SandboxTabId>("edit");
+  const [sandboxTab, setSandboxTab] = useState<SandboxTabId>("tutorial");
+  const [hoverHelpEnabled, setHoverHelpEnabled] = useState(() =>
+    loadHoverHelpEnabled(),
+  );
+  const [tutorialHelpKey, setTutorialHelpKey] = useState<string | null>(null);
+  const [tutorialResume, setTutorialResume] = useState<{
+    chapterId: string;
+    view: "guided" | "quickstart";
+  } | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [dockInset, setDockInset] = useState(0);
   const [feelNotesOpen, setFeelNotesOpen] = useState(false);
@@ -619,7 +638,7 @@ export default function App() {
   discoRoutingRef.current = discoRouting;
   envDesignRef.current = envDesign;
   const activeTask = getGoal(goalId).task;
-  const zoneGoals = goalsForZone(zone);
+  const skillGoals = goalsForSkill(skill);
   const refreshPackages = useCallback(() => {
     if (isFeatureEnabled("creaturePackages")) {
       setPackages(loadCreaturePackages());
@@ -1147,7 +1166,7 @@ export default function App() {
   /** Keep the disco arena in sync with dancer slots (preview or dancing). */
   useEffect(() => {
     if (!ready) return;
-    if (zone !== "disco" || !isFeatureEnabled("discoMode")) return;
+    if (skill !== "disco" || !isFeatureEnabled("discoMode")) return;
     if (syncMultiDisco()) return;
     if (simulation.isMultiDisco) {
       simulation.clearDiscoDancers();
@@ -1158,7 +1177,7 @@ export default function App() {
     // Gains/motion/routing are read from refs inside resolveDrives — omit here
     // so slider tweaks do not respawn dancers. offsetX changes also omit.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- discoStageKey gates design/load
-  }, [ready, zone, discoStageKey, syncMultiDisco, simulation]);
+  }, [ready, skill, discoStageKey, syncMultiDisco, simulation]);
 
   const applyDiscoEnvironment = useCallback(() => {
     if (!preDiscoEnvRef.current) {
@@ -1749,8 +1768,8 @@ export default function App() {
     }
   }, [discoPuppetMode, simulation, syncMultiDisco]);
 
-  /** Enter the Disco zone arena (env + sim viewport). Audio optional until Start dancing. */
-  const enterDiscoZone = useCallback(() => {
+  /** Enter the Disco skill arena (env + sim viewport). Audio optional until Start dancing. */
+  const enterDiscoSkill = useCallback(() => {
     captureLiveElite();
     if (simulation.isHeadToHead) simulation.abortHeadToHead();
     setH2hRunning(false);
@@ -1762,7 +1781,7 @@ export default function App() {
     simulation.setDiscoPuppetMode(discoPuppetMode);
     simulation.setFootMass(footMass);
     setMode("sim");
-    setSandboxTab("zone");
+    setSandboxTab("skill");
     if (discoPlayer.hasTrack()) {
       beginDiscoDrive();
     } else {
@@ -1781,7 +1800,7 @@ export default function App() {
     syncMultiDisco,
   ]);
 
-  const leaveDiscoZone = useCallback(() => {
+  const leaveDiscoSkill = useCallback(() => {
     stopDiscoDrive();
     if (simulation.isMultiDisco) {
       simulation.clearDiscoDancers();
@@ -1806,10 +1825,10 @@ export default function App() {
         genome: { weights: seed.weights, fitness: model.fitness },
       });
       setDanceStage(model.danceMeta?.stage ?? "imitate");
-      if (zone !== "disco") {
-        setZone("disco");
-        saveActiveZone("disco");
-        enterDiscoZone();
+      if (skill !== "disco") {
+        setSkill("disco");
+        saveActiveSkill("disco");
+        enterDiscoSkill();
       }
       discoRecordingRef.current = false;
       setDiscoRecording(false);
@@ -1830,16 +1849,16 @@ export default function App() {
     [
       activeDiscoDesign,
       discoPuppetMode,
-      enterDiscoZone,
+      enterDiscoSkill,
       simulation,
-      zone,
+      skill,
     ],
   );
 
   useEffect(() => {
     if (!ready || !isFeatureEnabled("discoMode")) return;
-    if (zone === "disco") enterDiscoZone();
-    // Restore disco arena once after physics init when the saved zone is Disco.
+    if (skill === "disco") enterDiscoSkill();
+    // Restore disco arena once after physics init when the saved skill is Disco.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/ready only
   }, [ready]);
 
@@ -2144,20 +2163,20 @@ export default function App() {
     // Free-task goals share the same obs/actuator layout — keep the elite brain.
     captureLiveElite();
   };
-  const selectZone = (id: ZoneId) => {
+  const selectSkill = (id: SkillId) => {
     if (id === "disco" && !isFeatureEnabled("discoMode")) return;
-    const prev = zone;
+    const prev = skill;
     if (prev === "disco" && id !== "disco") {
-      leaveDiscoZone();
+      leaveDiscoSkill();
     }
-    setZone(id);
-    saveActiveZone(id);
+    setSkill(id);
+    saveActiveSkill(id);
     if (id === "disco") {
       // Disco uses a separate dance brain; keep the free-evolve elite for later.
-      enterDiscoZone();
+      enterDiscoSkill();
       return;
     }
-    const next = defaultGoalForZone(id);
+    const next = defaultGoalForSkill(id);
     setGoalId(next.id);
     saveActiveGoalId(next.id);
     simulation.setTask(next.task);
@@ -2238,7 +2257,7 @@ export default function App() {
   };
   const onSandboxTabChange = (tab: SandboxTabId) => {
     if (tab === "edit") {
-      if (zone === "disco") leaveDiscoZone();
+      if (skill === "disco") leaveDiscoSkill();
       if (editPhysics) {
         // Stay in settle preview if already watching physics on Edit.
         setSandboxTab("edit");
@@ -2248,7 +2267,7 @@ export default function App() {
       return;
     }
     if (tab === "world") {
-      if (zone === "disco") leaveDiscoZone();
+      if (skill === "disco") leaveDiscoSkill();
       setEditPhysics(false);
       enterWorld();
       return;
@@ -2268,8 +2287,8 @@ export default function App() {
         setMode("sim");
         return;
       }
-      if (zone === "disco" && isFeatureEnabled("discoMode")) {
-        enterDiscoZone();
+      if (skill === "disco" && isFeatureEnabled("discoMode")) {
+        enterDiscoSkill();
         setSandboxTab("train");
         return;
       }
@@ -2280,10 +2299,10 @@ export default function App() {
       setSandboxTab("h2h");
       return;
     }
-    if (tab === "zone") {
-      setSandboxTab("zone");
-      if (zone === "disco" && isFeatureEnabled("discoMode")) {
-        enterDiscoZone();
+    if (tab === "skill") {
+      setSandboxTab("skill");
+      if (skill === "disco" && isFeatureEnabled("discoMode")) {
+        enterDiscoSkill();
       }
       return;
     }
@@ -2295,7 +2314,32 @@ export default function App() {
       setSandboxTab("creatures");
       return;
     }
+    if (tab === "tutorial") {
+      setSandboxTab("tutorial");
+      setTutorialHelpKey(null);
+      return;
+    }
     setSandboxTab(tab);
+  };
+
+  const onTutorialJump = (jump: TutorialJump) => {
+    setTutorialResume({ chapterId: jump.chapterId, view: jump.view });
+    setTutorialHelpKey(jump.helpKey);
+    onSandboxTabChange(jump.tab);
+  };
+
+  const returnToTutorialFromHelp = () => {
+    setTutorialHelpKey(null);
+    setSandboxTab("tutorial");
+  };
+
+  const exitTutorialHelp = () => {
+    setTutorialHelpKey(null);
+  };
+
+  const onHoverHelpChange = (on: boolean) => {
+    setHoverHelpEnabled(on);
+    saveHoverHelpEnabled(on);
   };
   const loadPreset = (preset: CreatureDesign, creatureKey?: string) => {
     const next = ensureAppearance(cloneDesign(preset));
@@ -2857,6 +2901,7 @@ export default function App() {
     ["brain", "Brain"],
   ];
   return (
+    <HoverHelpProvider enabled={hoverHelpEnabled}>
     <div className={immersive ? "app app-immersive" : "app"}>
       {immersive && isFeatureEnabled("immersiveFullscreen") && (
         <button
@@ -2869,13 +2914,13 @@ export default function App() {
       )}
 
       {(() => {
-        const zonePanel = (
+        const skillPanel = (
           <div className="panel-stack">
-            {isFeatureEnabled("zoneTabs") && (
+            {isFeatureEnabled("skillTabs") && (
               <section>
-                <h2>Zone</h2>
-                <p className="hint muted">{ZONES[zone].title}</p>
-                {zone === "disco" && isFeatureEnabled("discoMode") ? (
+                <h2>Skill</h2>
+                <p className="hint muted">{SKILLS[skill].title}</p>
+                {skill === "disco" && isFeatureEnabled("discoMode") ? (
                   <DiscoTrackLearnPanel
                     trackName={discoTrack}
                     hasTrack={discoPlayer.hasTrack()}
@@ -2930,10 +2975,10 @@ export default function App() {
                   />
                 ) : (
                   isFeatureEnabled("goalCatalog") && (
-                    <GoalInfoCard goal={getGoal(goalId)} zone={zone} />
+                    <GoalInfoCard goal={getGoal(goalId)} skill={skill} />
                   )
                 )}
-                {zone === "disco" &&
+                {skill === "disco" &&
                   isFeatureEnabled("discoDanceCurriculum") && (
                     <DiscoCurriculumPanel
                       tracks={discoPlaylist}
@@ -2999,7 +3044,9 @@ export default function App() {
           );
         const showTrophyRoom = sandboxTab === "discoveries";
         const showCreaturesRoom = sandboxTab === "creatures";
-        const showFullBleedRoom = showTrophyRoom || showCreaturesRoom;
+        const showTutorialRoom = sandboxTab === "tutorial";
+        const showFullBleedRoom =
+          showTrophyRoom || showCreaturesRoom || showTutorialRoom;
 
         const worldPanel = (
           <div className="panel-stack">
@@ -3009,7 +3056,7 @@ export default function App() {
                   <h2>Environment Studio</h2>
                   <p className="hint muted">
                     Place and resize on the canvas with the World dock below.
-                    Save packages here; pick the training course from the Zone /
+                    Save packages here; pick the training course from the Skill /
                     Goal / Env strip above.
                   </p>
                 </section>
@@ -3211,30 +3258,6 @@ export default function App() {
                     </button>
                   </div>
                 )}
-              {isFeatureEnabled("jsonImportExport") && (
-                <div className="button-row" style={{ marginTop: "0.35rem" }}>
-                  <button
-                    type="button"
-                    disabled={editPhysics}
-                    onClick={() =>
-                      downloadText(
-                        `${design.name.replace(/\s+/g, "_").toLowerCase()}.json`,
-                        exportCreatureJson(design),
-                      )
-                    }
-                  >
-                    Export creature
-                  </button>
-                  <button
-                    type="button"
-                    disabled={editPhysics}
-                    title="Accepts freshstart-creature or freshstart-model JSON"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Import JSON
-                  </button>
-                </div>
-              )}
             </section>
             <section>
               <h2>Tools</h2>
@@ -3249,20 +3272,33 @@ export default function App() {
                       ? (["cloth"] as EditTool[])
                       : []),
                   ] as EditTool[]
-                ).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={tool === t ? "active" : ""}
-                    disabled={editPhysics}
-                    onClick={() => {
-                      setTool(t);
-                      if (t !== "cloth") setClothDraftPins([]);
-                    }}
-                  >
-                    {t === "cloth" ? "cloth" : t}
-                  </button>
-                ))}
+                ).map((t) => {
+                  const tip =
+                    t === "joint"
+                      ? "Place massy contact points. Mark feet or wheels on a selected joint."
+                      : t === "bone"
+                        ? "Connect two joints with a bone capsule (or solid strut)."
+                        : t === "muscle"
+                          ? "Add an actuator between bones — needed before Evolve can run."
+                          : t === "select"
+                            ? "Select and drag parts. Multi-select with modifiers."
+                            : "Pin joints to draw a cosmetic cloth covering.";
+                  return (
+                    <HelpTip key={t} tip={tip}>
+                      <button
+                        type="button"
+                        className={tool === t ? "active" : ""}
+                        disabled={editPhysics}
+                        onClick={() => {
+                          setTool(t);
+                          if (t !== "cloth") setClothDraftPins([]);
+                        }}
+                      >
+                        {t === "cloth" ? "cloth" : t}
+                      </button>
+                    </HelpTip>
+                  );
+                })}
               </div>
               {isFeatureEnabled("cosmeticCloth") && tool === "cloth" && (
                 <div className="inspector">
@@ -4380,7 +4416,7 @@ export default function App() {
                   <div className="train-help-strip">
                     <strong>How to train</strong>
                     <ol>
-                      <li>Pick Zone, Goal, and Env above</li>
+                      <li>Pick Skill, Goal, and Env above</li>
                       <li>Press Evolve — many brains try the course</li>
                       <li>Play best to watch the winner</li>
                       <li>
@@ -4425,6 +4461,8 @@ export default function App() {
                   <h3 className="subhead">Priorities</h3>
                   <p className="hint muted">
                     What matters more — changes the score mix, not physics.
+                    Only sliders that affect{" "}
+                    <strong>{getGoal(goalId).title}</strong> are shown.
                   </p>
                   {(
                     [
@@ -4432,7 +4470,11 @@ export default function App() {
                       ["upright", "Stay upright"],
                       ["dontFall", "Don’t fall"],
                     ] as const
-                  ).map(([key, label]) => (
+                  )
+                    .filter(([key]) =>
+                      relevantPriorityKeys(getGoal(goalId).task).includes(key),
+                    )
+                    .map(([key, label]) => (
                     <label key={key}>
                       <span>{label}</span>
                       <input
@@ -4946,31 +4988,26 @@ export default function App() {
         const evolveButtons = (
           <>
             <div className="button-row">
-              <button
-                type="button"
-                disabled={
-                  evolveProgress.running ||
-                  h2hRunning ||
-                  !designHasActuators(
-                    design,
-                    isFeatureEnabled("motorWheels"),
-                  )
-                }
-                onClick={() => startEvolve()}
-                title={
-                  bestGenome && gaKnobs.startFrom === "best_of_run"
-                    ? "Continue evolving from the last brain (Start from → Fresh random to discard)"
-                    : bestGenome && gaKnobs.startFrom === "saved"
-                      ? "Evolve from the selected saved brain"
-                      : "Start a new random population"
-                }
-              >
-                {bestGenome &&
-                isFeatureEnabled("trainStartFrom") &&
-                gaKnobs.startFrom !== "fresh"
-                  ? "Evolve (from brain)"
-                  : "Evolve"}
-              </button>
+              <HelpTip tip="Evolve tries many brains at once. Ghost outlines are the rest of the pack.">
+                <button
+                  type="button"
+                  disabled={
+                    evolveProgress.running ||
+                    h2hRunning ||
+                    !designHasActuators(
+                      design,
+                      isFeatureEnabled("motorWheels"),
+                    )
+                  }
+                  onClick={() => startEvolve()}
+                >
+                  {bestGenome &&
+                  isFeatureEnabled("trainStartFrom") &&
+                  gaKnobs.startFrom !== "fresh"
+                    ? "Evolve (from brain)"
+                    : "Evolve"}
+                </button>
+              </HelpTip>
               <button
                 type="button"
                 disabled={!evolveProgress.running}
@@ -4978,30 +5015,34 @@ export default function App() {
               >
                 Stop
               </button>
-              <button
-                type="button"
-                disabled={!bestGenome || evolveProgress.running || h2hRunning}
-                onClick={playBest}
-              >
-                Play best
-              </button>
-              <button
-                type="button"
-                disabled={!bestGenome || evolveProgress.running || h2hRunning}
-                onClick={continueFromBest}
-                title="Keep training from this run’s best brain"
-              >
-                {isFeatureEnabled("trainDockIa") ? "Keep training" : "Continue"}
-              </button>
-              {isFeatureEnabled("savedModels") && (
+              <HelpTip tip="Watch the current best brain alone, without the ghost pack.">
                 <button
                   type="button"
                   disabled={!bestGenome || evolveProgress.running || h2hRunning}
-                  onClick={saveBestModel}
-                  title={`Download trained brain as ${trainedModelName(design.name || "Creature")}`}
+                  onClick={playBest}
                 >
-                  Save model
+                  Play best
                 </button>
+              </HelpTip>
+              <HelpTip tip="Continue evolving from this run’s elite instead of starting random.">
+                <button
+                  type="button"
+                  disabled={!bestGenome || evolveProgress.running || h2hRunning}
+                  onClick={continueFromBest}
+                >
+                  {isFeatureEnabled("trainDockIa") ? "Keep training" : "Continue"}
+                </button>
+              </HelpTip>
+              {isFeatureEnabled("savedModels") && (
+                <HelpTip tip="Store the trained brain so you can reload it later from Creature Library.">
+                  <button
+                    type="button"
+                    disabled={!bestGenome || evolveProgress.running || h2hRunning}
+                    onClick={saveBestModel}
+                  >
+                    Save model
+                  </button>
+                </HelpTip>
               )}
             </div>
             {evolveProgress.running && (
@@ -5611,19 +5652,19 @@ export default function App() {
               viewportInsetBottom={
                 isFeatureEnabled("sandboxMenuShell") ? dockInset : 0
               }
-              greenscreen={zone === "disco" && discoGreenscreen}
+              greenscreen={skill === "disco" && discoGreenscreen}
               discoBallPos={
-                zone === "disco" && isFeatureEnabled("discoMode")
+                skill === "disco" && isFeatureEnabled("discoMode")
                   ? discoBallPos
                   : undefined
               }
               onDiscoBallMoved={
-                zone === "disco" && isFeatureEnabled("discoMode")
+                skill === "disco" && isFeatureEnabled("discoMode")
                   ? setDiscoBallPos
                   : undefined
               }
               discoFxProvider={
-                zone === "disco" && isFeatureEnabled("discoMode")
+                skill === "disco" && isFeatureEnabled("discoMode")
                   ? () => ({
                       bands: discoPlayer.getBands(),
                       timeSec: discoPlayer.currentTime(),
@@ -5710,11 +5751,30 @@ export default function App() {
             }}
             onLoadDanceFreestyle={loadDanceFreestyle}
             onDownloadText={downloadText}
+            onImportJson={() => fileInputRef.current?.click()}
           />
         );
 
+        const tutorialPanel = (
+          <TutorialPanel
+            onJump={onTutorialJump}
+            canJumpH2h={isFeatureEnabled("headToHead")}
+            canJumpDiscoveries={isFeatureEnabled("discoveryUi")}
+            hoverHelpEnabled={hoverHelpEnabled}
+            onHoverHelpChange={onHoverHelpChange}
+            resumeChapterId={tutorialResume?.chapterId}
+            resumeView={tutorialResume?.view}
+          />
+        );
+
+        const showTutorialHelp =
+          !!tutorialHelpKey &&
+          !showTutorialRoom &&
+          !showCreaturesRoom &&
+          !showTrophyRoom;
+
         const sandboxTabs: SandboxTab[] = [
-          { id: "zone", label: "Zone", content: zonePanel },
+          { id: "skill", label: "Skill", content: skillPanel },
           ...(isFeatureEnabled("discoveryUi")
             ? [
                 {
@@ -5728,7 +5788,7 @@ export default function App() {
           { id: "edit", label: "Creature builder", content: editPanel },
           {
             id: "creatures",
-            label: "Creatures",
+            label: "Creature Library",
             // Full-bleed viewport owns this tab; no side panel body.
             content: null,
           },
@@ -5737,6 +5797,12 @@ export default function App() {
             ? [{ id: "h2h" as const, label: "H2H", content: h2hPanel }]
             : []),
           { id: "world", label: "Environment builder", content: worldPanel },
+          {
+            id: "tutorial",
+            label: "Tutorial",
+            // Full-bleed viewport owns this tab; no side panel body.
+            content: null,
+          },
         ];
 
         const topbar = (
@@ -5780,11 +5846,11 @@ export default function App() {
                 contextStrip={
                   showFullBleedRoom || immersive ? null : (
                     <ContextStrip
-                      zone={zone}
-                      onSelectZone={selectZone}
-                      showZoneTabs={isFeatureEnabled("zoneTabs")}
-                      showDiscoZone={isFeatureEnabled("discoMode")}
-                      goals={zoneGoals}
+                      skill={skill}
+                      onSelectSkill={selectSkill}
+                      showSkillTabs={isFeatureEnabled("skillTabs")}
+                      showDiscoSkill={isFeatureEnabled("discoMode")}
+                      goals={skillGoals}
                       goalId={goalId}
                       onSelectGoal={selectGoal}
                       showGoals={isFeatureEnabled("goalCatalog")}
@@ -5798,18 +5864,31 @@ export default function App() {
                   )
                 }
                 viewport={
-                  showCreaturesRoom
-                    ? creaturesPanel
-                    : showTrophyRoom
-                      ? trophyRoom
-                      : viewport
+                  showTutorialRoom
+                    ? tutorialPanel
+                    : showCreaturesRoom
+                      ? creaturesPanel
+                      : showTrophyRoom
+                        ? trophyRoom
+                        : (
+                          <>
+                            {viewport}
+                            {showTutorialHelp && tutorialHelpKey && (
+                              <TutorialHelpPanel
+                                helpKey={tutorialHelpKey}
+                                onReturn={returnToTutorialFromHelp}
+                                onExit={exitTutorialHelp}
+                              />
+                            )}
+                          </>
+                        )
                 }
                 dock={
                   showFullBleedRoom || editPhysics
                     ? null
                     : mode === "world"
                       ? worldDock
-                      : mode === "sim" && zone === "disco" && discoDock
+                      : mode === "sim" && skill === "disco" && discoDock
                         ? discoDock
                         : mode === "sim"
                           ? dockCollapsed
@@ -5820,7 +5899,7 @@ export default function App() {
                 dockLabel={
                   mode === "world"
                     ? "World"
-                    : zone === "disco"
+                    : skill === "disco"
                       ? "Disco"
                       : "Train"
                 }
@@ -5838,11 +5917,11 @@ export default function App() {
             <div className="main">
               {!showFullBleedRoom && (
                 <aside className="sidebar">
-                  {zonePanel}
+                  {skillPanel}
                   {worldPanel}
                   {(mode === "edit" || editPhysics) && editPanel}
-                  {!editPhysics && mode === "sim" && zone === "disco" && discoDock}
-                  {!editPhysics && mode === "sim" && zone !== "disco" && (
+                  {!editPhysics && mode === "sim" && skill === "disco" && discoDock}
+                  {!editPhysics && mode === "sim" && skill !== "disco" && (
                     <>
                       {dockFull}
                       {trainPanel}
@@ -5856,11 +5935,24 @@ export default function App() {
                   showFullBleedRoom ? "viewport viewport-fullbleed" : "viewport"
                 }
               >
-                {showCreaturesRoom
-                  ? creaturesPanel
-                  : showTrophyRoom
-                    ? trophyRoom
-                    : viewport}
+                {showTutorialRoom
+                  ? tutorialPanel
+                  : showCreaturesRoom
+                    ? creaturesPanel
+                    : showTrophyRoom
+                      ? trophyRoom
+                      : (
+                        <>
+                          {viewport}
+                          {showTutorialHelp && tutorialHelpKey && (
+                            <TutorialHelpPanel
+                              helpKey={tutorialHelpKey}
+                              onReturn={returnToTutorialFromHelp}
+                              onExit={exitTutorialHelp}
+                            />
+                          )}
+                        </>
+                      )}
               </div>
             </div>
           </>
@@ -5963,5 +6055,6 @@ export default function App() {
         />
       )}
     </div>
+    </HoverHelpProvider>
   );
 }

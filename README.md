@@ -14,7 +14,7 @@ Inspired by [Evolution by Keiwan](https://keiwando.com/evolution/).
 | **Creatures** | Browse presets and your library, inspect stats, saved brains, best scores, and trophies earned by a body. |
 | **Train** | Pick a goal and environment, then **Evolve** a brain. Watch a pack of try-outs, play the best, save models. |
 | **Environment builder** | Author flat ground, hills, obstacles, launch pads, score regions, and course markers for practice. |
-| **Zone / Goal / Env strip** | Switch skill areas (walk, jump, fly, motor, free, disco) and the training course without leaving the main view. |
+| **Skill / Goal / Env strip** | Switch skill areas (walk, jump, fly, motor, free, disco) and the training course without leaving the main view. |
 | **Disco** | Load music, route frequency bands to muscles, record / learn dances, run multi-dancer slots. |
 | **Trophy room** | Collect secret goals unlocked while experimenting. |
 | **Head-to-head** | Pit two saved brains against each other on a goal. |
@@ -38,8 +38,10 @@ Open **http://localhost:3001/**.
 
 ### First session
 
-1. Open **Creature builder** and load a preset (e.g. Triangle Walker), or draw your own.
-2. Use the strip above the canvas to pick a **Zone**, **Goal**, and **Env**.
+See the short starter guide: [`docs/TUTORIAL.md`](./docs/TUTORIAL.md).
+
+1. Open **Creature builder** and load a preset (e.g. Simple Hopper), or draw your own.
+2. Use the strip above the canvas to pick a **Skill**, **Goal**, and **Env**.
 3. Switch to **Train**, press **Evolve**, then **Play best** when a run finishes.
 4. Save a model from the Train dock; manage bodies and brains in **Creatures**.
 

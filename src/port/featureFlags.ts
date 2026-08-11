@@ -19,6 +19,9 @@ export const featureFlags = {
   cosmeticsRenderModes: false,
 
   /** B1 — zone tabs */
+  /** Skill strip tabs (Walk / Jump / Fly / …). */
+  skillTabs: true,
+  /** @deprecated Use skillTabs */
   zoneTabs: true,
   /** B3 — sandbox menu shell (left tabs + sim bottom dock) */
   sandboxMenuShell: true,

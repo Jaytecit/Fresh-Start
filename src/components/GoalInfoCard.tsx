@@ -1,17 +1,17 @@
 import { scoringLegendForTask } from '../brain/taskScore';
 import type { GoalDef } from '../goals/catalog';
 import { SECRET_GOALS } from '../secrets/definitions';
-import type { ZoneId } from '../zones/zones';
-import { ZONES } from '../zones/zones';
+import type { SkillId } from '../skills/skills';
+import { SKILLS } from '../skills/skills';
 
 interface Props {
   goal: GoalDef;
-  zone: ZoneId;
+  skill: SkillId;
 }
 
 /** B4 — goal info card with scoring legend. */
-export function GoalInfoCard({ goal, zone }: Props) {
-  const accent = ZONES[zone].accent;
+export function GoalInfoCard({ goal, skill }: Props) {
+  const accent = SKILLS[skill].accent;
   const blockedSecrets = SECRET_GOALS.filter((s) =>
     s.blockedTasks.includes(goal.task),
   );

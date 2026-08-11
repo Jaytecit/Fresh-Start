@@ -12,6 +12,7 @@ import {
 import { isFeatureEnabled } from '../port/featureFlags';
 import { morphologyTraits } from '../secrets/eligibility';
 import { CollapsiblePanel } from './CollapsiblePanel';
+import { HelpTip } from './HelpTip';
 
 interface Props {
   design: CreatureDesign;
@@ -70,8 +71,14 @@ export function CapabilityPanel({ design, defaultOpen = false }: Props) {
         <li>Heads: {traits.headCount}</li>
         <li>Wheels: {traits.wheelCount}</li>
         <li>
-          Aero: {traits.hasAero ? 'yes' : 'no'}
-          {traits.hasAero ? ` · area ${traits.totalAeroArea.toFixed(2)}` : ''}
+          <HelpTip tip="Aero parts on bones: wing (flap lift), glider (sail), or parachute (drag). Specialist Fly goals match each type.">
+            <span>
+              Aero: {traits.hasAero ? 'yes' : 'no'}
+              {traits.hasAero
+                ? ` · area ${traits.totalAeroArea.toFixed(2)}`
+                : ''}
+            </span>
+          </HelpTip>
         </li>
         {(wings > 0 || gliders > 0 || chutes > 0) && (
           <li>

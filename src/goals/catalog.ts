@@ -1,10 +1,10 @@
 /**
- * E1 — Goal catalog framework (thin wrappers over TaskId + zone membership).
- * E2 — Zone routing without eligibility gates.
+ * E1 — Goal catalog framework (thin wrappers over TaskId + skill membership).
+ * E2 — Skill routing without eligibility gates.
  * E6 — Expanded skill goals (Rapier-native scoring in taskScore.ts).
  */
 import type { TaskId } from '../brain/types';
-import type { ZoneId } from '../zones/zones';
+import type { SkillId } from '../skills/skills';
 
 export type GoalId = TaskId;
 
@@ -13,8 +13,8 @@ export interface GoalDef {
   task: TaskId;
   title: string;
   blurb: string;
-  /** Zones that list this goal. `free` always includes every goal. */
-  zones: ZoneId[];
+  /** Skills that list this goal. `free` always includes every evolve goal. */
+  skills: SkillId[];
 }
 
 export const GOAL_CATALOG: GoalDef[] = [
@@ -23,77 +23,138 @@ export const GOAL_CATALOG: GoalDef[] = [
     task: 'run',
     title: 'Run',
     blurb: 'Forward locomotion with foot-lift quality.',
-    zones: ['walking', 'free'],
+    skills: ['walking', 'free'],
   },
   {
     id: 'speed',
     task: 'speed',
     title: 'Max Speed',
     blurb: 'Peak burst plus travel on flat ground.',
-    zones: ['walking', 'free'],
+    skills: ['walking', 'free'],
   },
   {
     id: 'sprint',
     task: 'sprint',
     title: 'Sprint Finish',
-    blurb: 'Race checkpoints to the finish — faster finish scores more. Place start/finish markers in World.',
-    zones: ['walking', 'free'],
+    blurb:
+      'Race checkpoints to the finish — faster finish scores more. Place start/finish markers in World.',
+    skills: ['walking', 'free'],
   },
   {
     id: 'stay',
     task: 'stay',
     title: 'Stay Tall',
     blurb: 'Sustain a tall, supported posture.',
-    zones: ['walking', 'free'],
+    skills: ['walking', 'free'],
   },
   {
     id: 'rough',
     task: 'rough',
     title: 'Rough terrain',
     blurb: 'Forward locomotion over hills with foot-lift quality.',
-    zones: ['walking', 'free'],
+    skills: ['walking', 'free'],
   },
   {
     id: 'jump',
     task: 'jump',
     title: 'Jump Height',
     blurb: 'Peak height and hang time.',
-    zones: ['jumping', 'free'],
+    skills: ['jumping', 'free'],
   },
   {
     id: 'hang',
     task: 'hang',
     title: 'Hang Time',
     blurb: 'Maximize airborne time in one jump.',
-    zones: ['jumping', 'free'],
+    skills: ['jumping', 'free'],
   },
   {
     id: 'longjump',
     task: 'longjump',
     title: 'Long Jump',
     blurb: 'Jump as far right as you can.',
-    zones: ['jumping', 'free'],
+    skills: ['jumping', 'free'],
+  },
+  {
+    id: 'clear_bar',
+    task: 'clear_bar',
+    title: 'Clear the Bar',
+    blurb: 'Reach a target peak height — clear the bar for a bonus.',
+    skills: ['jumping', 'free'],
+  },
+  {
+    id: 'hop',
+    task: 'hop',
+    title: 'Hop Series',
+    blurb: 'Many short bounces beat one mega-jump. Foot-lifts and air time score.',
+    skills: ['jumping', 'free'],
   },
   {
     id: 'climb',
     task: 'climb',
     title: 'Climb',
     blurb: 'Ascend the step course.',
-    zones: ['free'],
+    skills: ['free'],
   },
   {
     id: 'motor',
     task: 'motor',
     title: 'Motor',
     blurb: 'Wheeled forward drive.',
-    zones: ['motor', 'free'],
+    skills: ['motor', 'free'],
+  },
+  {
+    id: 'motor_ramp',
+    task: 'motor_ramp',
+    title: 'Ramp Jump',
+    blurb: 'Drive a wheeled body up a ramp and score air + forward progress.',
+    skills: ['motor', 'free'],
+  },
+  {
+    id: 'motor_gap',
+    task: 'motor_gap',
+    title: 'Gap Cross',
+    blurb: 'Clear a pit gap on wheels — distance past the gap scores most.',
+    skills: ['motor', 'free'],
+  },
+  {
+    id: 'motor_hurdles',
+    task: 'motor_hurdles',
+    title: 'Hurdles',
+    blurb: 'Roll through a sequence of low obstacles; forward progress wins.',
+    skills: ['motor', 'free'],
+  },
+  {
+    id: 'motor_sprint',
+    task: 'motor_sprint',
+    title: 'Motor Sprint',
+    blurb:
+      'Wheeled race — checkpoints and finish time when markers are placed in World.',
+    skills: ['motor', 'free'],
   },
   {
     id: 'flight',
     task: 'flight',
     title: 'Flight',
-    blurb: 'Sustain altitude with aero parts — mean height beats one-flap coasts.',
-    zones: ['flying', 'free'],
+    blurb:
+      'Sustain altitude with aero parts — mean height beats one-flap coasts.',
+    skills: ['flying', 'free'],
+  },
+  {
+    id: 'flight_height',
+    task: 'flight_height',
+    title: 'Flight Height',
+    blurb:
+      'Chase peak and mean altitude (any aero type — or none). Complements wing/glider/chute specialists.',
+    skills: ['flying', 'free'],
+  },
+  {
+    id: 'flight_distance',
+    task: 'flight_distance',
+    title: 'Flight Distance',
+    blurb:
+      'Cover airborne range (any aero type — or none). Complements wing/glider/chute specialists.',
+    skills: ['flying', 'free'],
   },
   {
     id: 'flight_wing',
@@ -101,7 +162,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     title: 'Wing Flight',
     blurb:
       'Climb and sustain with wings. Place a launch pad + landing zone in World for the pad→fly→land loop.',
-    zones: ['flying', 'free'],
+    skills: ['flying', 'free'],
   },
   {
     id: 'flight_glider',
@@ -109,7 +170,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     title: 'Glider Range',
     blurb:
       'Cover distance while airborne with a glider. Launch pad + landing zone recommended.',
-    zones: ['flying', 'free'],
+    skills: ['flying', 'free'],
   },
   {
     id: 'flight_para',
@@ -117,7 +178,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     title: 'Parachute Drop',
     blurb:
       'Soft descent under a parachute and stick the landing zone. Launch pad + landing zone recommended.',
-    zones: ['flying', 'free'],
+    skills: ['flying', 'free'],
   },
   {
     id: 'dance',
@@ -125,7 +186,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     title: 'Dance',
     blurb:
       'Multi-track curriculum: imitate reactive disco, then refine freestyle for upright + beat sync (solo, Disco only).',
-    zones: ['disco'],
+    skills: ['disco'],
   },
 ];
 
@@ -135,21 +196,26 @@ export function getGoal(id: GoalId): GoalDef {
   return g;
 }
 
-/** Goals visible in a zone (`free` shows evolve goals; `disco` is audio-only). */
-export function goalsForZone(zone: ZoneId): GoalDef[] {
+/** Goals visible for a skill (`free` shows evolve goals; `disco` is audio-only). */
+export function goalsForSkill(skill: SkillId): GoalDef[] {
   // H6 dance is imitation-trained in Disco, not GA-evolved.
-  if (zone === 'free') {
+  if (skill === 'free') {
     return GOAL_CATALOG.filter((g) => g.id !== 'dance');
   }
-  if (zone === 'disco') return [];
-  return GOAL_CATALOG.filter((g) => g.zones.includes(zone));
+  if (skill === 'disco') return [];
+  return GOAL_CATALOG.filter((g) => g.skills.includes(skill));
 }
 
-/** Default goal when entering a zone. */
-export function defaultGoalForZone(zone: ZoneId): GoalDef {
-  const list = goalsForZone(zone);
+/** Default goal when entering a skill. */
+export function defaultGoalForSkill(skill: SkillId): GoalDef {
+  const list = goalsForSkill(skill);
   return list[0] ?? GOAL_CATALOG[0];
 }
+
+/** @deprecated Use goalsForSkill */
+export const goalsForZone = goalsForSkill;
+/** @deprecated Use defaultGoalForSkill */
+export const defaultGoalForZone = defaultGoalForSkill;
 
 const GOAL_STORAGE_KEY = 'freshstart_active_goal_v1';
 
