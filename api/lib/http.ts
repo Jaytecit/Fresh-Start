@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   SHARE_RATE_LIMIT_MAX_POSTS,
   SHARE_RATE_LIMIT_WINDOW_MS,
-} from '../../src/library/shareLimits';
+} from './shareLimits';
 
 const postHits = new Map<string, number[]>();
 
@@ -21,7 +21,6 @@ export function clientIp(req: VercelRequest): string {
   return req.socket?.remoteAddress || 'unknown';
 }
 
-/** Best-effort per-IP POST throttle (per serverless isolate). */
 export function allowSharePost(ip: string): boolean {
   const now = Date.now();
   const prev = postHits.get(ip) ?? [];

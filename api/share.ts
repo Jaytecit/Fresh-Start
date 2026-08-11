@@ -1,7 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createShareId } from '../src/library/shareIds';
-import { SHARE_MAX_JSON_BYTES } from '../src/library/shareLimits';
-import { validateSharePayload } from '../src/library/shareValidate';
 import {
   allowSharePost,
   clientIp,
@@ -9,7 +6,10 @@ import {
   requestOrigin,
   setCors,
 } from './lib/http';
+import { createShareId } from './lib/shareIds';
+import { SHARE_MAX_JSON_BYTES } from './lib/shareLimits';
 import { storeShareJson } from './lib/store';
+import { validateShareBody } from './lib/validateShare';
 
 export default async function handler(
   req: VercelRequest,
@@ -44,7 +44,7 @@ export default async function handler(
     return;
   }
 
-  const validated = validateSharePayload(raw);
+  const validated = validateShareBody(raw);
   if (!validated.ok) {
     res.status(400).json({ error: 'The creature could not be shared.' });
     return;

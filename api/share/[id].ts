@@ -1,11 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { isValidShareId } from '../../src/library/shareIds';
-import {
-  userFacingShareLoadError,
-  validateSharePayload,
-} from '../../src/library/shareValidate';
 import { setCors } from '../lib/http';
+import { isValidShareId } from '../lib/shareIds';
 import { loadShareJson } from '../lib/store';
+import { validateShareBody } from '../lib/validateShare';
 
 export default async function handler(
   req: VercelRequest,
@@ -23,7 +20,9 @@ export default async function handler(
 
   const id = String(req.query.id ?? '');
   if (!isValidShareId(id)) {
-    res.status(404).json({ error: userFacingShareLoadError('not_found') });
+    res.status(404).json({
+      error: 'This shared creature could not be found.',
+    });
     return;
   }
 
@@ -32,19 +31,28 @@ export default async function handler(
     raw = await loadShareJson(id);
   } catch (err) {
     console.error('[share] load failed', err);
-    res.status(500).json({ error: userFacingShareLoadError('network') });
+    res.status(500).json({
+      error: 'The creature could not be loaded. Check your connection and try again.',
+    });
     return;
   }
 
   if (!raw) {
-    res.status(404).json({ error: userFacingShareLoadError('not_found') });
+    res.status(404).json({
+      error: 'This shared creature could not be found.',
+    });
     return;
   }
 
-  const validated = validateSharePayload(raw);
+  const validated = validateShareBody(raw);
   if (!validated.ok) {
     const status = validated.code === 'unsupported_version' ? 422 : 400;
-    res.status(status).json({ error: userFacingShareLoadError(validated.code) });
+    res.status(status).json({
+      error:
+        validated.code === 'unsupported_version'
+          ? 'This creature was created with an incompatible version of Solemn Sandbox.'
+          : 'This shared file is not a valid Solemn Sandbox creature.',
+    });
     return;
   }
 

@@ -1,14 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { isValidShareId } from '../../src/library/shareIds';
-import type { ModelExport } from '../../src/library/jsonIO';
+import { requestOrigin } from '../lib/http';
+import { isValidShareId } from '../lib/shareIds';
 import {
   renderSharePageHtml,
-  sharePageStateFromModel,
   type SharePageState,
-} from '../../src/library/sharePageHtml';
-import { validateSharePayload } from '../../src/library/shareValidate';
-import { requestOrigin } from '../lib/http';
+} from '../lib/sharePageHtml';
 import { loadShareJson } from '../lib/store';
+import { validateShareBody } from '../lib/validateShare';
 
 export default async function handler(
   req: VercelRequest,
@@ -36,19 +34,27 @@ export default async function handler(
     if (!raw) {
       state = { kind: 'not_found' };
     } else {
-      const validated = validateSharePayload(raw);
+      const validated = validateShareBody(raw);
       if (!validated.ok) {
         state =
           validated.code === 'unsupported_version'
             ? { kind: 'unsupported_version' }
             : { kind: 'invalid' };
       } else {
-        state = sharePageStateFromModel(id, validated.model as ModelExport);
+        state = {
+          kind: 'ok',
+          summary: validated.summary,
+          preview: validated.preview,
+        };
       }
     }
   }
 
-  const html = renderSharePageHtml({ origin, id: isValidShareId(id) ? id : 'invalid', state });
+  const html = renderSharePageHtml({
+    origin,
+    id: isValidShareId(id) ? id : 'invalid',
+    state,
+  });
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.status(state.kind === 'ok' ? 200 : 404).send(html);
