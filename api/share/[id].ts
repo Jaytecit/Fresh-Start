@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { setCors } from '../lib/http';
-import { isValidShareId } from '../lib/shareIds';
-import { loadShareJson } from '../lib/store';
-import { validateShareBody } from '../lib/validateShare';
+import { setCors } from '../_lib/http.js';
+import { isValidShareId } from '../_lib/shareIds.js';
+import { loadShareJson } from '../_lib/store.js';
+import { validateShareBody } from '../_lib/validateShare.js';
 
 export default async function handler(
   req: VercelRequest,
@@ -32,7 +32,8 @@ export default async function handler(
   } catch (err) {
     console.error('[share] load failed', err);
     res.status(500).json({
-      error: 'The creature could not be loaded. Check your connection and try again.',
+      error:
+        'The creature could not be loaded. Check your connection and try again.',
     });
     return;
   }

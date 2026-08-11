@@ -1,4 +1,4 @@
-import { SHARE_ID_PATTERN } from './shareLimits';
+import { SHARE_ID_PATTERN } from './shareLimits.js';
 
 const ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

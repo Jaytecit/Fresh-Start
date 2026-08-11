@@ -14,7 +14,7 @@ import {
   SHARE_MAX_WEIGHT_COUNT,
   SHARE_MAX_WEIGHTS_B64_LENGTH,
   SHARE_SUPPORTED_MODEL_VERSION,
-} from './shareLimits';
+} from './shareLimits.js';
 
 export type ServerShareOk = {
   ok: true;

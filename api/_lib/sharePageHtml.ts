@@ -1,4 +1,4 @@
-import type { ServerShareOk } from './validateShare';
+import type { ServerShareOk } from './validateShare.js';
 
 export function escapeHtml(value: string): string {
   return value

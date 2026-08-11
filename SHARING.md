@@ -40,7 +40,7 @@ Defined in [`src/library/shareLimits.ts`](src/library/shareLimits.ts):
 - Name length ≤ 80
 - Best-effort POST rate limit: 10 / minute / IP (per serverless isolate)
 
-Untrusted input is validated on the server by self-contained [`api/lib/validateShare.ts`](api/lib/validateShare.ts) (Vercel cannot import the Vite `src/` tree into serverless functions). Opening a share in the app still runs the full client path through [`validateSharePayload`](src/library/shareValidate.ts) → [`importModelJson`](src/library/jsonIO.ts). No `eval`, no HTML from names (escaped on the share page).
+Untrusted input is validated on the server by self-contained [`api/_lib/validateShare.ts`](api/_lib/validateShare.ts) (helpers live under `api/_lib` so Vercel does not treat them as separate functions; ESM imports use `.js` extensions). Opening a share in the app still runs the full client path through [`validateSharePayload`](src/library/shareValidate.ts) → [`importModelJson`](src/library/jsonIO.ts). No `eval`, no HTML from names (escaped on the share page).
 
 ## Open in Solemn Sandbox
 

@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   SHARE_RATE_LIMIT_MAX_POSTS,
   SHARE_RATE_LIMIT_WINDOW_MS,
-} from './shareLimits';
+} from './shareLimits.js';
 
 const postHits = new Map<string, number[]>();
 

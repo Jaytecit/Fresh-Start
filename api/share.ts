@@ -5,11 +5,11 @@ import {
   readRawBody,
   requestOrigin,
   setCors,
-} from './lib/http';
-import { createShareId } from './lib/shareIds';
-import { SHARE_MAX_JSON_BYTES } from './lib/shareLimits';
-import { storeShareJson } from './lib/store';
-import { validateShareBody } from './lib/validateShare';
+} from './_lib/http.js';
+import { createShareId } from './_lib/shareIds.js';
+import { SHARE_MAX_JSON_BYTES } from './_lib/shareLimits.js';
+import { storeShareJson } from './_lib/store.js';
+import { validateShareBody } from './_lib/validateShare.js';
 
 export default async function handler(
   req: VercelRequest,

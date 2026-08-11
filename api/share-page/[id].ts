@@ -1,12 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requestOrigin } from '../lib/http';
-import { isValidShareId } from '../lib/shareIds';
+import { requestOrigin } from '../_lib/http.js';
+import { isValidShareId } from '../_lib/shareIds.js';
 import {
   renderSharePageHtml,
   type SharePageState,
-} from '../lib/sharePageHtml';
-import { loadShareJson } from '../lib/store';
-import { validateShareBody } from '../lib/validateShare';
+} from '../_lib/sharePageHtml.js';
+import { loadShareJson } from '../_lib/store.js';
+import { validateShareBody } from '../_lib/validateShare.js';
 
 export default async function handler(
   req: VercelRequest,

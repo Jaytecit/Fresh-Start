@@ -1,7 +1,7 @@
 import { head, put } from '@vercel/blob';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isValidShareId } from './shareIds';
+import { isValidShareId } from './shareIds.js';
 
 function localShareDir(): string {
   return join(process.cwd(), '.data', 'shares');
