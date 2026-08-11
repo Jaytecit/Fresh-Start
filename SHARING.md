@@ -55,11 +55,13 @@ Download JSON from the share page is the stored canonical model and remains impo
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `BLOB_READ_WRITE_TOKEN` | Production | Vercel Blob read/write token |
+| `BLOB_STORE_ID` | Production (usual) | Set automatically when a Blob store is connected; used with Vercel OIDC |
+| `BLOB_READ_WRITE_TOKEN` | Optional fallback | Static token if OIDC/`BLOB_STORE_ID` is not used |
+| `VERCEL_OIDC_TOKEN` | Auto on Vercel | Injected by the platform; do not set manually |
 
 See [`.env.example`](.env.example). Never commit secrets.
 
-Local Vite sharing does **not** need this token (uses `.data/shares/`). On Vercel, sharing **requires** this token — without it, create/load fails instead of writing to ephemeral disk.
+Local Vite sharing does **not** need Blob env vars (uses `.data/shares/`). On Vercel, sharing requires a connected Blob store (`BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`).
 
 ## Production deployment
 
