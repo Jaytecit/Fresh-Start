@@ -110,6 +110,7 @@ import {
   type BoxingHitTracker,
   type BoxingProbeSet,
 } from '../boxing/hitProbes';
+import { enableBoxingOpponentContact } from '../boxing/opponentContact';
 import {
   createBoxingBehaviorMetrics,
   updateBoxingBehaviorMetrics,
@@ -1741,6 +1742,7 @@ export class Simulation {
         x: i === 0 ? -BOXING_SPAWN_X : BOXING_SPAWN_X,
         y: spawn.y,
       });
+      enableBoxingOpponentContact(creature, i as BoxingOwner);
       this.cohort.push({
         creature,
         genomeIndex: i,

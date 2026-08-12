@@ -50,8 +50,9 @@ general creature-to-creature solving or self-collision.
 ## Explicit non-goals
 
 - Do **not** import parent soft-body solver, arena code, combat tuning, or feel notes.
-- Do **not** enable full creature-to-creature collision or alter existing joint/bone
-  collision filters.
+- Do **not** enable full creature-to-creature collision outside Boxing matches, or
+  alter default joint/bone filters on ordinary spawn. Match-only opponent solids
+  are covered by `20260812-boxing-opponent-contact.md` (K8).
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
 - Do **not** call the v1 power proxy a contact impulse.

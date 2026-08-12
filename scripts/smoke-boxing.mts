@@ -13,6 +13,12 @@ import {
   detectBoxingHits,
 } from '../src/boxing/hitProbes.ts';
 import {
+  BOXING_A_SOLID,
+  BOXING_B_SOLID,
+  boxingSolidGroups,
+  enableBoxingOpponentContact,
+} from '../src/boxing/opponentContact.ts';
+import {
   GROUNDED_FIGHTER,
   OPEN_FRAME_FIGHTER,
   UPRIGHT_FIGHTER,
@@ -33,7 +39,7 @@ import {
 } from '../src/brain/boxingObs.ts';
 import { BOXOBOT } from '../src/creature/boxoBot.ts';
 import { cloneDesign } from '../src/creature/types.ts';
-import { FIXED_DT } from '../src/physics/constants.ts';
+import { FIXED_DT, JOINT_RADIUS } from '../src/physics/constants.ts';
 import { encodeGroups, spawnCreature } from '../src/physics/spawn.ts';
 import { createWorld, initRapier } from '../src/physics/world.ts';
 import { featureFlags } from '../src/port/featureFlags.ts';
@@ -117,8 +123,21 @@ async function scriptedHit(): Promise<{
     const b = spawnCreature(world, UPRIGHT_FIGHTER, { x: 1, y: 0 });
     const normalGroups = a.joints[0].body.collider(0).collisionGroups();
     assert.equal(normalGroups, encodeGroups(0b0001, 0b0100), 'joint groups unchanged');
+    enableBoxingOpponentContact(a, 0);
+    enableBoxingOpponentContact(b, 1);
+    assert.equal(
+      a.joints[0].body.collider(0).collisionGroups(),
+      boxingSolidGroups(0, 'joint'),
+      'fighter A solid joint groups',
+    );
+    assert.equal(
+      b.bones[0].body.collider(0).collisionGroups(),
+      boxingSolidGroups(1, 'bone'),
+      'fighter B solid bone groups',
+    );
     const probesA = createBoxingProbes(world, a, 0);
     const probesB = createBoxingProbes(world, b, 1);
+    ok(probesA.gloves[0].collider.isSensor(), 'glove probe remains sensor');
     const glove = a.joints.find((joint) => joint.isGlove)!;
     const target = b.joints.find((joint) => joint.isHitTarget)!;
     const targetPosition = target.body.translation();
@@ -141,6 +160,56 @@ async function scriptedHit(): Promise<{
       power: first[0].power,
       accuracy: first[0].accuracy,
     };
+  } finally {
+    world.free();
+  }
+}
+
+function assertOpponentSolidSeparation(): void {
+  const world = createWorld();
+  try {
+    const a = spawnCreature(world, UPRIGHT_FIGHTER, { x: 0, y: 0 });
+    const b = spawnCreature(world, UPRIGHT_FIGHTER, { x: 0, y: 0 });
+    enableBoxingOpponentContact(a, 0);
+    enableBoxingOpponentContact(b, 1);
+
+    const aJoint = a.joints.find((joint) => joint.isHitTarget)!;
+    const bJoint = b.joints.find((joint) => joint.isHitTarget)!;
+    aJoint.body.setTranslation({ x: 0, y: 3 }, true);
+    bJoint.body.setTranslation({ x: 0, y: 3 }, true);
+    aJoint.body.setLinvel({ x: 0, y: 0 }, true);
+    bJoint.body.setLinvel({ x: 0, y: 0 }, true);
+
+    const aGroups = aJoint.body.collider(0).collisionGroups();
+    const bGroups = bJoint.body.collider(0).collisionGroups();
+    ok((aGroups & 0xffff & BOXING_A_SOLID) !== 0, 'A membership includes A_SOLID');
+    ok((bGroups & 0xffff & BOXING_B_SOLID) !== 0, 'B membership includes B_SOLID');
+    ok(
+      ((aGroups >>> 16) & BOXING_A_SOLID) === 0,
+      'A filter excludes own solid bit',
+    );
+    ok(
+      ((bGroups >>> 16) & BOXING_B_SOLID) === 0,
+      'B filter excludes own solid bit',
+    );
+
+    world.timestep = FIXED_DT;
+    for (let i = 0; i < 20; i++) world.step();
+    const pa = aJoint.body.translation();
+    const pb = bJoint.body.translation();
+    const separation = Math.hypot(pa.x - pb.x, pa.y - pb.y);
+    ok(
+      separation >= JOINT_RADIUS * 1.5,
+      `opponent solids separate nested heads (got ${separation.toFixed(3)})`,
+    );
+
+    const ghost = spawnCreature(world, UPRIGHT_FIGHTER, { x: 8, y: 0 });
+    const ghostGroups = ghost.joints[0].body.collider(0).collisionGroups();
+    assert.equal(
+      ghostGroups,
+      encodeGroups(0b0001, 0b0100),
+      'non-boxing spawn stays ghost-through',
+    );
   } finally {
     world.free();
   }
@@ -443,6 +512,7 @@ async function main(): Promise<void> {
   assertOwnerAndThresholdFilters();
   assertRewardShaping();
   assertCornerSymmetry();
+  assertOpponentSolidSeparation();
   assertBoxingModelCompatibility();
   await assertPinnedControllerRate();
   const first = await scriptedHit();

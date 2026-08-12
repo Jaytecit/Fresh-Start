@@ -194,6 +194,7 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 - [x] **K5 Timed points matches** — score, power, accuracy, clock, result
 - [x] **K6 Boxing brain training** — dedicated observations, fixed sparring curriculum, telemetry
 - [x] **K7 Boxing verification** — deterministic smoke coverage and full firewall gate
+- [x] **K8 Boxing opponent solid contact** — match-only A↔B joint/bone solving; self-collision still off
 
 
 
