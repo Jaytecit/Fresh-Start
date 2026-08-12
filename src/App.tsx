@@ -16,17 +16,12 @@ import {
   BRAIN_HZ_FAST,
   type BrainHz,
 } from "./brain/constants";
-import { breedNextGeneration, mutate } from "./brain/ga";
-import { cloneWeights, createRng, randomWeights } from "./brain/network";
 import {
   boxingEligibility,
   getBoxingDivision,
   type BoxingDivisionId,
 } from "./boxing/divisions";
-import {
-  boxingTrainingFitness,
-  sparringDesignForDivision,
-} from "./brain/boxingTraining";
+import { sparringDesignForDivision } from "./brain/boxingTraining";
 import {
   BOXING_PRIORITY_KEYS,
   BOXING_PRIORITY_LABELS,
@@ -190,6 +185,7 @@ import {
 } from "./components/TutorialPanel";
 import { TrophyCabinet } from "./components/TrophyCabinet";
 import { WorldDock } from "./components/WorldDock";
+import { CreatureDock } from "./components/CreatureDock";
 import { HoverHelpProvider } from "./help/HoverHelpContext";
 import {
   loadHoverHelpEnabled,
@@ -226,7 +222,7 @@ import {
 } from "./editor/editOps";
 import { isFeatureEnabled } from "./port/featureFlags";
 import { discoFloorEnv } from "./env/discoEnv";
-import { boxingRingEnv } from "./env/boxingRingEnv";
+import { boxingRingEnv, isBoxingRingEnv } from "./env/boxingRingEnv";
 import {
   DEFAULT_DISCO_BALL_X,
   DEFAULT_DISCO_BALL_Y,
@@ -310,6 +306,7 @@ import {
 } from "./library/experimentPacks";
 import {
   downloadText,
+  exportCreatureJson,
   exportEnvironmentJson,
   exportModelJson,
   importCreatureJson,
@@ -637,34 +634,10 @@ export default function App() {
   );
   const [boxingDivisionId, setBoxingDivisionId] =
     useState<BoxingDivisionId>("upright");
-  const boxingEvolveRef = useRef<{
-    cancelled: boolean;
-    stopAfterCurrent: boolean;
+  /** Metadata for the in-sim Boxing live evolve session (elite save on finish). */
+  const boxingLiveMetaRef = useRef<{
     design: CreatureDesign;
     divisionId: BoxingDivisionId;
-    shape: NetworkShape;
-    population: Genome[];
-    popSize: number;
-    maxGenerations: number;
-    episodeSeconds: number;
-    generation: number;
-    genomeIndex: number;
-    bestOverall: Genome;
-    scoredSum: number;
-    scoredCount: number;
-    opponentDesign: CreatureDesign;
-    opponentShape: NetworkShape;
-    opponentWeights: Float32Array;
-    rng: () => number;
-    breed: {
-      eliteCount: number;
-      tournamentSize: number;
-      mutationSigma: number;
-      mutationResetRate: number;
-      crossover: boolean;
-    };
-    priorities: BoxingPriorities;
-    finishing: boolean;
   } | null>(null);
   const [bestEverList, setBestEverList] = useState<BestEverEntry[]>([]);
   const [envDesign, setEnvDesign] = useState<EnvironmentDesign>(() =>
@@ -749,6 +722,8 @@ export default function App() {
   discoRoutingRef.current = discoRouting;
   envDesignRef.current = envDesign;
   const activeTask = getGoal(goalId).task;
+  const activeTaskRef = useRef(activeTask);
+  activeTaskRef.current = activeTask;
   const skillGoals = goalsForSkill(skill);
   const refreshPackages = useCallback(() => {
     if (isFeatureEnabled("creaturePackages")) {
@@ -1317,6 +1292,9 @@ export default function App() {
     if (!preSpecialEnvRef.current) {
       preSpecialEnvRef.current = cloneEnvironment(envDesignRef.current);
     }
+    // Avoid a fresh object each spar — envDesign identity churn rebuilds
+    // geometry via the setEnvironment effect and thrashing the train UI.
+    if (isBoxingRingEnv(envDesignRef.current)) return;
     const ring = boxingRingEnv();
     envDesignRef.current = ring;
     setEnvDesign(ring);
@@ -2069,6 +2047,7 @@ export default function App() {
         promoted ?? bestGenomeRef.current,
         applied,
         {
+          task: activeTaskRef.current,
           raycast:
             isFeatureEnabled("raycastObservations") && raycastObservationsOn,
         },
@@ -2144,6 +2123,7 @@ export default function App() {
       promoted ?? bestGenomeRef.current,
       prev,
       {
+        task: activeTaskRef.current,
         raycast:
           isFeatureEnabled("raycastObservations") && raycastObservationsOn,
       },
@@ -2414,6 +2394,7 @@ export default function App() {
       setManualDrives(simulation.manualDrives.slice());
       setMode("sim");
       const adapted = adaptEliteToDesign(elite, next, {
+        task: activeTaskRef.current,
         raycast:
           isFeatureEnabled("raycastObservations") && raycastObservationsOn,
       });
@@ -2667,6 +2648,7 @@ export default function App() {
       return;
     }
     const adapted = adaptEliteToDesign(bestGenome, design, {
+      task: activeTask,
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     });
@@ -2679,6 +2661,15 @@ export default function App() {
     }
     if (adapted !== bestGenome) setBestGenome(adapted);
     const name = trainedModelName(design.name);
+    const boxingMeta =
+      activeTask === "boxing"
+        ? ({
+            divisionId: boxingDivisionId,
+            ruleVersion: 1,
+            obsPackVersion: 2,
+            brainHz: 30,
+          } as const)
+        : undefined;
     const json = exportModelJson({
       name,
       task: activeTask,
@@ -2686,6 +2677,7 @@ export default function App() {
       weights: adapted.genome.weights,
       fitness: adapted.genome.fitness,
       design,
+      ...(boxingMeta ? { boxingMeta } : {}),
     });
     shareBusyRef.current = true;
     setShareBusy(true);
@@ -2800,6 +2792,7 @@ export default function App() {
     if (seedFrom) return seedFrom;
     if (!isFeatureEnabled("trainStartFrom")) return undefined;
     const shapeOpts = {
+      task: activeTask,
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     };
@@ -2820,7 +2813,10 @@ export default function App() {
     if (gaKnobs.startFrom === "saved" && gaKnobs.savedModelId) {
       const model = savedModels.find((m) => m.id === gaKnobs.savedModelId);
       if (!model || model.task === "dance") return undefined;
-      const expected = shapeForDesign(design, shapeOpts);
+      const expected =
+        activeTask === "boxing"
+          ? shapeForBoxingDesign(design)
+          : shapeForDesign(design, shapeOpts);
       if (!shapesCompatible(model.shape, expected) || model.task !== activeTask) {
         setError(
           "Saved brain shape/task mismatch — pick a matching creature and goal first.",
@@ -2831,193 +2827,6 @@ export default function App() {
     }
     return undefined;
   };
-
-  const finishBoxingLiveEvolve = useCallback(
-    (status: string) => {
-      const session = boxingEvolveRef.current;
-      boxingEvolveRef.current = null;
-      simulation.abortBoxingMatch();
-      setBoxingRunning(false);
-      setBoxingProgress(null);
-      setDriveMode("idle");
-      simulation.driveMode = "idle";
-      simulation.timeScale = observeSpeed;
-      if (!session || session.finishing) {
-        setEvolveProgress((prev) => ({
-          ...prev,
-          running: false,
-          status,
-        }));
-        return;
-      }
-      session.finishing = true;
-      const genome = session.bestOverall;
-      if (Number.isFinite(genome.fitness) && genome.fitness > -Infinity) {
-        setBestGenome({ shape: session.shape, genome });
-        preferBestOfRun();
-        saveModel({
-          name: trainedModelName(
-            `${session.design.name} ${session.divisionId}`,
-          ),
-          task: "boxing",
-          shape: session.shape,
-          genome,
-          design: session.design,
-          boxingMeta: {
-            divisionId: session.divisionId,
-            ruleVersion: 1,
-            obsPackVersion: 2,
-            brainHz: 30,
-          },
-        });
-        refreshModels();
-        if (isFeatureEnabled("bestEverLedger")) {
-          considerBestEver("boxing", genome.fitness, session.design);
-          setBestEverList(loadBestEver());
-        }
-      }
-      setEvolveProgress((prev) => ({
-        ...prev,
-        running: false,
-        status,
-        bestFitness:
-          genome.fitness === -Infinity ? 0 : genome.fitness,
-        meanFitness:
-          session.scoredCount > 0
-            ? session.scoredSum / session.scoredCount
-            : 0,
-      }));
-    },
-    [observeSpeed, preferBestOfRun, refreshModels, simulation],
-  );
-
-  const runBoxingLiveTry = useCallback(() => {
-    const session = boxingEvolveRef.current;
-    if (!session || session.cancelled) {
-      finishBoxingLiveEvolve(session?.cancelled ? "Stopped" : "Idle");
-      return;
-    }
-
-    if (session.genomeIndex >= session.popSize) {
-      if (session.stopAfterCurrent) {
-        finishBoxingLiveEvolve("Stopped");
-        return;
-      }
-      if (session.generation + 1 >= session.maxGenerations) {
-        finishBoxingLiveEvolve("Complete");
-        return;
-      }
-      session.population = breedNextGeneration(
-        session.population,
-        session.popSize,
-        session.rng,
-        session.breed,
-      );
-      session.generation += 1;
-      session.genomeIndex = 0;
-      session.scoredSum = 0;
-      session.scoredCount = 0;
-    }
-
-    const genome = session.population[session.genomeIndex]!;
-    const traineeName = session.design.name || "Trainee";
-    const sparName = session.opponentDesign.name || "Sparring";
-    setEvolveProgress({
-      generation: session.generation,
-      evaluated: session.genomeIndex,
-      populationSize: session.popSize,
-      bestFitness:
-        session.bestOverall.fitness === -Infinity
-          ? 0
-          : session.bestOverall.fitness,
-      meanFitness:
-        session.scoredCount > 0
-          ? session.scoredSum / session.scoredCount
-          : 0,
-      running: true,
-      status: `Boxing spar · gen ${session.generation + 1} · ${session.genomeIndex + 1}/${session.popSize}`,
-      batch: 1,
-      batchCount: 1,
-      focusIndex: 0,
-      cohortSize: 2,
-      episodeT: 0,
-      episodeDuration: session.episodeSeconds,
-    });
-
-    try {
-      applyBoxingEnvironment();
-      simulation.startBoxingMatch({
-        entries: [
-          {
-            design: cloneDesign(session.design),
-            shape: session.shape,
-            weights: cloneWeights(genome.weights),
-          },
-          {
-            design: cloneDesign(session.opponentDesign),
-            shape: session.opponentShape,
-            weights: cloneWeights(session.opponentWeights),
-          },
-        ],
-        divisionId: session.divisionId,
-        episodeSeconds: session.episodeSeconds,
-        onProgress: (snapshot) => {
-          setBoxingProgress({
-            episodeT: snapshot.episodeT,
-            episodeDuration: snapshot.episodeDuration,
-            points: snapshot.points,
-          });
-          setEvolveProgress((prev) => ({
-            ...prev,
-            episodeT: snapshot.episodeT,
-            episodeDuration: snapshot.episodeDuration,
-            status: `${traineeName} ${snapshot.points[0]}–${snapshot.points[1]} ${sparName}`,
-          }));
-        },
-        onFinished: (result) => {
-          const s = boxingEvolveRef.current;
-          if (!s || s.cancelled) {
-            finishBoxingLiveEvolve("Stopped");
-            return;
-          }
-          const fitness = boxingTrainingFitness(result, s.priorities);
-          genome.fitness = fitness;
-          s.scoredSum += fitness;
-          s.scoredCount += 1;
-          if (fitness > s.bestOverall.fitness) {
-            s.bestOverall = {
-              weights: cloneWeights(genome.weights),
-              fitness,
-            };
-          }
-          setBoxingResult(result);
-          setBoxingRunning(false);
-          s.genomeIndex += 1;
-          if (s.stopAfterCurrent && s.genomeIndex >= s.popSize) {
-            finishBoxingLiveEvolve("Stopped");
-            return;
-          }
-          if (s.stopAfterCurrent) {
-            // Finish after the current try (like live evolve stop-after-batch).
-            finishBoxingLiveEvolve("Stopped");
-            return;
-          }
-          queueMicrotask(() => runBoxingLiveTry());
-        },
-      });
-      setBoxingRunning(true);
-      setBoxingResult(null);
-      setDriveMode("brain");
-      simulation.driveMode = "brain";
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      finishBoxingLiveEvolve("Error");
-    }
-  }, [
-    applyBoxingEnvironment,
-    finishBoxingLiveEvolve,
-    simulation,
-  ]);
 
   const startBoxingLiveEvolve = useCallback(
     (
@@ -3041,138 +2850,153 @@ export default function App() {
       const popSize = isFeatureEnabled("trainRecipes")
         ? gaKnobs.populationSize
         : LIVE_POPULATION_SIZE;
+      const batchSize = isFeatureEnabled("trainRecipes")
+        ? Math.min(gaKnobs.batchSize, popSize)
+        : LIVE_BATCH_SIZE;
       const trySeconds = isFeatureEnabled("trainRecipes")
         ? gaKnobs.episodeSeconds
         : episodeSeconds;
       const maxGens = isFeatureEnabled("trainRecipes")
         ? gaKnobs.maxGenerations
         : LIVE_MAX_GENERATIONS;
-      const shape = shapeForBoxingDesign(trainingDesign);
       const opponentDesign = sparringDesignForDivision(divisionId);
-      const opponentShape = shapeForBoxingDesign(opponentDesign);
-      const rng = createRng(runSeed);
-      const opponentWeights = randomWeights(
-        opponentShape,
-        createRng(runSeed + 991),
-      );
 
       let resolvedSeed = seedFrom;
-      if (
-        resolvedSeed &&
-        (resolvedSeed.shape.inputCount !== shape.inputCount ||
+      if (resolvedSeed) {
+        const shape = shapeForBoxingDesign(trainingDesign);
+        if (
+          resolvedSeed.shape.inputCount !== shape.inputCount ||
           resolvedSeed.shape.hiddenCount !== shape.hiddenCount ||
           resolvedSeed.shape.outputCount !== shape.outputCount ||
-          resolvedSeed.weights.length !== shape.weightCount)
-      ) {
-        setError(
-          "Seed genome shape mismatch — Boxing continue training needs a matching fighter layout.",
-        );
-        return;
-      }
-
-      const population: Genome[] = [];
-      if (resolvedSeed) {
-        population.push({
-          weights: cloneWeights(resolvedSeed.weights),
-          fitness: 0,
-        });
-        while (population.length < popSize) {
-          population.push({
-            weights: mutate(resolvedSeed.weights, rng, {
-              mutationSigma: isFeatureEnabled("trainRecipes")
-                ? gaKnobs.mutationSigma
-                : MUTATION_SIGMA,
-              mutationResetRate: isFeatureEnabled("trainRecipes")
-                ? gaKnobs.mutationResetRate
-                : MUTATION_RESET_RATE,
-            }),
-            fitness: 0,
-          });
-        }
-      } else {
-        for (let i = 0; i < popSize; i++) {
-          population.push({
-            weights: randomWeights(shape, rng),
-            fitness: 0,
-          });
+          resolvedSeed.weights.length !== shape.weightCount
+        ) {
+          setError(
+            "Seed genome shape mismatch — Boxing continue training needs a matching fighter layout.",
+          );
+          return;
         }
       }
 
-      if (boxingEvolveRef.current) {
-        boxingEvolveRef.current.cancelled = true;
+      // Parallel pairs need open ground; ring walls only for exhibition matches.
+      if (isBoxingRingEnv(envDesignRef.current)) {
+        restorePreBoxingEnvironment();
       }
-      simulation.abortBoxingMatch();
-      applyBoxingEnvironment();
+      if (isBoxingRingEnv(envDesignRef.current)) {
+        const flat = flatGroundEnv("Boxing Training");
+        envDesignRef.current = flat;
+        setEnvDesign(flat);
+        simulation.setEnvironment(flat);
+      }
+
       setBoxingDivisionId(divisionId);
       setMode("sim");
       setSandboxTab("train");
       simulation.timeScale = trainSpeed;
-
-      boxingEvolveRef.current = {
-        cancelled: false,
-        stopAfterCurrent: false,
+      setDriveMode("brain");
+      simulation.driveMode = "brain";
+      boxingLiveMetaRef.current = {
         design: trainingDesign,
         divisionId,
-        shape,
-        population,
-        popSize,
-        maxGenerations: Math.max(1, maxGens),
-        episodeSeconds: trySeconds,
-        generation: 0,
-        genomeIndex: 0,
-        bestOverall: {
-          weights: cloneWeights(population[0]!.weights),
-          fitness: -Infinity,
-        },
-        scoredSum: 0,
-        scoredCount: 0,
-        opponentDesign,
-        opponentShape,
-        opponentWeights,
-        rng,
-        breed: {
-          eliteCount: isFeatureEnabled("trainRecipes")
-            ? gaKnobs.eliteCount
-            : ELITE_COUNT,
-          tournamentSize: isFeatureEnabled("trainRecipes")
-            ? gaKnobs.tournamentSize
-            : TOURNAMENT_SIZE,
-          mutationSigma: isFeatureEnabled("trainRecipes")
-            ? gaKnobs.mutationSigma
-            : MUTATION_SIGMA,
-          mutationResetRate: isFeatureEnabled("trainRecipes")
-            ? gaKnobs.mutationResetRate
-            : MUTATION_RESET_RATE,
-          crossover: isFeatureEnabled("trainSchedules")
-            ? gaKnobs.crossover
-            : true,
-        },
-        priorities: isFeatureEnabled("goalPriorities")
-          ? { ...boxingPriorities }
-          : { ...DEFAULT_BOXING_PRIORITIES },
-        finishing: false,
       };
 
-      setEvolveProgress({
-        ...idleProgress(),
-        running: true,
-        status: `Boxing spar (${divisionId})…`,
-        populationSize: popSize,
-        batch: 1,
-        batchCount: 1,
-        episodeDuration: trySeconds,
-        episodeT: 0,
-      });
-      runBoxingLiveTry();
+      try {
+        simulation.startBoxingLiveEvolve({
+          design: trainingDesign,
+          divisionId,
+          opponentDesign,
+          populationSize: popSize,
+          batchSize,
+          maxGenerations: Math.max(1, maxGens),
+          episodeSeconds: trySeconds,
+          seed: runSeed,
+          seedGenome: resolvedSeed
+            ? { shape: resolvedSeed.shape, weights: resolvedSeed.weights }
+            : undefined,
+          breed: {
+            eliteCount: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.eliteCount
+              : ELITE_COUNT,
+            tournamentSize: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.tournamentSize
+              : TOURNAMENT_SIZE,
+            mutationSigma: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.mutationSigma
+              : MUTATION_SIGMA,
+            mutationResetRate: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.mutationResetRate
+              : MUTATION_RESET_RATE,
+            crossover: isFeatureEnabled("trainSchedules")
+              ? gaKnobs.crossover
+              : true,
+          },
+          priorities: isFeatureEnabled("goalPriorities")
+            ? { ...boxingPriorities }
+            : { ...DEFAULT_BOXING_PRIORITIES },
+          onProgress: (p) => setEvolveProgress(p),
+          onFinished: (genome, shape) => {
+            const meta = boxingLiveMetaRef.current;
+            boxingLiveMetaRef.current = null;
+            setDriveMode("idle");
+            simulation.driveMode = "idle";
+            simulation.timeScale = observeSpeed;
+            if (Number.isFinite(genome.fitness) && genome.fitness > -Infinity) {
+              setBestGenome({ shape, genome });
+              preferBestOfRun();
+              if (meta) {
+                saveModel({
+                  name: trainedModelName(
+                    `${meta.design.name} ${meta.divisionId}`,
+                  ),
+                  task: "boxing",
+                  shape,
+                  genome,
+                  design: meta.design,
+                  boxingMeta: {
+                    divisionId: meta.divisionId,
+                    ruleVersion: 1,
+                    obsPackVersion: 2,
+                    brainHz: 30,
+                  },
+                });
+                refreshModels();
+                if (isFeatureEnabled("bestEverLedger")) {
+                  considerBestEver("boxing", genome.fitness, meta.design);
+                  setBestEverList(loadBestEver());
+                }
+              }
+            }
+          },
+        });
+        setEvolveProgress({
+          ...idleProgress(),
+          running: true,
+          status: "Boxing spar (round 0 · batch 1)…",
+          populationSize: popSize,
+          batch: 1,
+          batchCount: Math.ceil(popSize / Math.max(1, batchSize)),
+          episodeDuration: trySeconds,
+          episodeT: 0,
+        });
+      } catch (err) {
+        boxingLiveMetaRef.current = null;
+        setError(err instanceof Error ? err.message : String(err));
+        setEvolveProgress((prev) => ({
+          ...prev,
+          running: false,
+          status: "Error",
+        }));
+      }
     },
     [
-      applyBoxingEnvironment,
       boxingDivisionId,
       boxingPriorities,
       episodeSeconds,
       gaKnobs,
+      observeSpeed,
+      preferBestOfRun,
+      refreshModels,
+      restorePreBoxingEnvironment,
       runSeed,
-      runBoxingLiveTry,
       simulation,
       trainSpeed,
     ],
@@ -3386,6 +3210,7 @@ export default function App() {
       return;
     }
     const adapted = adaptEliteToDesign(bestGenome, design, {
+      task: activeTask,
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     });
@@ -3424,18 +3249,15 @@ export default function App() {
         return;
       }
       if (skill === "disco") leaveDiscoSkill(false);
-      if (boxingEvolveRef.current) {
-        boxingEvolveRef.current.cancelled = true;
-        boxingEvolveRef.current = null;
-      }
-      if (skill === "boxing") simulation.abortBoxingMatch();
+      if (simulation.isEvolving) simulation.abortLiveEvolve();
+      simulation.abortBoxingMatch();
       loadPreset(boxer, "custom");
       setSkill("boxing");
       saveActiveSkill("boxing");
       setGoalId("boxing");
       saveActiveGoalId("boxing");
       setBoxingDivisionId(model.boxingMeta.divisionId);
-      applyBoxingEnvironment();
+      // Training uses open ground; startBoxingLiveEvolve clears any ring.
       simulation.loadDesign(boxer);
       simulation.setTask("boxing");
       setMode("sim");
@@ -3611,6 +3433,7 @@ export default function App() {
       return;
     }
     const adapted = adaptEliteToDesign(bestGenome, design, {
+      task: activeTask,
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     });
@@ -3620,12 +3443,22 @@ export default function App() {
     }
     if (adapted !== bestGenome) setBestGenome(adapted);
     const name = trainedModelName(design.name);
+    const boxingMeta =
+      activeTask === "boxing"
+        ? ({
+            divisionId: boxingDivisionId,
+            ruleVersion: 1,
+            obsPackVersion: 2,
+            brainHz: 30,
+          } as const)
+        : undefined;
     saveModel({
       name,
       task: activeTask,
       shape: adapted.shape,
       genome: adapted.genome,
       design,
+      ...(boxingMeta ? { boxingMeta } : {}),
     });
     downloadText(
       `${name.replace(/\s+/g, "_")}.json`,
@@ -3636,17 +3469,12 @@ export default function App() {
         weights: adapted.genome.weights,
         fitness: adapted.genome.fitness,
         design,
+        ...(boxingMeta ? { boxingMeta } : {}),
       }),
     );
     refreshModels();
   };
   const stopEvolve = () => {
-    if (boxingEvolveRef.current) {
-      boxingEvolveRef.current.stopAfterCurrent = true;
-      boxingEvolveRef.current.cancelled = true;
-      finishBoxingLiveEvolve("Stopped");
-      return;
-    }
     simulation.requestStopEvolve();
   };
   const playBest = () => {
@@ -3655,6 +3483,7 @@ export default function App() {
       const elite = captureLiveElite();
       if (!elite) return;
       const adapted = adaptEliteToDesign(elite, design, {
+        task: activeTask,
         raycast:
           isFeatureEnabled("raycastObservations") && raycastObservationsOn,
       });
@@ -4258,48 +4087,57 @@ export default function App() {
                     </button>
                   </div>
                 )}
+              {isFeatureEnabled("creaturePackages") && (
+                <div className="save-current-block">
+                  <label className="field-row">
+                    <span>Name</span>
+                    <input
+                      type="text"
+                      value={saveName}
+                      onChange={(e) => setSaveName(e.target.value)}
+                      placeholder="Creature name"
+                      aria-label="Save name"
+                    />
+                  </label>
+                  <button type="button" onClick={saveCurrentPackage}>
+                    Save current
+                  </button>
+                </div>
+              )}
+              {isFeatureEnabled("jsonImportExport") && (
+                <div className="button-row" style={{ marginTop: "0.35rem" }}>
+                  <button
+                    type="button"
+                    disabled={!hasCreature}
+                    onClick={() =>
+                      downloadText(
+                        `${(design.name || "creature").replace(/\s+/g, "_").toLowerCase()}.json`,
+                        exportCreatureJson(design),
+                      )
+                    }
+                    title="Download body only (no brain)"
+                  >
+                    Export body
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Import JSON
+                  </button>
+                </div>
+              )}
+              <p className="hint muted" style={{ marginTop: "0.45rem" }}>
+                Build with the dock under the canvas. To export a trained
+                fighter with its brain, use{" "}
+                <strong>Export creature + brain</strong> on the Train dock.
+              </p>
             </section>
-            <section>
-              <h2>Tools</h2>
-              <div className="button-row wrap">
-                {(
-                  [
-                    "joint",
-                    "bone",
-                    "muscle",
-                    "select",
-                    ...(isFeatureEnabled("cosmeticCloth")
-                      ? (["cloth"] as EditTool[])
-                      : []),
-                  ] as EditTool[]
-                ).map((t) => {
-                  const tip =
-                    t === "joint"
-                      ? "Place massy contact points. Mark feet or wheels on a selected joint."
-                      : t === "bone"
-                        ? "Connect two joints with a bone capsule (or solid strut)."
-                        : t === "muscle"
-                          ? "Add an actuator between bones — needed before Evolve can run."
-                          : t === "select"
-                            ? "Select and drag parts. Multi-select with modifiers."
-                            : "Pin joints to draw a cosmetic cloth covering.";
-                  return (
-                    <HelpTip key={t} tip={tip}>
-                      <button
-                        type="button"
-                        className={tool === t ? "active" : ""}
-                        disabled={editPhysics}
-                        onClick={() => {
-                          setTool(t);
-                          if (t !== "cloth") setClothDraftPins([]);
-                        }}
-                      >
-                        {t === "cloth" ? "cloth" : t}
-                      </button>
-                    </HelpTip>
-                  );
-                })}
-              </div>
+          </div>
+        );
+
+        const creatureDockToolsExtras = (
+          <>
               {isFeatureEnabled("cosmeticCloth") && tool === "cloth" && (
                 <div className="inspector">
                   <h3 className="subhead">Material draw</h3>
@@ -4403,6 +4241,43 @@ export default function App() {
                   Solid strut
                 </label>
               )}
+              <div className="button-row" style={{ marginTop: "0.45rem" }}>
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={undoCount === 0 || editPhysics}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={clearDesign}
+                  disabled={editPhysics}
+                >
+                  Clear
+                </button>
+              </div>
+              <p className="hint">
+                {tool === "joint" &&
+                  "Click empty space to place · drag a joint to move (bones/muscles resize)."}
+                {tool === "select" &&
+                  (isFeatureEnabled("editorMultiSelectTransforms")
+                    ? "Drag empty space to box-select · Shift-click add · Ctrl+A all · Ctrl+D copy · Ctrl+M mirror · handles scale/rotate · Delete removes."
+                    : "Click a joint, bone, muscle, or body part · drag joints/parts · corner handles resize parts.")}
+                {tool === "bone" &&
+                  (boneRigid && isFeatureEnabled("rigidStruts")
+                    ? "Left-drag joint→joint to draw a solid strut (rigid frame)."
+                    : "Left-drag joint→joint to draw a hinge bone.")}
+                {tool === "muscle" &&
+                  "Left-drag hinge-bone→hinge-bone to draw a muscle (not struts)."}
+                {tool === "cloth" &&
+                  "Click joints one at a time to pin fabric · Create covering when 2+ pins are set."}
+              </p>
+          </>
+        );
+
+        const creatureDockOptions = (
+          <>
               <label className="toggle-row">
                 <input
                   type="checkbox"
@@ -4507,55 +4382,11 @@ export default function App() {
                   </div>
                 </>
               )}
-              <div className="button-row" style={{ marginTop: "0.45rem" }}>
-                <button
-                  type="button"
-                  onClick={undo}
-                  disabled={undoCount === 0 || editPhysics}
-                >
-                  Undo
-                </button>
-                <button
-                  type="button"
-                  onClick={clearDesign}
-                  disabled={editPhysics}
-                >
-                  Clear
-                </button>
-              </div>
-              {isFeatureEnabled("creaturePackages") && (
-                <div className="save-current-block">
-                  <label className="field-row">
-                    <span>Name</span>
-                    <input
-                      type="text"
-                      value={saveName}
-                      onChange={(e) => setSaveName(e.target.value)}
-                      placeholder="Creature name"
-                      aria-label="Save name"
-                    />
-                  </label>
-                  <button type="button" onClick={saveCurrentPackage}>
-                    Save current
-                  </button>
-                </div>
-              )}
-              <p className="hint">
-                {tool === "joint" &&
-                  "Click empty space to place · drag a joint to move (bones/muscles resize)."}
-                {tool === "select" &&
-                  (isFeatureEnabled("editorMultiSelectTransforms")
-                    ? "Drag empty space to box-select · Shift-click add · Ctrl+A all · Ctrl+D copy · Ctrl+M mirror · handles scale/rotate · Delete removes."
-                    : "Click a joint, bone, muscle, or body part · drag joints/parts · corner handles resize parts.")}
-                {tool === "bone" &&
-                  (boneRigid && isFeatureEnabled("rigidStruts")
-                    ? "Left-drag joint→joint to draw a solid strut (rigid frame)."
-                    : "Left-drag joint→joint to draw a hinge bone.")}
-                {tool === "muscle" &&
-                  "Left-drag hinge-bone→hinge-bone to draw a muscle (not struts)."}
-                {tool === "cloth" &&
-                  "Click joints one at a time to pin fabric · Create covering when 2+ pins are set."}
-              </p>
+          </>
+        );
+
+        const creatureDockInspector = (
+          <>
               {selection?.kind === "joints" &&
                 selection.ids.length > 1 &&
                 isFeatureEnabled("editorMultiSelectTransforms") &&
@@ -5451,8 +5282,7 @@ export default function App() {
                     </div>
                   );
                 })()}
-            </section>
-          </div>
+          </>
         );
 
         const vizShape = liveBrain?.shape ?? bestGenome?.shape ?? null;
@@ -5475,8 +5305,9 @@ export default function App() {
                       <li>Press Evolve — many brains try the course</li>
                       <li>Play best to watch the winner</li>
                       <li>
-                        Save model downloads{" "}
-                        <code>{trainedModelName(design.name || "Creature")}</code>
+                        Export creature + brain downloads{" "}
+                        <code>{trainedModelName(design.name || "Creature")}</code>{" "}
+                        (body + trained weights)
                       </li>
                     </ol>
                     <button
@@ -5517,7 +5348,9 @@ export default function App() {
                   <h3 className="subhead">Boxing priorities</h3>
                   <p className="hint muted">
                     What matters more — tilts the Boxing training score mix,
-                    not physics or match points.
+                    not physics or match points. How many I watch = parallel
+                    sparring pairs on screen (Show others for the ghost pack);
+                    How many try = full population each round.
                   </p>
                   {BOXING_PRIORITY_KEYS.map((key) => (
                     <label key={key}>
@@ -6010,7 +5843,9 @@ export default function App() {
                   hidden={liveBrain?.hidden ?? null}
                   liveLabel={
                     evolveProgress.running && liveBrain
-                      ? `Focus #${liveBrain.focusIndex + 1} · genome ${liveBrain.genomeIndex + 1} · gen ${evolveProgress.generation}`
+                      ? activeTask === "boxing"
+                        ? `Pair ${liveBrain.focusIndex + 1} · genome ${liveBrain.genomeIndex + 1} · round ${evolveProgress.generation} · batch ${evolveProgress.batch ?? 1}/${evolveProgress.batchCount ?? 1}`
+                        : `Focus #${liveBrain.focusIndex + 1} · genome ${liveBrain.genomeIndex + 1} · gen ${evolveProgress.generation}`
                       : liveBrain && driveMode === "brain"
                         ? "Play / brain drive"
                         : null
@@ -6122,13 +5957,13 @@ export default function App() {
                 </button>
               </HelpTip>
               {isFeatureEnabled("savedModels") && (
-                <HelpTip tip="Store the trained brain so you can reload it later from Creature Library.">
+                <HelpTip tip="Download the current creature body together with its trained brain (JSON). Also stores a copy in Creature Library.">
                   <button
                     type="button"
                     disabled={!bestGenome || evolveProgress.running || h2hRunning}
                     onClick={saveBestModel}
                   >
-                    Save model
+                    Export creature + brain
                   </button>
                 </HelpTip>
               )}
@@ -6765,6 +6600,21 @@ export default function App() {
           />
         );
 
+        const creatureDock = (
+          <CreatureDock
+            tool={tool}
+            onToolChange={(t) => {
+              setTool(t);
+              if (t !== "cloth") setClothDraftPins([]);
+            }}
+            editPhysics={editPhysics}
+            collapsed={dockCollapsed}
+            toolsExtras={creatureDockToolsExtras}
+            options={creatureDockOptions}
+            inspector={creatureDockInspector}
+          />
+        );
+
         const viewport =
           mode === "edit" ? (
             <EditorCanvas
@@ -6784,6 +6634,9 @@ export default function App() {
                     : [...prev, jointId],
                 );
               }}
+              viewportInsetBottom={
+                isFeatureEnabled("sandboxMenuShell") ? dockInset : 0
+              }
             />
           ) : mode === "world" ? (
             <EnvEditorCanvas
@@ -7054,24 +6907,30 @@ export default function App() {
                         )
                 }
                 dock={
-                  showFullBleedRoom || editPhysics
+                  showFullBleedRoom
                     ? null
                     : mode === "world"
                       ? worldDock
-                      : mode === "sim" && skill === "disco" && discoDock
-                        ? discoDock
-                        : mode === "sim"
-                          ? dockCollapsed
-                            ? dockSummary
-                            : dockFull
-                          : null
+                      : mode === "edit" ||
+                          (editPhysics && sandboxTab === "edit")
+                        ? creatureDock
+                        : mode === "sim" && skill === "disco" && discoDock
+                          ? discoDock
+                          : mode === "sim" && !editPhysics
+                            ? dockCollapsed
+                              ? dockSummary
+                              : dockFull
+                            : null
                 }
                 dockLabel={
                   mode === "world"
                     ? "World"
-                    : skill === "disco"
-                      ? "Disco"
-                      : "Train"
+                    : mode === "edit" ||
+                        (editPhysics && sandboxTab === "edit")
+                      ? "Creature"
+                      : skill === "disco"
+                        ? "Disco"
+                        : "Train"
                 }
                 dockCollapsed={dockCollapsed}
                 onDockCollapsedChange={setDockCollapsed}
@@ -7100,6 +6959,9 @@ export default function App() {
                     </>
                   )}
                   {mode === "world" && worldDock}
+                  {(mode === "edit" ||
+                    (editPhysics && sandboxTab === "edit")) &&
+                    creatureDock}
                 </aside>
               )}
               <div

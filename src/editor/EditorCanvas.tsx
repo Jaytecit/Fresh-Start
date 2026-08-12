@@ -56,6 +56,8 @@ interface Props {
   clothDraftJointIds?: number[];
   /** H9 — click a joint in cloth tool to toggle it as a pin. */
   onClothPinJoint?: (jointId: number) => void;
+  /** Bottom dock height so framing clears the creature builder tools. */
+  viewportInsetBottom?: number;
 }
 
 type DragLink =
@@ -148,6 +150,7 @@ export function EditorCanvas({
   boneRigid = false,
   clothDraftJointIds = [],
   onClothPinJoint,
+  viewportInsetBottom = 0,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const localCamRef = useRef<Camera>(createCamera());
@@ -167,6 +170,7 @@ export function EditorCanvas({
   const onSelectRef = useRef(onSelect);
   const clothDraftRef = useRef(clothDraftJointIds);
   const onClothPinRef = useRef(onClothPinJoint);
+  const insetRef = useRef(viewportInsetBottom);
   // Don't clobber an in-progress drag with a stale prop snapshot.
   if (
     !jointDragRef.current &&
@@ -183,6 +187,7 @@ export function EditorCanvas({
   onSelectRef.current = onSelect;
   clothDraftRef.current = clothDraftJointIds;
   onClothPinRef.current = onClothPinJoint;
+  insetRef.current = viewportInsetBottom;
 
   const multiSelectOn = () => isFeatureEnabled('editorMultiSelectTransforms');
 
@@ -211,6 +216,7 @@ export function EditorCanvas({
         bufH = nextH;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      camRef.current.insetBottom = insetRef.current;
       clearCanvas(ctx, w, h);
       if (snapRef.current) {
         drawGrid(ctx, camRef.current, w, h);

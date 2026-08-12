@@ -39,6 +39,7 @@ import {
 } from '../src/brain/boxingObs.ts';
 import { BOXOBOT } from '../src/creature/boxoBot.ts';
 import { cloneDesign } from '../src/creature/types.ts';
+import { boxingRingEnv } from '../src/env/boxingRingEnv.ts';
 import { FIXED_DT, JOINT_RADIUS } from '../src/physics/constants.ts';
 import { encodeGroups, spawnCreature } from '../src/physics/spawn.ts';
 import { createWorld, initRapier } from '../src/physics/world.ts';
@@ -506,6 +507,154 @@ function engagerInput(): BoxingFitnessInput {
   });
 }
 
+async function assertBoxingBrainProbeAndTrainingProgress(): Promise<void> {
+  const simulation = new Simulation();
+  await simulation.init();
+  try {
+    simulation.setEnvironment(boxingRingEnv());
+    const shape = shapeForBoxingDesign(UPRIGHT_FIGHTER);
+    const { randomWeights, createRng } = await import('../src/brain/network.ts');
+    const weightsA = randomWeights(shape, createRng(7));
+    const weightsB = randomWeights(shape, createRng(11));
+    let progressTicks = 0;
+    let finished = false;
+    simulation.startBoxingMatch({
+      entries: [
+        {
+          design: cloneDesign(UPRIGHT_FIGHTER),
+          shape,
+          weights: weightsA,
+        },
+        {
+          design: cloneDesign(UPRIGHT_FIGHTER),
+          shape,
+          weights: weightsB,
+        },
+      ],
+      divisionId: 'upright',
+      episodeSeconds: 2,
+      onProgress: () => {
+        progressTicks += 1;
+      },
+      onFinished: () => {
+        finished = true;
+      },
+    });
+
+    // Brain evaluates at 30 Hz; need ≥2 FIXED_DT (60 Hz) steps to tick once.
+    for (let i = 0; i < 4; i++) simulation.step(FIXED_DT);
+    const early = simulation.snapshot();
+    ok(early.brain !== null, 'Boxing snapshot exposes live brain probe');
+    assert.equal(early.brain!.shape.inputCount, BOXING_OBS_COUNT);
+    ok(
+      early.brain!.inputs.some((v) => v !== 0),
+      'Boxing brain inputs are non-zero after a controller tick',
+    );
+    ok(
+      early.brain!.outputs.some((v) => Number.isFinite(v)),
+      'Boxing brain outputs are finite',
+    );
+
+    const steps = Math.ceil(2 / FIXED_DT) + 4;
+    for (let i = 0; i < steps && !finished; i++) {
+      simulation.step(FIXED_DT);
+    }
+    ok(finished, 'Boxing match finishes after episodeSeconds');
+    // Throttled ~4 Hz over 2s → about 8 ticks, not one-per-physics-step (~120).
+    ok(
+      progressTicks >= 4 && progressTicks < 40,
+      `Boxing progress is throttled (got ${progressTicks})`,
+    );
+  } finally {
+    simulation.world?.free();
+    simulation.world = null;
+  }
+}
+
+async function assertBoxingTrainingFitnessMoves(): Promise<void> {
+  const { evolveBoxingBrain } = await import('../src/brain/boxingTraining.ts');
+  const result = await evolveBoxingBrain({
+    design: cloneDesign(UPRIGHT_FIGHTER),
+    divisionId: 'upright',
+    generations: 2,
+    populationSize: 4,
+    episodeSeconds: 4,
+    seed: 42,
+  });
+  ok(Number.isFinite(result.genome.fitness), 'Boxing GA returns finite fitness');
+  assert.equal(result.generations.length, 2, 'Boxing GA reports each generation');
+  ok(
+    result.shape.inputCount === BOXING_OBS_COUNT,
+    'Boxing GA uses boxing observation pack',
+  );
+  const fitnesses = result.generations.map((g) => g.bestFitness);
+  ok(
+    fitnesses.every((f) => Number.isFinite(f)),
+    'Boxing generation fitnesses are finite',
+  );
+}
+
+async function assertBoxingLiveBatch(): Promise<void> {
+  const { sparringDesignForDivision } = await import(
+    '../src/brain/boxingTraining.ts'
+  );
+  const simulation = new Simulation();
+  await simulation.init();
+  try {
+    simulation.setEnvironment(boxingRingEnv()); // walls ok; pairs spaced far apart
+    simulation.setShowGhostPack(true);
+    let finishCount = 0;
+    let lastProgressBatch: number | undefined;
+    const popSize = 4;
+    const batchSize = 4;
+    simulation.startBoxingLiveEvolve({
+      design: cloneDesign(UPRIGHT_FIGHTER),
+      divisionId: 'upright',
+      opponentDesign: sparringDesignForDivision('upright'),
+      populationSize: popSize,
+      batchSize,
+      maxGenerations: 1,
+      episodeSeconds: 2,
+      seed: 19,
+      onProgress: (p) => {
+        lastProgressBatch = p.batch;
+      },
+      onFinished: () => {
+        finishCount += 1;
+      },
+    });
+
+    for (let i = 0; i < 4; i++) simulation.step(FIXED_DT);
+    const mid = simulation.snapshot();
+    assert.equal(
+      mid.agents.length,
+      batchSize * 2,
+      'ghost pack shows all trainee+sparring agents',
+    );
+    ok(mid.brain !== null, 'boxing-live exposes brain probe');
+    ok(mid.evolve?.running === true, 'boxing-live reports evolve progress');
+    assert.equal(mid.evolve?.batchCount, 1);
+    assert.equal(mid.evolve?.populationSize, popSize);
+
+    const steps = Math.ceil(2 / FIXED_DT) + 8;
+    for (let i = 0; i < steps && finishCount === 0; i++) {
+      simulation.step(FIXED_DT);
+    }
+    assert.equal(
+      finishCount,
+      1,
+      'one onFinished after the whole batch (not per genome)',
+    );
+    ok(
+      lastProgressBatch === 1,
+      'single-batch run stays on batch 1',
+    );
+  } finally {
+    simulation.world?.free();
+    simulation.world = null;
+  }
+}
+
 async function main(): Promise<void> {
   await initRapier();
   assertDivisions();
@@ -515,6 +664,9 @@ async function main(): Promise<void> {
   assertOpponentSolidSeparation();
   assertBoxingModelCompatibility();
   await assertPinnedControllerRate();
+  await assertBoxingBrainProbeAndTrainingProgress();
+  await assertBoxingLiveBatch();
+  await assertBoxingTrainingFitnessMoves();
   const first = await scriptedHit();
   const second = await scriptedHit();
   assert.deepEqual(first, second, 'fixed-step hit metrics reproducible');

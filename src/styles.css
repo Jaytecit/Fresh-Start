@@ -656,6 +656,62 @@ body,
 
 .dock-col-grow { flex: 2 1 16rem; }
 
+/* Creature builder dock — Tools / Body / Inspect side-by-side. */
+.bottom-dock:has(.creature-dock) {
+  max-height: 42%;
+}
+
+.creature-dock {
+  display: block;
+  width: 100%;
+}
+
+.creature-dock-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(11rem, 0.95fr)
+    minmax(12rem, 1fr)
+    minmax(14rem, 1.25fr);
+  gap: 0.55rem 0.85rem;
+  align-items: start;
+}
+
+.creature-dock-col {
+  min-width: 0;
+}
+
+.creature-dock-col .subhead {
+  margin: 0 0 0.3rem;
+}
+
+.creature-dock-col .inspector {
+  margin-top: 0.25rem;
+}
+
+.creature-dock-col .inspector .subhead {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 960px) {
+  .creature-dock-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .creature-dock-inspect {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .creature-dock-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .creature-dock-inspect {
+    grid-column: auto;
+  }
+}
+
 .subhead-toggle {
   display: flex;
   align-items: center;

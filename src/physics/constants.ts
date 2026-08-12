@@ -40,6 +40,8 @@ export const BOXING_RING_HALF_WIDTH = 27.5;
 export const BOXING_RING_WALL_WIDTH = 1.75;
 export const BOXING_RING_WALL_HEIGHT = 17.5;
 export const BOXING_MATCH_SECONDS = 45;
+/** Lateral gap between parallel training pairs (spatial isolation). */
+export const BOXING_TRAIN_PAIR_GAP = 80;
 
 /** SpringJoint-like restore toward rest length (Evolution: spring=1000, damper=50). */
 export const MUSCLE_SPRING = 360;

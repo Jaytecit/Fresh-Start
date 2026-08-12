@@ -112,9 +112,12 @@ import {
 } from '../boxing/hitProbes';
 import { enableBoxingOpponentContact } from '../boxing/opponentContact';
 import {
+  computeBoxingTrainingFitness,
   createBoxingBehaviorMetrics,
+  DEFAULT_BOXING_PRIORITIES,
   updateBoxingBehaviorMetrics,
   type BoxingBehaviorMetrics,
+  type BoxingPriorities,
 } from '../boxing/rewards';
 import {
   createBoxingMatchScore,
@@ -149,6 +152,7 @@ import {
   ANTI_SCOOT,
   BOXING_MATCH_SECONDS,
   BOXING_SPAWN_X,
+  BOXING_TRAIN_PAIR_GAP,
   DEFAULT_DISCO_PUPPET_MODE,
   DEFAULT_JOINT_MASS,
   FOOT_MASS_DEFAULT,
@@ -458,6 +462,23 @@ export interface BoxingMatchOptions {
   onFinished?: (result: BoxingMatchResult) => void;
 }
 
+/** K6 — batched live Boxing GA (parallel trainee↔sparring pairs). */
+export interface BoxingLiveEvolveOptions {
+  design: CreatureDesign;
+  divisionId: BoxingDivisionId;
+  opponentDesign: CreatureDesign;
+  populationSize?: number;
+  batchSize?: number;
+  maxGenerations?: number;
+  episodeSeconds?: number;
+  seed?: number;
+  seedGenome?: { shape: NetworkShape; weights: Float32Array };
+  breed?: BreedOptions;
+  priorities?: BoxingPriorities;
+  onProgress?: (p: EvolutionProgress) => void;
+  onFinished?: (best: Genome, shape: NetworkShape) => void;
+}
+
 export interface BoxingMatchSnapshot {
   episodeT: number;
   episodeDuration: number;
@@ -573,6 +594,52 @@ interface LiveEvolveState {
   maxMuscleChannels: number;
   /** D14/D17 — per-episode messy body jitter. */
   messyBodies: boolean;
+  onProgress?: (p: EvolutionProgress) => void;
+  onFinished?: (best: Genome, shape: NetworkShape) => void;
+}
+
+interface BoxingLivePair {
+  genomeIndex: number;
+  trainee: CohortMember;
+  sparring: CohortMember;
+  probes: [BoxingProbeSet, BoxingProbeSet];
+  hitTracker: BoxingHitTracker;
+  score: BoxingMatchScore;
+  behavior: BoxingBehaviorMetrics;
+}
+
+interface BoxingLiveEvolveState {
+  design: CreatureDesign;
+  divisionId: BoxingDivisionId;
+  shape: NetworkShape;
+  opponentDesign: CreatureDesign;
+  opponentShape: NetworkShape;
+  opponentWeights: Float32Array;
+  population: Genome[];
+  popSize: number;
+  batchSize: number;
+  maxGenerations: number;
+  generation: number;
+  batchIndex: number;
+  batchCount: number;
+  episodeT: number;
+  episodeDuration: number;
+  /** Focused pair index within the current batch. */
+  focusIndex: number;
+  rng: () => number;
+  bestOverall: Genome;
+  displayMeanFitness: number;
+  stopRequested: boolean;
+  status: string;
+  breed: {
+    eliteCount: number;
+    tournamentSize: number;
+    mutationSigma: number;
+    mutationResetRate: number;
+    crossover: boolean;
+  };
+  priorities: BoxingPriorities;
+  pairs: BoxingLivePair[];
   onProgress?: (p: EvolutionProgress) => void;
   onFinished?: (best: Genome, shape: NetworkShape) => void;
 }
@@ -967,6 +1034,9 @@ export class Simulation {
   } | null = null;
   private boxingFinished: BoxingMatchResult | null = null;
   private boxingPreviousBrainHz: BrainHz | null = null;
+  /** Focused fighter index for Boxing / H2H exhibition brain viz (0 = A, 1 = B). */
+  private duelFocusIndex = 0;
+  private boxingLive: BoxingLiveEvolveState | null = null;
   private live: LiveEvolveState | null = null;
   private course: CourseHandle | null = null;
   private roughCourse: RoughCourseHandle | null = null;
@@ -997,7 +1067,7 @@ export class Simulation {
   }
 
   get isEvolving(): boolean {
-    return this.live !== null;
+    return this.live !== null || this.boxingLive !== null;
   }
 
   get isHeadToHead(): boolean {
@@ -1005,7 +1075,7 @@ export class Simulation {
   }
 
   get isBoxing(): boolean {
-    return this.boxing !== null;
+    return this.boxing !== null || this.boxingLive !== null;
   }
 
   private pinBoxingControllerRate(): void {
@@ -1032,6 +1102,7 @@ export class Simulation {
     this.restoreControllerRateAfterBoxing();
     this.boxing = null;
     this.boxingFinished = null;
+    this.boxingLive = null;
     this.clearCohort();
     this.live = null;
     this.soloWatch = null;
@@ -1408,6 +1479,11 @@ export class Simulation {
 
   /** Toggle brain eval rate (30 Hz default ↔ 60 Hz). Muscle forces stay at FIXED_DT. */
   setBrainHz(hz: BrainHz): void {
+    // Boxing pins the controller at training rate; stash the UI choice for restore.
+    if (this.boxing || this.boxingFinished || this.boxingLive) {
+      this.boxingPreviousBrainHz = hz;
+      return;
+    }
     if (this.brainHz === hz) return;
     this.brainHz = hz;
     this.brainAccumulator = 0;
@@ -1460,6 +1536,7 @@ export class Simulation {
     this.restoreControllerRateAfterBoxing();
     this.boxing = null;
     this.boxingFinished = null;
+    this.boxingLive = null;
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1718,6 +1795,7 @@ export class Simulation {
     this.h2hFinished = null;
     this.boxing = null;
     this.boxingFinished = null;
+    this.boxingLive = null;
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1785,6 +1863,7 @@ export class Simulation {
     this.time = 0;
     this.accumulator = 0;
     this.running = true;
+    this.duelFocusIndex = 0;
     this.pinBoxingControllerRate();
     this.boxing = {
       divisionId: options.divisionId,
@@ -1818,6 +1897,182 @@ export class Simulation {
     this.task = 'boxing';
     this.time = 0;
     this.accumulator = 0;
+  }
+
+  /** K6 — batched Boxing GA: parallel trainee↔sparring pairs with ghost pack. */
+  startBoxingLiveEvolve(options: BoxingLiveEvolveOptions): void {
+    if (!this.world) throw new Error('Simulation not initialized');
+    if (!isFeatureEnabled('boxingMode')) {
+      throw new Error('Boxing skill is disabled');
+    }
+    const design = cloneDesign(options.design);
+    const eligibility = boxingEligibility(design, options.divisionId);
+    if (!eligibility.eligible) {
+      throw new Error(
+        `${design.name} is not eligible for ${options.divisionId}: ${eligibility.reasons.join(' ')}`,
+      );
+    }
+    if (!designHasActuators(design, includeWheelActuators())) {
+      throw new Error('Design has no muscles to control');
+    }
+    const opponentDesign = cloneDesign(options.opponentDesign);
+    if (!boxingEligibility(opponentDesign, options.divisionId).eligible) {
+      throw new Error('Sparring partner is not eligible for this division');
+    }
+
+    const popSize = options.populationSize ?? LIVE_POPULATION_SIZE;
+    const batchSize = Math.max(
+      1,
+      Math.min(options.batchSize ?? LIVE_BATCH_SIZE, popSize),
+    );
+    const maxGenerations = options.maxGenerations ?? LIVE_MAX_GENERATIONS;
+    const episodeDuration = Math.max(1, options.episodeSeconds ?? EPISODE_SECONDS);
+    const breedOpts = options.breed ?? {};
+    const breed = {
+      eliteCount: breedOpts.eliteCount ?? ELITE_COUNT,
+      tournamentSize: breedOpts.tournamentSize ?? TOURNAMENT_SIZE,
+      mutationSigma: breedOpts.mutationSigma ?? MUTATION_SIGMA,
+      mutationResetRate: breedOpts.mutationResetRate ?? MUTATION_RESET_RATE,
+      crossover: breedOpts.crossover ?? true,
+    };
+    const rng = createRng(options.seed ?? 1);
+    const shape = shapeForBoxingDesign(design);
+    const opponentShape = shapeForBoxingDesign(opponentDesign);
+    const opponentWeights = randomWeights(
+      opponentShape,
+      createRng((options.seed ?? 1) + 991),
+    );
+
+    let resolvedSeed = options.seedGenome;
+    if (resolvedSeed) {
+      if (
+        resolvedSeed.shape.inputCount !== shape.inputCount ||
+        resolvedSeed.shape.hiddenCount !== shape.hiddenCount ||
+        resolvedSeed.shape.outputCount !== shape.outputCount ||
+        resolvedSeed.weights.length !== shape.weightCount
+      ) {
+        throw new Error(
+          'Seed genome shape mismatch — Boxing continue training needs a matching fighter layout.',
+        );
+      }
+    }
+
+    const population: Genome[] = [];
+    if (resolvedSeed) {
+      population.push({
+        weights: cloneWeights(resolvedSeed.weights),
+        fitness: 0,
+      });
+      while (population.length < popSize) {
+        population.push({
+          weights: mutate(resolvedSeed.weights, rng, {
+            mutationSigma: breed.mutationSigma,
+            mutationResetRate: breed.mutationResetRate,
+          }),
+          fitness: 0,
+        });
+      }
+    } else {
+      for (let i = 0; i < popSize; i++) {
+        population.push({
+          weights: randomWeights(shape, rng),
+          fitness: 0,
+        });
+      }
+    }
+
+    this.clearDiscoDancers();
+    this.clearCohort();
+    this.live = null;
+    this.h2h = null;
+    this.h2hFinished = null;
+    this.boxing = null;
+    this.boxingFinished = null;
+    this.soloWatch = null;
+    this.clearBrain();
+    if (this.creature) {
+      destroyCreature(this.world, this.creature);
+      this.creature = null;
+    }
+
+    this.task = 'boxing';
+    this.syncCourseForTask('boxing');
+    this.syncEnvironmentGeometry();
+    this.design = design;
+    this.driveMode = 'brain';
+    this.discoDriveProvider = null;
+    this.running = true;
+    this.pinBoxingControllerRate();
+
+    this.boxingLive = {
+      design,
+      divisionId: options.divisionId,
+      shape,
+      opponentDesign,
+      opponentShape,
+      opponentWeights,
+      population,
+      popSize,
+      batchSize,
+      maxGenerations: Math.max(1, maxGenerations),
+      generation: 0,
+      batchIndex: 0,
+      batchCount: Math.ceil(popSize / batchSize),
+      episodeT: 0,
+      episodeDuration,
+      focusIndex: 0,
+      rng,
+      bestOverall: {
+        weights: cloneWeights(population[0]!.weights),
+        fitness: -Infinity,
+      },
+      displayMeanFitness: 0,
+      stopRequested: false,
+      status: 'Starting Boxing spar…',
+      breed,
+      priorities: options.priorities
+        ? { ...options.priorities }
+        : { ...DEFAULT_BOXING_PRIORITIES },
+      pairs: [],
+      onProgress: options.onProgress,
+      onFinished: options.onFinished,
+    };
+
+    this.spawnBoxingLiveBatch();
+    this.emitBoxingLiveProgress();
+  }
+
+  abortBoxingLiveEvolve(): { shape: NetworkShape; genome: Genome } | null {
+    if (!this.boxingLive) return null;
+    const design = this.boxingLive.design;
+    const shape = this.boxingLive.shape;
+    const best = this.boxingLive.bestOverall;
+    const promoted =
+      best.fitness > -Infinity
+        ? {
+            shape,
+            genome: {
+              weights: cloneWeights(best.weights),
+              fitness: best.fitness,
+            },
+          }
+        : null;
+    this.clearCohort();
+    this.boxingLive = null;
+    this.restoreControllerRateAfterBoxing();
+    if (this.world && design) {
+      this.creature = this.spawnCreatureWithGrip(
+        design,
+        resolveSpawn(this.environment),
+      );
+      this.design = design;
+      this.manualDrives = zeroActuatorDrives(design);
+      this.brainDrives = zeroActuatorDrives(design);
+    }
+    this.driveMode = 'idle';
+    this.time = 0;
+    this.accumulator = 0;
+    return promoted;
   }
 
   startLiveEvolve(options: LiveEvolveOptions): void {
@@ -1980,6 +2235,7 @@ export class Simulation {
     this.restoreControllerRateAfterBoxing();
     this.boxing = null;
     this.boxingFinished = null;
+    this.boxingLive = null;
     this.soloWatch = null;
     if (this.creature) {
       destroyCreature(this.world, this.creature);
@@ -2051,6 +2307,11 @@ export class Simulation {
       this.live.status = 'Stopping after this batch…';
       this.emitEvolveProgress();
     }
+    if (this.boxingLive) {
+      this.boxingLive.stopRequested = true;
+      this.boxingLive.status = 'Stopping after this batch…';
+      this.emitBoxingLiveProgress();
+    }
   }
 
   /**
@@ -2067,16 +2328,26 @@ export class Simulation {
       }
       this.emitEvolveProgress();
     }
+    if (this.boxingLive) {
+      this.boxingLive.episodeDuration = duration;
+      this.emitBoxingLiveProgress();
+    }
     if (this.soloWatch) {
       this.soloWatch.episodeDuration = duration;
     }
     if (this.h2h) {
       this.h2h.episodeDuration = duration;
     }
+    if (this.boxing) {
+      this.boxing.episodeDuration = duration;
+    }
   }
 
   /** Immediately tear down a live evolve session; returns elite if one exists. */
   abortLiveEvolve(): { shape: NetworkShape; genome: Genome } | null {
+    if (this.boxingLive) {
+      return this.abortBoxingLiveEvolve();
+    }
     if (!this.live || !this.world) return null;
     const design = this.live.design;
     const shape = this.live.shape;
@@ -2111,16 +2382,43 @@ export class Simulation {
   }
 
   focusNextCreature(): void {
-    if (!this.live || this.cohort.length === 0) return;
-    this.live.focusIndex = (this.live.focusIndex + 1) % this.cohort.length;
-    this.emitEvolveProgress();
+    if (this.boxingLive && this.boxingLive.pairs.length > 0) {
+      this.boxingLive.focusIndex =
+        (this.boxingLive.focusIndex + 1) % this.boxingLive.pairs.length;
+      this.emitBoxingLiveProgress();
+      return;
+    }
+    if (this.live && this.cohort.length > 0) {
+      this.live.focusIndex = (this.live.focusIndex + 1) % this.cohort.length;
+      this.emitEvolveProgress();
+      return;
+    }
+    if (this.isBoxingView() || this.isHeadToHeadView()) {
+      const n = Math.min(2, this.cohort.length);
+      if (n <= 0) return;
+      this.duelFocusIndex = (this.duelFocusIndex + 1) % n;
+    }
   }
 
   focusPrevCreature(): void {
-    if (!this.live || this.cohort.length === 0) return;
-    this.live.focusIndex =
-      (this.live.focusIndex - 1 + this.cohort.length) % this.cohort.length;
-    this.emitEvolveProgress();
+    if (this.boxingLive && this.boxingLive.pairs.length > 0) {
+      const n = this.boxingLive.pairs.length;
+      this.boxingLive.focusIndex =
+        (this.boxingLive.focusIndex - 1 + n) % n;
+      this.emitBoxingLiveProgress();
+      return;
+    }
+    if (this.live && this.cohort.length > 0) {
+      this.live.focusIndex =
+        (this.live.focusIndex - 1 + this.cohort.length) % this.cohort.length;
+      this.emitEvolveProgress();
+      return;
+    }
+    if (this.isBoxingView() || this.isHeadToHeadView()) {
+      const n = Math.min(2, this.cohort.length);
+      if (n <= 0) return;
+      this.duelFocusIndex = (this.duelFocusIndex - 1 + n) % n;
+    }
   }
 
   step(frameDt: number): SimulationSnapshot {
@@ -2129,6 +2427,7 @@ export class Simulation {
     }
     if (
       !this.live &&
+      !this.boxingLive &&
       !this.creature &&
       this.discoDancers.length === 0 &&
       !this.h2h &&
@@ -2168,6 +2467,11 @@ export class Simulation {
 
     if (this.live) {
       this.physicsStepCohort(dt);
+      return;
+    }
+
+    if (this.boxingLive) {
+      this.physicsStepBoxingLive(dt);
       return;
     }
 
@@ -2544,7 +2848,13 @@ export class Simulation {
     }
 
     const progress = this.boxingSnapshot();
-    if (progress) this.boxing.onProgress?.(progress);
+    // ~4 Hz HUD refresh (same cadence as live evolve) — every-step React
+    // setState flooded the train dock and left the progress bar stuck full.
+    const tickHz = Math.floor(this.boxing.episodeT * 4);
+    const prevTickHz = Math.floor((this.boxing.episodeT - dt) * 4);
+    if (progress && tickHz !== prevTickHz) {
+      this.boxing.onProgress?.(progress);
+    }
     if (this.boxing.episodeT < this.boxing.episodeDuration) return;
 
     const points = this.boxing.score.fighters.map((fighter) => fighter.points) as [
@@ -2568,11 +2878,433 @@ export class Simulation {
       ],
       behavior: this.boxing.behavior,
     };
+    const onProgress = this.boxing.onProgress;
     const onFinished = this.boxing.onFinished;
+    // Final progress tick at episode end (may land between 4 Hz samples).
+    if (progress) onProgress?.(progress);
     this.boxing = null;
     this.boxingFinished = result;
-    this.driveMode = 'idle';
+    // Keep driveMode 'brain' so chained training spars stay actuated; App
+    // clears drive on finishBoxingLiveEvolve / abort.
     onFinished?.(result);
+  }
+
+  private makeBoxingCohortMember(
+    creature: SpawnedCreature,
+    genomeIndex: number,
+    weights: Float32Array,
+    shape: NetworkShape,
+    memberDesign: CreatureDesign,
+  ): CohortMember {
+    return {
+      creature,
+      genomeIndex,
+      weights,
+      brainDrives: new Array(shape.outputCount).fill(0),
+      brainAccumulator: 0,
+      lastObs: new Float32Array(shape.inputCount),
+      lastHidden: new Float32Array(shape.hiddenCount),
+      startX: avgJointX(creature),
+      fallTime: 0,
+      fell: false,
+      landed: false,
+      footLifts: 0,
+      planted: createFootLiftState(creature.joints.length),
+      muscleVisual: [],
+      peakHeight: 0,
+      airTime: 0,
+      airHeightIntegral: 0,
+      impactSpeed: 0,
+      airborneTravel: 0,
+      prevAvgX: avgJointX(creature),
+      uprightSum: 0,
+      uprightSteps: 0,
+      peakSpeed: 0,
+      peakDistance: 0,
+      regionAccum: emptyScoreRegionAccum(),
+      courseAccum: emptyCourseMarkerAccum([]),
+      stall: createStallTracker(),
+      memberDesign,
+      memberShape: shape,
+    };
+  }
+
+  private spawnBoxingLiveBatch(): void {
+    if (!this.world || !this.boxingLive) return;
+    this.clearCohort();
+    const live = this.boxingLive;
+    live.pairs = [];
+    const start = live.batchIndex * live.batchSize;
+    const count = Math.min(live.batchSize, live.popSize - start);
+    const spawn = resolveSpawn(this.environment);
+
+    if (this.outBuf.length < Math.max(live.shape.outputCount, live.opponentShape.outputCount)) {
+      this.outBuf = new Float32Array(
+        Math.max(live.shape.outputCount, live.opponentShape.outputCount),
+      );
+    }
+    if (this.hidBuf.length < Math.max(live.shape.hiddenCount, live.opponentShape.hiddenCount)) {
+      this.hidBuf = new Float32Array(
+        Math.max(live.shape.hiddenCount, live.opponentShape.hiddenCount),
+      );
+    }
+    if (this.obsBuf.length < BOXING_OBS_COUNT) {
+      this.obsBuf = new Float32Array(BOXING_OBS_COUNT);
+    }
+
+    for (let i = 0; i < count; i++) {
+      const genomeIndex = start + i;
+      const genome = live.population[genomeIndex]!;
+      const centerX = i * BOXING_TRAIN_PAIR_GAP;
+      const traineeDesign = cloneDesign(live.design);
+      const sparringDesign = mirrorBoxingDesign(live.opponentDesign);
+      const traineeCreature = this.spawnCreatureWithGrip(traineeDesign, {
+        x: centerX - BOXING_SPAWN_X,
+        y: spawn.y,
+      });
+      const sparringCreature = this.spawnCreatureWithGrip(sparringDesign, {
+        x: centerX + BOXING_SPAWN_X,
+        y: spawn.y,
+      });
+      enableBoxingOpponentContact(traineeCreature, 0);
+      enableBoxingOpponentContact(sparringCreature, 1);
+      const trainee = this.makeBoxingCohortMember(
+        traineeCreature,
+        genomeIndex,
+        genome.weights,
+        live.shape,
+        traineeDesign,
+      );
+      const sparring = this.makeBoxingCohortMember(
+        sparringCreature,
+        -1,
+        live.opponentWeights,
+        live.opponentShape,
+        sparringDesign,
+      );
+      const probes: [BoxingProbeSet, BoxingProbeSet] = [
+        createBoxingProbes(this.world, traineeCreature, 0),
+        createBoxingProbes(this.world, sparringCreature, 1),
+      ];
+      this.cohort.push(trainee, sparring);
+      live.pairs.push({
+        genomeIndex,
+        trainee,
+        sparring,
+        probes,
+        hitTracker: createBoxingHitTracker(),
+        score: createBoxingMatchScore(live.divisionId),
+        behavior: createBoxingBehaviorMetrics(),
+      });
+    }
+
+    live.episodeT = 0;
+    live.focusIndex = 0;
+    this.time = 0;
+    this.accumulator = 0;
+    live.status = `Boxing spar · round ${live.generation} · batch ${live.batchIndex + 1}/${live.batchCount}`;
+  }
+
+  private physicsStepBoxingLive(dt: number): void {
+    if (!this.world || !this.boxingLive || this.boxingLive.pairs.length === 0) {
+      return;
+    }
+    const live = this.boxingLive;
+
+    for (const pair of live.pairs) {
+      this.tickBoxingPairMember(
+        pair.trainee,
+        pair.sparring,
+        pair.score,
+        0,
+        live.episodeT,
+        live.episodeDuration,
+        dt,
+      );
+      this.tickBoxingPairMember(
+        pair.sparring,
+        pair.trainee,
+        pair.score,
+        1,
+        live.episodeT,
+        live.episodeDuration,
+        dt,
+      );
+      for (const member of [pair.trainee, pair.sparring]) {
+        const shape = member.memberShape;
+        const memberDesign = member.memberDesign;
+        if (!shape || !memberDesign) continue;
+        const muscleDrives = expandChannelDrives(
+          memberDesign.muscles,
+          member.brainDrives,
+        );
+        resetCreatureForces(member.creature);
+        applyMuscleForces(
+          member.creature.muscles,
+          muscleDrives,
+          member.muscleVisual,
+        );
+        applyExtraForces(member.creature, memberDesign, member.brainDrives, {
+          skipAero: true,
+        });
+      }
+    }
+
+    for (const member of this.cohort) {
+      syncCreatureSoftCcd(member.creature);
+    }
+    this.world.timestep = dt;
+    this.world.step();
+    this.time += dt;
+    live.episodeT += dt;
+
+    const terrain = this.activeTerrain();
+    for (const pair of live.pairs) {
+      const events = detectBoxingHits(
+        this.world,
+        pair.probes,
+        pair.hitTracker,
+        live.episodeT,
+      );
+      pair.score.fighters[0].attempts = pair.hitTracker.attempts[0];
+      pair.score.fighters[1].attempts = pair.hitTracker.attempts[1];
+      for (const event of events) recordBoxingHit(pair.score, event);
+      updateBoxingBehaviorMetrics(
+        pair.behavior,
+        pair.trainee.creature,
+        pair.sparring.creature,
+        pair.hitTracker.attempts,
+        dt,
+      );
+      for (const member of [pair.trainee, pair.sparring]) {
+        applyPlantSlideBrake(
+          member.creature,
+          terrain,
+          this.world,
+          this.envObstacles,
+          this.antiScoot,
+        );
+        member.uprightSum += instantUprightQuality(member.creature);
+        member.uprightSteps++;
+      }
+    }
+
+    const tickHz = Math.floor(live.episodeT * 4);
+    const prevTickHz = Math.floor((live.episodeT - dt) * 4);
+    if (tickHz !== prevTickHz) {
+      this.emitBoxingLiveProgress();
+    }
+    if (live.episodeT < live.episodeDuration) return;
+    this.finishBoxingLiveBatch();
+  }
+
+  private tickBoxingPairMember(
+    member: CohortMember,
+    opponent: CohortMember,
+    score: BoxingMatchScore,
+    memberOwner: BoxingOwner,
+    episodeT: number,
+    episodeDuration: number,
+    dt: number,
+  ): void {
+    const shape = member.memberShape;
+    if (!shape || shape.inputCount !== BOXING_OBS_COUNT) return;
+    const brainDt = this.brainDt;
+    member.brainAccumulator += dt;
+    while (member.brainAccumulator >= brainDt) {
+      member.brainAccumulator -= brainDt;
+      if (this.obsBuf.length < BOXING_OBS_COUNT) {
+        this.obsBuf = new Float32Array(BOXING_OBS_COUNT);
+      }
+      if (this.outBuf.length < shape.outputCount) {
+        this.outBuf = new Float32Array(shape.outputCount);
+      }
+      if (this.hidBuf.length < shape.hiddenCount) {
+        this.hidBuf = new Float32Array(shape.hiddenCount);
+      }
+      const ownPoints = score.fighters[memberOwner].points;
+      const opponentPoints =
+        score.fighters[memberOwner === 0 ? 1 : 0].points;
+      buildBoxingObservations(
+        member.creature,
+        opponent.creature,
+        ownPoints,
+        opponentPoints,
+        1 - episodeT / episodeDuration,
+        episodeT,
+        this.obsBuf,
+      );
+      const outs = evaluateNetwork(
+        shape,
+        member.weights,
+        this.obsBuf,
+        this.outBuf,
+        this.hidBuf,
+      );
+      member.lastObs.set(this.obsBuf.subarray(0, shape.inputCount));
+      member.lastHidden.set(this.hidBuf.subarray(0, shape.hiddenCount));
+      for (let i = 0; i < member.brainDrives.length; i++) {
+        member.brainDrives[i] = outs[i] ?? 0;
+      }
+    }
+  }
+
+  private finishBoxingLiveBatch(): void {
+    const live = this.boxingLive;
+    if (!live) return;
+
+    for (const pair of live.pairs) {
+      const uprightTrainee =
+        pair.trainee.uprightSteps > 0
+          ? pair.trainee.uprightSum / pair.trainee.uprightSteps
+          : 0;
+      const uprightSpar =
+        pair.sparring.uprightSteps > 0
+          ? pair.sparring.uprightSum / pair.sparring.uprightSteps
+          : 0;
+      const points = pair.score.fighters.map((f) => f.points) as [
+        number,
+        number,
+      ];
+      const winner: BoxingOwner | null =
+        points[0] === points[1] ? null : points[0] > points[1] ? 0 : 1;
+      const result = {
+        score: pair.score,
+        winner,
+        upright: [uprightTrainee, uprightSpar] as [number, number],
+        behavior: pair.behavior,
+        episodeDuration: live.episodeDuration,
+      };
+      const fitness = computeBoxingTrainingFitness(result, live.priorities).fitness;
+      live.population[pair.genomeIndex]!.fitness = fitness;
+      if (fitness > live.bestOverall.fitness) {
+        live.bestOverall = {
+          weights: cloneWeights(live.population[pair.genomeIndex]!.weights),
+          fitness,
+        };
+      }
+    }
+
+    const evaluated = Math.min(
+      (live.batchIndex + 1) * live.batchSize,
+      live.popSize,
+    );
+    live.displayMeanFitness = meanFitness(live.population.slice(0, evaluated));
+
+    if (live.stopRequested) {
+      this.endBoxingLiveEvolve('Stopped — use Play best');
+      return;
+    }
+
+    if (live.batchIndex + 1 < live.batchCount) {
+      live.batchIndex += 1;
+      live.status = `Boxing spar · round ${live.generation} · batch ${live.batchIndex + 1}/${live.batchCount}`;
+      this.spawnBoxingLiveBatch();
+      this.emitBoxingLiveProgress(evaluated);
+      return;
+    }
+
+    live.population.sort((a, b) => b.fitness - a.fitness);
+    live.status = `Round ${live.generation} done · best ${live.population[0]!.fitness.toFixed(3)}`;
+    this.emitBoxingLiveProgress(live.popSize);
+
+    if (live.generation + 1 >= live.maxGenerations) {
+      this.endBoxingLiveEvolve('Done — use Play best');
+      return;
+    }
+
+    live.population = breedNextGeneration(
+      live.population,
+      live.popSize,
+      live.rng,
+      {
+        eliteCount: live.breed.eliteCount,
+        tournamentSize: live.breed.tournamentSize,
+        mutationSigma: live.breed.mutationSigma,
+        mutationResetRate: live.breed.mutationResetRate,
+        crossover: live.breed.crossover,
+      },
+    );
+    live.generation += 1;
+    live.batchIndex = 0;
+    live.batchCount = Math.ceil(live.popSize / live.batchSize);
+    live.status = `Boxing spar · round ${live.generation} · batch 1/${live.batchCount}`;
+    this.spawnBoxingLiveBatch();
+    this.emitBoxingLiveProgress(0);
+  }
+
+  private emitBoxingLiveProgress(evaluatedOverride?: number): void {
+    const live = this.boxingLive;
+    if (!live) return;
+    const evaluated =
+      evaluatedOverride ??
+      Math.min(
+        live.batchIndex * live.batchSize +
+          Math.max(0, live.pairs.length),
+        live.popSize,
+      );
+    // During an active episode, count completed genomes only (prior batches).
+    const scored =
+      evaluatedOverride !== undefined
+        ? evaluatedOverride
+        : Math.min(live.batchIndex * live.batchSize, live.popSize);
+    live.onProgress?.({
+      generation: live.generation,
+      evaluated: scored,
+      populationSize: live.popSize,
+      bestFitness:
+        live.bestOverall.fitness === -Infinity ? 0 : live.bestOverall.fitness,
+      meanFitness: live.displayMeanFitness,
+      running: true,
+      status: live.status,
+      batch: live.batchIndex + 1,
+      batchCount: live.batchCount,
+      focusIndex: live.focusIndex,
+      cohortSize: live.pairs.length,
+      episodeT: live.episodeT,
+      episodeDuration: live.episodeDuration,
+    });
+  }
+
+  private endBoxingLiveEvolve(status: string): void {
+    const live = this.boxingLive;
+    if (!live) return;
+    const best = live.bestOverall;
+    const shape = live.shape;
+    const design = live.design;
+    const onFinished = live.onFinished;
+    const onProgress = live.onProgress;
+    this.clearCohort();
+    this.boxingLive = null;
+    this.restoreControllerRateAfterBoxing();
+    if (this.world) {
+      this.creature = this.spawnCreatureWithGrip(
+        design,
+        resolveSpawn(this.environment),
+      );
+      this.design = design;
+      this.manualDrives = zeroActuatorDrives(design);
+      this.brainDrives = zeroActuatorDrives(design);
+    }
+    this.driveMode = 'idle';
+    this.time = 0;
+    this.accumulator = 0;
+    onProgress?.({
+      generation: live.generation,
+      evaluated: live.popSize,
+      populationSize: live.popSize,
+      bestFitness: best.fitness === -Infinity ? 0 : best.fitness,
+      meanFitness: live.displayMeanFitness,
+      running: false,
+      status,
+      batch: live.batchCount,
+      batchCount: live.batchCount,
+      episodeT: 0,
+      episodeDuration: live.episodeDuration,
+    });
+    if (best.fitness > -Infinity) {
+      onFinished?.(best, shape);
+    }
   }
 
   private physicsStepHeadToHead(dt: number): void {
@@ -3359,6 +4091,22 @@ export class Simulation {
    * UI should read them each frame and not retain them across sessions.
    */
   private probeFocusedBrain(): LiveBrainProbe | null {
+    if (this.boxingLive && this.boxingLive.pairs.length > 0) {
+      const focus = Math.min(
+        this.boxingLive.focusIndex,
+        Math.max(0, this.boxingLive.pairs.length - 1),
+      );
+      const member = this.boxingLive.pairs[focus]!.trainee;
+      return {
+        shape: this.boxingLive.shape,
+        weights: member.weights,
+        inputs: member.lastObs,
+        outputs: Float32Array.from(member.brainDrives),
+        hidden: member.lastHidden,
+        genomeIndex: member.genomeIndex,
+        focusIndex: focus,
+      };
+    }
     if (this.live && this.cohort.length > 0) {
       const focus = Math.min(
         this.live.focusIndex,
@@ -3367,6 +4115,27 @@ export class Simulation {
       const member = this.cohort[focus];
       return {
         shape: this.live.shape,
+        weights: member.weights,
+        inputs: member.lastObs,
+        outputs: Float32Array.from(member.brainDrives),
+        hidden: member.lastHidden,
+        genomeIndex: member.genomeIndex,
+        focusIndex: focus,
+      };
+    }
+    if (
+      (this.isBoxingView() || this.isHeadToHeadView()) &&
+      this.cohort.length > 0
+    ) {
+      const focus = Math.min(
+        this.duelFocusIndex,
+        Math.max(0, Math.min(2, this.cohort.length) - 1),
+      );
+      const member = this.cohort[focus];
+      const shape = member.memberShape;
+      if (!shape || member.lastObs.length < shape.inputCount) return null;
+      return {
+        shape,
         weights: member.weights,
         inputs: member.lastObs,
         outputs: Float32Array.from(member.brainDrives),
@@ -3769,15 +4538,151 @@ export class Simulation {
       };
     }
 
+    if (this.boxingLive && this.boxingLive.pairs.length > 0) {
+      const live = this.boxingLive;
+      const pairFocus = Math.min(
+        live.focusIndex,
+        Math.max(0, live.pairs.length - 1),
+      );
+      const focusedPair = live.pairs[pairFocus]!;
+      const appearance = live.design.appearance;
+      const agents: AgentSnapshot[] = [];
+      if (this.showGhostPack) {
+        for (let pi = 0; pi < live.pairs.length; pi++) {
+          const pair = live.pairs[pi]!;
+          const pairFocused = pi === pairFocus;
+          const opacity = pairFocused ? 1 : GHOST_OPACITY;
+          agents.push(
+            agentFromCreature(
+              pair.trainee.creature,
+              pair.trainee.muscleVisual,
+              opacity,
+              pairFocused,
+              appearance,
+            ),
+            agentFromCreature(
+              pair.sparring.creature,
+              pair.sparring.muscleVisual,
+              opacity,
+              false,
+              pair.sparring.memberDesign?.appearance,
+            ),
+          );
+        }
+      } else {
+        agents.push(
+          agentFromCreature(
+            focusedPair.trainee.creature,
+            focusedPair.trainee.muscleVisual,
+            1,
+            true,
+            appearance,
+          ),
+          agentFromCreature(
+            focusedPair.sparring.creature,
+            focusedPair.sparring.muscleVisual,
+            1,
+            false,
+            focusedPair.sparring.memberDesign?.appearance,
+          ),
+        );
+      }
+      const tAgent = this.showGhostPack
+        ? agents[pairFocus * 2]!
+        : agents[0]!;
+      const sAgent = this.showGhostPack
+        ? agents[pairFocus * 2 + 1]!
+        : agents[1]!;
+      const c0 = this.agentCenter(tAgent);
+      const c1 = this.agentCenter(sAgent);
+      const focusX = (c0.x + c1.x) / 2;
+      const focusY = (c0.y + c1.y) / 2;
+      const focusedScore = focusedPair.score;
+      return {
+        joints: tAgent.joints,
+        bones: tAgent.bones,
+        struts: tAgent.struts,
+        muscles: tAgent.muscles,
+        time: this.time,
+        agents,
+        focusX,
+        focusY,
+        cameraFollow: true,
+        appearance,
+        task: 'boxing',
+        extrapolateDt: Math.min(this.accumulator, FIXED_DT),
+        brain: this.probeFocusedBrain(),
+        obstacles: this.envObstacles?.visuals ?? [],
+        terrain: this.activeTerrainVisual(),
+        tower: this.envTower?.visuals ?? [],
+        scoreRegions: activeScoreRegions(this.environment),
+        courseMarkers: activeCourseMarkers(this.environment),
+        theme: this.environment.theme,
+        liveStats: this.liveStatsFromMember(
+          focusedPair.trainee,
+          'boxing',
+          live.episodeT,
+        ),
+        lastEpisodeMetrics: this.lastEpisodeMetrics,
+        evolve: {
+          generation: live.generation,
+          evaluated: live.batchIndex * live.batchSize,
+          populationSize: live.popSize,
+          bestFitness:
+            live.bestOverall.fitness === -Infinity
+              ? 0
+              : live.bestOverall.fitness,
+          meanFitness: live.displayMeanFitness,
+          running: true,
+          status: live.status,
+          batch: live.batchIndex + 1,
+          batchCount: live.batchCount,
+          focusIndex: pairFocus,
+          cohortSize: live.pairs.length,
+          episodeT: live.episodeT,
+          episodeDuration: live.episodeDuration,
+        },
+        headToHead: null,
+        boxing: {
+          episodeT: live.episodeT,
+          episodeDuration: live.episodeDuration,
+          divisionId: live.divisionId,
+          ruleVersion: 1,
+          names: [
+            live.design.name || 'Trainee',
+            live.opponentDesign.name || 'Sparring',
+          ],
+          points: [
+            focusedScore.fighters[0].points,
+            focusedScore.fighters[1].points,
+          ],
+          hits: [
+            focusedScore.fighters[0].hits,
+            focusedScore.fighters[1].hits,
+          ],
+          lastHit: focusedScore.hits.at(-1) ?? null,
+          finished: false,
+          winner: null,
+        },
+        hideMuscles: this.hideMuscles,
+        hideBones: this.hideBones,
+        hideSolidStruts: this.hideSolidStruts,
+      };
+    }
+
     if (this.isHeadToHeadView() || this.isBoxingView()) {
       const boxing = this.boxingSnapshot();
       const task: TaskId = boxing ? 'boxing' : (this.h2h?.task ?? this.task);
+      const focus = Math.min(
+        this.duelFocusIndex,
+        Math.max(0, Math.min(2, this.cohort.length) - 1),
+      );
       const allAgents = this.cohort.slice(0, 2).map((m, i) =>
         agentFromCreature(
           m.creature,
           m.muscleVisual,
           1,
-          i === 0,
+          i === focus,
           m.memberDesign?.appearance,
         ),
       );
@@ -3786,19 +4691,20 @@ export class Simulation {
       const focusX = (c0.x + c1.x) / 2;
       const focusY = (c0.y + c1.y) / 2;
       return {
-        joints: allAgents[0].joints,
-        bones: allAgents[0].bones,
-        struts: allAgents[0].struts,
-        muscles: allAgents[0].muscles,
+        joints: allAgents[focus]?.joints ?? allAgents[0].joints,
+        bones: allAgents[focus]?.bones ?? allAgents[0].bones,
+        struts: allAgents[focus]?.struts ?? allAgents[0].struts,
+        muscles: allAgents[focus]?.muscles ?? allAgents[0].muscles,
         time: this.time,
         agents: allAgents,
         focusX,
         focusY,
         cameraFollow: true,
-        appearance: this.cohort[0].memberDesign?.appearance,
+        appearance: this.cohort[focus]?.memberDesign?.appearance
+          ?? this.cohort[0].memberDesign?.appearance,
         task,
         extrapolateDt: Math.min(this.accumulator, FIXED_DT),
-        brain: null,
+        brain: this.probeFocusedBrain(),
         obstacles: this.envObstacles?.visuals ?? [],
         terrain: this.activeTerrainVisual(),
         tower: this.envTower?.visuals ?? [],
@@ -3806,9 +4712,9 @@ export class Simulation {
         courseMarkers: activeCourseMarkers(this.environment),
         theme: this.environment.theme,
         liveStats: this.liveStatsFromMember(
-          this.cohort[0],
+          this.cohort[focus] ?? this.cohort[0],
           task,
-          this.h2h?.episodeT ?? 0,
+          boxing?.episodeT ?? this.h2h?.episodeT ?? 0,
         ),
         lastEpisodeMetrics: this.lastEpisodeMetrics,
         evolve: null,
