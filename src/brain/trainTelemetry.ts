@@ -1,5 +1,5 @@
 /**
- * D16 — Training telemetry log: capture gen-champion behavior over a window
+ * Training telemetry log: capture gen-champion behavior over a window
  * so a run can be inspected for what the body is, what elites did, and
  * recurring failure / reward patterns (including stall contact surfaces).
  */
@@ -45,7 +45,7 @@ export interface TrainTelemetryGenRow {
   scoreTerms: { label: string; value: string; note?: string }[];
   /** Stall / contact surface diagnostics for the gen champion. */
   stall?: StallDiagnostics | null;
-  /** D17 — soft morph summary for the gen champion. */
+  /** Soft morph summary for the gen champion. */
   morphSummary?: ReturnType<typeof summarizeMorphGenes> | null;
 }
 

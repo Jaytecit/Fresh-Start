@@ -48,10 +48,10 @@ export interface ObservationContext {
  * 2 velY            — mean joint linvel.y / VEL_SCALE
  * 3 angularVel      — mean bone angvel / ANG_VEL_SCALE
  * 4 rotation        — mean bone angle / π
- * 5 groundContacts  — fraction of joints near local surface (D7)
- * 6 footContacts    — fraction of foot joints near surface (D7)
- * 7 footClearance   — mean (footY - surfaceY) / FOOT_CLEARANCE_SCALE (D7)
- * 8 terrainGrade    — local slope / TERRAIN_GRADE_SCALE (D7 / G3)
+ * 5 groundContacts  — fraction of joints near local surface
+ * 6 footContacts    — fraction of foot joints near surface
+ * 7 footClearance   — mean (footY - surfaceY) / FOOT_CLEARANCE_SCALE
+ * 8 terrainGrade    — local slope / TERRAIN_GRADE_SCALE
  * 9 headHeight      — marked head Y / HEIGHT_SCALE (0 if unmarked)
  * 10 phaseSin       — sin(2π · PHASE_CLOCK_HZ · t)
  * 11 phaseCos       — cos(2π · PHASE_CLOCK_HZ · t)

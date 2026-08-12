@@ -1,6 +1,6 @@
-# Physics Firewall
+# Physics contract
 
-Fresh Start physics must remain correct and independent of the parent soft-body sandbox.
+Rapier is the sole integrator. Keep feel and determinism inside this contract.
 
 ## Must preserve
 
@@ -15,28 +15,26 @@ Fresh Start physics must remain correct and independent of the parent soft-body 
 | No unseeded `Math.random` on physics / brain eval path | `src/brain/network.ts` (seeded RNG) |
 | Feel gate stays green | `npm run smoke:feel` |
 
-## Hard exclude (parent)
+## Always
 
-Never copy and never use as physics design guidance:
+- New Rapier capabilities: write an ADR from `docs/CAPABILITY_ADR_TEMPLATE.md` first, then a smoke assertion.
+- Gate unfinished behavior behind `src/port/featureFlags.ts` (default off until the slice is ready).
+- Extend collision groups only by deliberately adding bits to the spawn/world scheme.
+- After physics-adjacent changes, run `npm run smoke:all`.
 
-- `physics.ts`, `physicsConstants.ts`, `aero.ts`, `hingeStops.ts`, `solidSegments.ts`
-- Parent terrain collision math, reward/capability physics formulas, `paraPilot` physics gates
-- `neat.ts` (learning stack decision: keep Fresh Start MLP + GA)
-- Decision logs, flight audits, calibration JSON, parent physics smoke/calibrate scripts
-- Any parent notes/rules that would retune Fresh Start feel
+## Never
 
-## Allowed when porting a marked feature
+- Step Rapier with variable/render dt, or bypass the fixed-dt accumulator.
+- Scatter new physics magic numbers outside `src/physics/constants.ts`.
+- Apply muscle/world forces without `resetForces`/`resetTorques` each physics step.
+- Introduce unseeded `Math.random` on physics or brain evaluation paths.
 
-- Product behavior, UX flows, data-shape *ideas*, asset catalogs
-- Rewrite against Fresh Start types and Rapier APIs only
-- New Rapier capabilities only after a Fresh Start ADR (`docs/CAPABILITY_ADR_TEMPLATE.md`) and a new smoke assertion
+Learning stays a fixed **MLP + genetic algorithm** (dance also uses SGD imitation). Do not replace that stack as the default.
 
 ## Regression bar
-
-Before merging any physics-adjacent change:
 
 ```bash
 npm run smoke:all
 ```
 
-That runs firewall invariants, feel, and evolve gates.
+That runs firewall invariants, feel, evolve, tasks, and feature smokes.

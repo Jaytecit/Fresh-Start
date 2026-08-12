@@ -377,6 +377,49 @@ body,
   padding: 0.28rem 0.45rem;
 }
 
+.creatures-skill-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+  max-height: min(62vh, 36rem);
+  overflow-y: auto;
+}
+
+.creatures-skill-group .subhead {
+  margin-bottom: 0.2rem;
+}
+
+.creatures-skill-sub {
+  margin: 0.25rem 0 0.1rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.creatures-skill-empty {
+  margin: 0 0 0.15rem;
+  font-size: 0.75rem;
+}
+
+.creatures-skill-group .creatures-picker-list {
+  max-height: none;
+}
+
+.creatures-category-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+}
+
+.creatures-category-row select {
+  flex: 1;
+  min-width: 0;
+}
+
 .creatures-detail {
   min-width: 0;
   padding: 0.75rem 0.9rem;

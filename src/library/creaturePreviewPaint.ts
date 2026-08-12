@@ -85,7 +85,8 @@ export function paintCreaturePreview(
     const r = j.isWheel ? 5.5 : j.isFoot ? 5 : 4;
     ctx.beginPath();
     ctx.arc(mapX(j.x), mapY(j.y), r, 0, Math.PI * 2);
-    if (j.isGlove) ctx.fillStyle = 'rgba(211, 95, 85, 0.95)';
+    if (j.isLance) ctx.fillStyle = 'rgba(196, 163, 90, 0.95)';
+    else if (j.isGlove) ctx.fillStyle = 'rgba(211, 95, 85, 0.95)';
     else if (j.isHitTarget) ctx.fillStyle = 'rgba(224, 184, 90, 0.95)';
     else if (j.isFoot) ctx.fillStyle = 'rgba(90, 200, 140, 0.95)';
     else if (j.isHead) ctx.fillStyle = 'rgba(230, 200, 90, 0.95)';

@@ -1,5 +1,5 @@
 /**
- * D7 deepen — optional Rapier raycast whiskers for loco observation packs.
+ * Optional Rapier raycast whiskers for loco observation packs.
  */
 import type { SpawnedCreature } from '../physics/spawn';
 import { RAPIER } from '../physics/world';

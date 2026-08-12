@@ -1,6 +1,6 @@
 /**
- * G1 — Static obstacles from Environment Studio designs (C2.1).
- * Fresh Start–native cuboid compositions; not parent geometry.
+ * Static obstacles from Environment Studio designs.
+ * Cuboid compositions per `ObstacleKind`.
  */
 import type { EnvObstacle, ObstacleKind } from '../env/types';
 import {

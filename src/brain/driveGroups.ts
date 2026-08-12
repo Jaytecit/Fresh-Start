@@ -1,8 +1,8 @@
 /**
- * C1.2 — Drive groups: collapse muscles that share a driveGroup into one
+ * Drive groups: collapse muscles that share a driveGroup into one
  * brain output channel, then expand channel drives back to per-muscle arrays.
  *
- * E6.5 / G6 — wheel joints append dedicated channels after muscle channels:
+ * Wheel joints append dedicated channels after muscle channels:
  *   [muscleCh0..muscleChN, wheel0..wheelM] in joint-array order.
  */
 import type { JointDef, MuscleDef } from '../creature/types';

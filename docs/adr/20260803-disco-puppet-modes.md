@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-H2 (Disco mode) — feel variants for testing; does not unlock new checklist rows.
-
 ## Goal
 
 Selectable disco-only body feels (Natural / Stiff strings / Marionette / Full puppet) so dancers can hold pose like puppets with muscles as strings, without changing Evolve/Edit physics.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Existing dynamic joint/bone bodies only (no new body types or collision groups)
 - Per mode: `RigidBody.setGravityScale`, `setLinearDamping`, `setAngularDamping` on disco dancers (and solo disco arena creature)
@@ -22,7 +18,6 @@ Selectable disco-only body feels (Natural / Stiff strings / Marionette / Full pu
 
 ## Explicit non-goals
 
-- Do not import parent soft-body puppet / hinge-stop solvers
 - Do not retune global `MUSCLE_SPRING` / `GRAVITY_Y` used by evolve
 - Do not step physics with variable/render dt
 

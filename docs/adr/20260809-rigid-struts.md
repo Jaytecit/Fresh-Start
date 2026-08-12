@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-G8 (rigid struts / links)
-
 ## Goal
 
 Authors can build solid frames (triangles, squares, trusses) without stacking many hinge-bones for “solidity.” Structural links must stay rigid at any authored angle while cutting Rapier body/hinge cost versus capsule bones.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies / colliders / joints / materials involved:
   - No new body types or colliders for struts
@@ -30,11 +26,10 @@ Authors can build solid frames (triangles, squares, trusses) without stacking ma
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body solver, aero tables, or feel tuning.
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
-- Do **not** port parent `solidSegments.ts` / plate mesh colliders (full plates deepen later)
-- G7 joint angular limits
+- No plate-mesh colliders (edge-only fixed joints; see `TASKS.md`)
+- No joint angular limits
 
 ## Smoke gate
 

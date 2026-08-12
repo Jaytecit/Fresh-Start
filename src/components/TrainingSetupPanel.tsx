@@ -1,5 +1,5 @@
 /**
- * D10–D12 — Training setup dock: recipes + knobs in compact columns.
+ * Training setup dock: recipes + knobs in compact columns.
  */
 import { useState, type ReactNode } from 'react';
 import {
@@ -26,7 +26,7 @@ interface Props {
   hasBestOfRun: boolean;
   savedBrainOptions: { id: string; name: string }[];
   onChange: (next: GaKnobSet) => void;
-  /** Show D12 schedule toggles. */
+  /** Show schedule toggles. */
   showSchedules?: boolean;
 }
 

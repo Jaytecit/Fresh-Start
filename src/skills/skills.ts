@@ -7,7 +7,8 @@ export type SkillId =
   | 'jumping'
   | 'free'
   | 'boxing'
-  | 'disco';
+  | 'disco'
+  | 'jousting';
 
 export interface SkillDef {
   id: SkillId;
@@ -26,6 +27,7 @@ export const SKILL_ORDER: SkillId[] = [
   'motor',
   'free',
   'boxing',
+  'jousting',
   'disco',
 ];
 
@@ -77,6 +79,15 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     description: 'Division-matched points fights using marked gloves and body targets.',
     accent: '#b85a4f',
     defaultTask: 'boxing',
+  },
+  jousting: {
+    id: 'jousting',
+    title: 'Jousting',
+    shortLabel: 'Joust',
+    description:
+      'Single-pass charges from opposite ends of a long lane. Scorecard: lance hit, stay up, unhorse, knockback.',
+    accent: '#c4a35a',
+    defaultTask: 'jousting',
   },
   disco: {
     id: 'disco',

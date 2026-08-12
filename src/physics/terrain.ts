@@ -1,5 +1,5 @@
 /**
- * G3 — Rapier heightfield from Environment Studio terrain (C2.3).
+ * Rapier heightfield from Environment Studio terrain.
  */
 import type { EnvTerrain } from '../env/types';
 import { terrainHeightsForRapier, terrainPolyline } from '../env/terrainMath';

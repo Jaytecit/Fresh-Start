@@ -45,6 +45,7 @@ export interface RuntimeJoint {
   isFoot?: boolean;
   isHead?: boolean;
   isGlove?: boolean;
+  isLance?: boolean;
   isHitTarget?: boolean;
   hitValue?: number;
   isWheel?: boolean;
@@ -188,6 +189,7 @@ export function spawnCreature(
       isFoot: j.isFoot,
       isHead: j.isHead,
       isGlove: j.isGlove,
+      isLance: j.isLance,
       isHitTarget: j.isHitTarget,
       hitValue: j.hitValue,
       isWheel: j.isWheel,

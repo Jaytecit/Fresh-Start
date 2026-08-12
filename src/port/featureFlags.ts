@@ -1,93 +1,93 @@
 /**
- * Feature flags for checklist-gated ports.
- * Enabled for currently marked checklist IDs.
+ * Runtime feature flags. Disabled flags hide UI and skip related spawn/eval paths.
  */
 export const featureFlags = {
-  /** A1.2 / A4 — googly eyes */
+  /** Googly eyes on joints. */
   googlyEyes: true,
-  /** A2 — sprite body-part library */
+  /** Sprite body-part library. */
   spriteBodyParts: true,
-  /** A5 — render lerp / velocity extrapolate between fixed physics ticks */
+  /** Render lerp / velocity extrapolate between fixed physics ticks. */
   visualPoseInterpolation: true,
-  /** A6 — sim axis rulers (edge-pinned height / distance) */
+  /** Sim axis rulers (edge-pinned height / distance). */
   simAxisRulers: true,
-  /** C2.7 deepen — parallax sky / clouds behind the sim */
+  /** Parallax sky / clouds behind the sim. */
   parallaxSky: true,
-  /** A7 — MLP network visualizer */
+  /** MLP network visualizer. */
   networkVisualizer: true,
-  /** A10 — skeleton vs cosmetics render modes */
+  /** Skeleton vs cosmetics render modes. */
   cosmeticsRenderModes: false,
 
-  /** B1 — zone tabs */
   /** Skill strip tabs (Walk / Jump / Fly / …). */
   skillTabs: true,
   /** @deprecated Use skillTabs */
   zoneTabs: true,
-  /** B3 — sandbox menu shell (left tabs + sim bottom dock) */
+  /** Sandbox menu shell (left tabs + sim bottom dock). */
   sandboxMenuShell: true,
-  /** B6 — stats panel */
+  /** Stats panel. */
   statsPanel: true,
-  /** B7 — control panel (D1 train/observe speeds) */
+  /** Train/observe speed controls. */
   controlPanel: true,
-  /** B9 — performance diagnostics */
+  /** Performance diagnostics. */
   performanceDiagnostics: true,
-  /** B11 — discovery / trophies UI */
+  /** Discovery / trophies UI. */
   discoveryUi: true,
-  /** B13 — creature library panel */
+  /** Creature library panel. */
   creatureLibrary: true,
-  /** B16 — immersive fullscreen */
+  /** Skill categories in the creature library (auto-place + valid moves). */
+  librarySkillCategories: true,
+  /** Immersive fullscreen. */
   immersiveFullscreen: true,
 
-  /** C1.11 — marquee multi-select + copy / mirror / scale / rotate */
+  /** Marquee multi-select + copy / mirror / scale / rotate. */
   editorMultiSelectTransforms: true,
-  /** C4 — share codes */
+  /** Share codes. */
   shareCodes: false,
-  /** C5 — JSON import/export */
+  /** JSON import/export. */
   jsonImportExport: true,
-  /** C6 — public share links (Vercel Blob / local share API) */
+  /** Public share links (Vercel Blob / local share API). */
   creatureSharing: true,
-  /** C7 — opt-in public creations library (catalog + Creatures gallery) */
+  /** Opt-in public creations library (catalog + Creatures gallery). */
   publicCreationsLibrary: true,
 
-  /** D2 — elite replay */
+  /** Elite replay. */
   eliteReplay: false,
-  /** D4 — best-ever ledger */
+  /** Best-ever ledger. */
   bestEverLedger: true,
-  /** D5 — saved models / continue training */
+  /** Saved models / continue training. */
   savedModels: true,
-  /** D9 — Train dock IA + plain labels */
+  /** Train dock IA + plain labels. */
   trainDockIa: true,
-  /** D10 — population / batch / mutation recipes */
+  /** Population / batch / mutation recipes. */
   trainRecipes: true,
-  /** D11 — start-from + selection advanced */
+  /** Start-from + selection advanced. */
   trainStartFrom: true,
-  /** D12 — annealing / adaptive try / crossover */
+  /** Annealing / adaptive try / crossover. */
   trainSchedules: true,
-  /** D13 — goal priorities + stage trainer */
+  /** Goal priorities + stage trainer. */
   goalPriorities: true,
-  /** D13 deepen — progressive course windows (Gauntlet spawn/finish stages) */
+  /** Progressive course windows (Gauntlet spawn/finish stages). */
   courseCurriculum: true,
   /**
-   * D7 deepen — optional Rapier raycast whiskers appended to loco observations.
+   * Optional Rapier raycast whiskers appended to loco observations.
    * UI toggle defaults off; incompatible with brains trained on base OBS_COUNT.
    */
   raycastObservations: true,
-  /** D14 — new experiences (demo teachers, rival ghost, mix goals, messy bodies) */
+  /** Practice extras (rival ghost, messy bodies). */
   trainExperiences: true,
-  /** D15 — shareable recipes / experiment packs */
+  /** Shareable recipes / experiment packs. */
   experimentPacks: true,
-  /** D16 — training telemetry log (gen-champion capture + insights) */
+  /** Training telemetry log (gen-champion capture + insights). */
   trainTelemetryLog: true,
-  /** D17 — soft morphology evolution (fixed topology morph genes) */
+  /** Soft morphology evolution (fixed topology morph genes). */
   morphEvolve: true,
-  /** D18 — grow/prune joints/bones/muscles (nested under morphEvolve) */
+  /** Grow/prune joints/bones/muscles (nested under morphEvolve). */
   structuralMorphEvolve: true,
 
-  /** E1 — goal catalog framework */
+  /** Goal catalog framework. */
   goalCatalog: true,
-  /** E5 — secret goal system */
+  /** Secret goal system. */
   secretGoals: true,
-  /** E6 task families */
+  /** Task families. */
   taskJump: true,
   taskClimb: true,
   taskMotor: true,
@@ -99,67 +99,69 @@ export const featureFlags = {
   taskHang: true,
   taskLongJump: true,
 
-  /** F1 — creature packages repository */
+  /** Creature packages repository. */
   creaturePackages: true,
-  /** F2 — finished models shelf */
+  /** Finished models shelf. */
   finishedModels: false,
-  /** F3 — bundled models */
+  /** Bundled models. */
   bundledModels: true,
-  /** F4 — environments repository */
+  /** Environments repository. */
   environmentsRepo: true,
 
-  /** G1 climb course (minimal for E6.3) */
+  /** Climb step course. */
   climbCourse: true,
-  /** G1 — static obstacles (C2.1 authored set) */
+  /** Static obstacles (authored set). */
   staticObstacles: true,
-  /** G3 — terrain heightfield (C2.3 authored) */
+  /** Terrain heightfield (authored). */
   terrainHeightfield: true,
-  /** E6.8 — task-owned rough terrain course (reuses G3 heightfield) */
+  /** Task-owned rough terrain course (reuses heightfield spawn). */
   roughTerrainCourse: true,
-  /** C2.4 — launch tower */
+  /** Launch tower. */
   launchTower: true,
-  /** C2.1 deepen — launch pad obstacle (contact → authored apex boost) */
+  /** Launch pad obstacle (contact → authored apex boost). */
   launchPads: true,
-  /** C2.9 — score regions (penalty / reward AABBs, time-in-zone) */
+  /** Score regions (penalty / reward AABBs, time-in-zone). */
   scoreRegions: true,
-  /** C2.9 deepen — end individual try once a landing region credits */
+  /** End individual try once a landing region credits. */
   endEpisodeOnLanding: true,
-  /** C2.10 — start / finish / checkpoint course markers (score-only) */
+  /** Start / finish / checkpoint course markers (score-only). */
   courseMarkers: true,
-  /** G4 — world objects ball/box/hoop (Rapier) */
+  /** Movable world objects (ball/box/hoop). */
   worldObjects: false,
-  /** G6 — wheels / motor wheels (Rapier) — unlocked by E6.5 */
+  /** Wheels / motor wheels. */
   motorWheels: true,
-  /** G7 — joint angular limits (Rapier) */
+  /** Joint angular limits. */
   jointAngularLimits: false,
-  /** G8 — rigid struts / solid connectors (fixed joint, no capsule) */
+  /** Rigid struts / solid connectors (fixed joint, no capsule). */
   rigidStruts: true,
-  /** G9 — aero-like forces (Rapier) — unlocked by E6.6 */
+  /** Area lift/drag forces. */
   aeroLikeForces: true,
-  /** G10 — structural aero part types (wing / glider / parachute) */
+  /** Structural aero part types (wing / glider / parachute). */
   structuralAeroParts: true,
-  /** G10 / C1.8 deepen — inflation-driven parachute bone canopy morph (cosmetic) */
+  /** Inflation-driven parachute bone canopy morph (cosmetic). */
   parachuteCanopyVisual: true,
 
-  /** H1/H2 — disco mode + audio */
+  /** Disco mode + audio. */
   discoMode: true,
-  /** H5 — multi-dancer disco (up to 6 models) */
+  /** Multi-dancer disco (up to 6 models). */
   multiDisco: true,
-  /** H6 — disco dance imitation / freestyle brain */
+  /** Disco dance imitation / freestyle brain. */
   discoDanceLearn: true,
-  /** H7 — multi-track dance curriculum (playlist, offline analysis, refine) */
+  /** Multi-track dance curriculum (playlist, offline analysis, refine). */
   discoDanceCurriculum: true,
-  /** H8 — named Disco stage setup save/load */
+  /** Named Disco stage setup save/load. */
   discoSetups: true,
-  /** H9 — cosmetic cloth garments (Verlet panels pinned to skeleton) */
+  /** Cosmetic cloth garments (Verlet panels pinned to skeleton). */
   cosmeticCloth: true,
 
-  /** I1 — arena championship shell */
+  /** Arena championship shell. */
   arenaChampionship: false,
-  /** I6 / B20 — Head-to-Head gauntlet (two models) */
+  /** Head-to-Head gauntlet (two models). */
   headToHead: true,
-  /** K1–K7 — dedicated Boxing skill. */
+  /** Dedicated Boxing skill. */
   boxingMode: true,
+  /** Dedicated Jousting skill (single-pass scorecard). */
+  joustingMode: true,
 } as const;
 
 export type FeatureFlag = keyof typeof featureFlags;

@@ -1,5 +1,5 @@
 /**
- * D13 — goal priority remapping (score mix only; no physics).
+ * Goal priority remapping (score mix only; no physics).
  */
 import { GOAL_PRIORITY_DISTANCE_SCALE } from './constants';
 import { isFlightTask, type TaskId } from './types';
@@ -45,7 +45,7 @@ const DISTANCE_TASKS: ReadonlySet<TaskId> = new Set<TaskId>([
  * - `dance` is imitation-trained, so no slider applies.
  */
 export function relevantPriorityKeys(task: TaskId): GoalPriorityKey[] {
-  if (task === 'dance' || task === 'boxing') return [];
+  if (task === 'dance' || task === 'boxing' || task === 'jousting') return [];
   const keys: GoalPriorityKey[] = [];
   if (DISTANCE_TASKS.has(task)) keys.push('distance');
   if (!isFlightTask(task) && task !== 'hang') keys.push('upright');
@@ -89,7 +89,7 @@ export function applyGoalPriorities(
   return Math.max(0, blended);
 }
 
-/** D13 stage trainer — optional auto goal chain. */
+/** Stage trainer — optional auto goal chain. */
 export interface StageTrainerStep {
   goalId: string;
   /** Fitness threshold to advance (opt-in). */

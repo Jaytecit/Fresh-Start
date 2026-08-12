@@ -1,7 +1,6 @@
 /**
- * Minimal climb course (E6.3) — static steps. Not full Environment Studio.
- * Authored world obstacles live in obstacles.ts (G1 / C2.1).
- * E6.8 rough course reuses G3 heightfield spawn.
+ * Climb step course (static boxes). Authored world obstacles live in obstacles.ts.
+ * Rough course reuses heightfield spawn.
  */
 import type { EnvTerrain } from '../env/types';
 import { makeSineTerrain } from '../env/terrainMath';
@@ -79,7 +78,10 @@ export function spawnMotorRampCourse(
   ]);
 }
 
-/** Motor Gap Cross — pit flanked by approach / landing slabs. */
+/**
+ * Motor Gap Cross — pit flanked by approach / landing slabs.
+ * Approach x=8–24, gap 24–36, landing x=36–52. Scoring uses MOTOR_GAP_PAST_X = 36.
+ */
 export function spawnMotorGapCourse(
   world: RAPIER.World,
   worldGrip: number = WORLD_GRIP,
@@ -137,7 +139,7 @@ export function destroyCourse(world: RAPIER.World, course: CourseHandle | null):
   course.bodies.length = 0;
 }
 
-/** Deterministic sine hills for the Rough goal (E6.8). */
+/** Deterministic sine hills for the Rough goal. */
 export function makeRoughCourseTerrain(): EnvTerrain {
   return makeSineTerrain({
     startX: ROUGH_COURSE_START_X,

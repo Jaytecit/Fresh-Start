@@ -3,11 +3,18 @@
  * No unseeded randomness (safe for eval / obs paths).
  */
 import {
+  TERRAIN_DEFAULT_AMPLITUDE,
+  TERRAIN_DEFAULT_END_X,
+  TERRAIN_DEFAULT_SAMPLES,
+  TERRAIN_DEFAULT_START_X,
+  TERRAIN_DEFAULT_WAVES,
   TERRAIN_GRADE_SCALE,
   TERRAIN_MAX_AMPLITUDE,
   TERRAIN_MAX_SAMPLES,
   TERRAIN_MAX_WIDTH,
+  TERRAIN_MAX_WAVES,
   TERRAIN_MIN_SAMPLES,
+  TERRAIN_MIN_WAVES,
   TERRAIN_MIN_WIDTH,
 } from '../physics/constants';
 import type { EnvTerrain } from './types';
@@ -39,7 +46,16 @@ export function clampTerrain(terrain: EnvTerrain): EnvTerrain {
     if (i < raw.length) samples.push(raw[i]);
     else samples.push(0);
   }
-  return { startX, endX, samples, amplitude };
+  const waves =
+    terrain.waves != null && Number.isFinite(terrain.waves)
+      ? Math.min(
+          TERRAIN_MAX_WAVES,
+          Math.max(TERRAIN_MIN_WAVES, terrain.waves),
+        )
+      : undefined;
+  return waves != null
+    ? { startX, endX, samples, amplitude, waves }
+    : { startX, endX, samples, amplitude };
 }
 
 /** World-space surface Y at x (0 outside span / empty). */
@@ -114,14 +130,124 @@ export function makeSineTerrain(opts?: {
     Math.max(TERRAIN_MIN_SAMPLES, opts?.sampleCount ?? 41),
   );
   const amplitude = opts?.amplitude ?? 6;
-  const waves = opts?.waves ?? 2.5;
+  const waves = Math.min(
+    TERRAIN_MAX_WAVES,
+    Math.max(TERRAIN_MIN_WAVES, opts?.waves ?? 2.5),
+  );
   const samples: number[] = [];
   for (let i = 0; i < n; i++) {
     const u = n === 1 ? 0 : i / (n - 1);
     // Unitless [0, 1] profile; amplitude applied at spawn/sample time.
     samples.push(0.5 + 0.45 * Math.sin(u * Math.PI * 2 * waves));
   }
-  return clampTerrain({ startX, endX, samples, amplitude });
+  return clampTerrain({ startX, endX, samples, amplitude, waves });
+}
+
+/** Flat drawable span for Environment Studio (no hills until painted). */
+export function blankTerrain(opts?: {
+  startX?: number;
+  endX?: number;
+  sampleCount?: number;
+  amplitude?: number;
+}): EnvTerrain {
+  const n = Math.min(
+    TERRAIN_MAX_SAMPLES,
+    Math.max(TERRAIN_MIN_SAMPLES, opts?.sampleCount ?? TERRAIN_DEFAULT_SAMPLES),
+  );
+  return clampTerrain({
+    startX: opts?.startX ?? TERRAIN_DEFAULT_START_X,
+    endX: opts?.endX ?? TERRAIN_DEFAULT_END_X,
+    amplitude: opts?.amplitude ?? TERRAIN_DEFAULT_AMPLITUDE,
+    samples: new Array(n).fill(0),
+  });
+}
+
+export function ensureTerrain(terrain: EnvTerrain | undefined): EnvTerrain {
+  return terrain ? clampTerrain(terrain) : blankTerrain();
+}
+
+function setSampleAt(
+  samples: number[],
+  index: number,
+  unit: number,
+): void {
+  const i = Math.max(0, Math.min(samples.length - 1, index));
+  samples[i] = Math.max(0, Math.min(1, unit));
+}
+
+/**
+ * Paint world-space height at x. Raises amplitude if the stroke is taller
+ * than the current scale. Drops `waves` so the profile is hand-authored.
+ */
+export function paintTerrainAt(
+  terrain: EnvTerrain,
+  x: number,
+  worldY: number,
+): EnvTerrain {
+  const t = clampTerrain(terrain);
+  const n = t.samples.length;
+  if (n < 2 || x < t.startX || x > t.endX) {
+    return { ...t, samples: t.samples.slice() };
+  }
+  const samples = t.samples.slice();
+  const y = Math.max(0, Number.isFinite(worldY) ? worldY : 0);
+  let amplitude = t.amplitude;
+  if (y > amplitude) {
+    const scale = amplitude > 1e-9 ? amplitude / y : 0;
+    for (let i = 0; i < samples.length; i++) samples[i] *= scale;
+    amplitude = y;
+  }
+  const u = (x - t.startX) / (t.endX - t.startX);
+  const idx = Math.round(u * (n - 1));
+  const unit = amplitude > 1e-9 ? y / amplitude : 0;
+  setSampleAt(samples, idx, unit);
+  return { startX: t.startX, endX: t.endX, samples, amplitude };
+}
+
+/** Paint a stroke between two world points so fast drags do not skip columns. */
+export function paintTerrainSegment(
+  terrain: EnvTerrain,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): EnvTerrain {
+  const t = clampTerrain(terrain);
+  const n = t.samples.length;
+  if (n < 2) return t;
+  const dx = x1 - x0;
+  const spacing = (t.endX - t.startX) / (n - 1);
+  const steps = Math.max(1, Math.ceil(Math.abs(dx) / Math.max(1e-6, spacing)));
+  let next = t;
+  for (let s = 0; s <= steps; s++) {
+    const u = s / steps;
+    next = paintTerrainAt(next, x0 + dx * u, y0 + (y1 - y0) * u);
+  }
+  return next;
+}
+
+export function setTerrainAmplitude(
+  terrain: EnvTerrain,
+  amplitude: number,
+): EnvTerrain {
+  const t = clampTerrain(terrain);
+  return clampTerrain({ ...t, amplitude });
+}
+
+export function studioSineTerrain(opts?: {
+  startX?: number;
+  endX?: number;
+  amplitude?: number;
+  waves?: number;
+  sampleCount?: number;
+}): EnvTerrain {
+  return makeSineTerrain({
+    startX: opts?.startX ?? TERRAIN_DEFAULT_START_X,
+    endX: opts?.endX ?? TERRAIN_DEFAULT_END_X,
+    amplitude: opts?.amplitude ?? TERRAIN_DEFAULT_AMPLITUDE,
+    waves: opts?.waves ?? TERRAIN_DEFAULT_WAVES,
+    sampleCount: opts?.sampleCount ?? TERRAIN_DEFAULT_SAMPLES,
+  });
 }
 
 export function resampleTerrain(terrain: EnvTerrain, sampleCount: number): EnvTerrain {

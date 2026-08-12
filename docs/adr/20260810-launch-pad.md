@@ -4,17 +4,13 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-C2.1 deepen (placeable `pad` obstacle; supports high travel / flight sandboxing)
-
 ## Goal
 
 Author a thin ground platform that, when a **foot** steps on the drawn slab, boosts the creature upward toward an **authored approximate apex** (ruler units, default ~180, builder range 100…1000) — for testing flight and reading parallax / height rulers. **Each pad fires once per episode/run** (other pads stay armed).
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
-- Fixed rigid body + single cuboid collider (same ground collision groups as other C2.1 obstacles)
+- Fixed rigid body + single cuboid collider (same ground collision groups as other static obstacles)
 - Friction / restitution: `WORLD_GRIP` / `GROUND_RESTITUTION` with Max friction combine
 - Size clamps: `LAUNCH_PAD_*` + shared `OBSTACLE_*` in `src/physics/constants.ts`
 - Authored `EnvObstacle.launchApex` (pad only); stored on `ObstacleVisual.launchApex` at spawn
@@ -28,9 +24,8 @@ Author a thin ground platform that, when a **foot** steps on the drawn slab, boo
 
 ## Explicit non-goals
 
-- Does not replace or activate C2.4 launch tower (static stem+deck)
-- No parent trampoline / spring tuning
-- No continuous force fields or pistons (G11 pruned)
+- Does not replace or activate the launch tower (static stem+deck)
+- No continuous force fields or pistons
 
 ## Smoke gate
 

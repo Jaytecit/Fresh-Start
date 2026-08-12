@@ -25,6 +25,12 @@ export interface BoxingModelMeta {
   brainHz: 30;
 }
 
+export interface JoustingModelMeta {
+  ruleVersion: 1;
+  obsPackVersion: 1;
+  brainHz: 30;
+}
+
 export interface SavedModel {
   id: string;
   name: string;
@@ -45,6 +51,10 @@ export interface SavedModel {
   boxingMeta?: BoxingModelMeta;
   /** Boxing keeps its marked fighter body beside the brain for exact resolution. */
   boxingDesign?: CreatureDesign;
+  /** L6 — observation compatibility for Jousting brains. */
+  joustingMeta?: JoustingModelMeta;
+  /** Jousting keeps its marked body beside the brain for exact resolution. */
+  joustingDesign?: CreatureDesign;
 }
 
 export function encodeWeights(weights: Float32Array): string {
@@ -94,6 +104,7 @@ export function saveModel(opts: {
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
   boxingMeta?: BoxingModelMeta;
+  joustingMeta?: JoustingModelMeta;
 }): SavedModel {
   const model: SavedModel = {
     id: `m_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
@@ -114,6 +125,8 @@ export function saveModel(opts: {
     ...(opts.danceMeta ? { danceMeta: { ...opts.danceMeta } } : {}),
     ...(opts.boxingMeta ? { boxingMeta: { ...opts.boxingMeta } } : {}),
     ...(opts.task === 'boxing' ? { boxingDesign: cloneDesign(opts.design) } : {}),
+    ...(opts.joustingMeta ? { joustingMeta: { ...opts.joustingMeta } } : {}),
+    ...(opts.task === 'jousting' ? { joustingDesign: cloneDesign(opts.design) } : {}),
   };
   const all = readAll();
   all.push(model);

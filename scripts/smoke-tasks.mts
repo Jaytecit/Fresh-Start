@@ -67,8 +67,11 @@ import {
 } from '../src/physics/tower.ts';
 import {
   makeSineTerrain,
+  paintTerrainAt,
   sampleTerrainGrade,
   sampleTerrainHeight,
+  setTerrainAmplitude,
+  studioSineTerrain,
 } from '../src/env/terrainMath.ts';
 import {
   countDesignActuatorChannels,
@@ -97,6 +100,7 @@ import {
   curriculumForPackageId,
   GAUNTLET_CURRICULUM,
 } from '../src/env/courseCurriculum.ts';
+import { gauntletEnv } from '../src/env/gauntletEnv.ts';
 import {
   courseRaceTime,
   emptyCourseMarkerAccum,
@@ -141,6 +145,7 @@ import {
   type EnvScoreRegion,
 } from '../src/env/types.ts';
 import {
+  MOTOR_GAP_PAST_X,
   SCORE_REGION_DEFAULT_PENALTY_RATE,
   SCORE_REGION_DEFAULT_REWARD_RATE,
   SPRINT_CHECKPOINT_BONUS,
@@ -751,6 +756,33 @@ async function assertTerrainHeightfield(): Promise<void> {
   console.log('terrain heightfield OK');
 }
 
+function assertTerrainPaint(): void {
+  const flat = studioSineTerrain({
+    startX: 0,
+    endX: 40,
+    amplitude: 2,
+    waves: 1,
+    sampleCount: 21,
+  });
+  assert(flat.waves === 1, 'studio sine stores waves');
+  const painted = paintTerrainAt(flat, 20, 5);
+  assert(painted.waves === undefined, 'paint drops procedural waves');
+  assert(painted.amplitude >= 5 - 1e-6, `paint raises amplitude, got ${painted.amplitude}`);
+  const mid = sampleTerrainHeight(painted, 20);
+  assert(mid > 4.5, `painted peak ~5, got ${mid}`);
+  const scaled = setTerrainAmplitude(painted, 10);
+  const mid2 = sampleTerrainHeight(scaled, 20);
+  assert(mid2 > mid * 1.5, `difficulty scales height ${mid} → ${mid2}`);
+  const rough = studioSineTerrain({ waves: 8, amplitude: 2, startX: 0, endX: 40 });
+  const mild = studioSineTerrain({ waves: 1, amplitude: 2, startX: 0, endX: 40 });
+  assert(rough.waves === 8 && mild.waves === 1, 'frequency stored on sine terrain');
+  assert(
+    rough.samples.some((s, i) => Math.abs(s - mild.samples[i]) > 0.05),
+    'frequency should change the sine profile',
+  );
+  console.log('terrain paint / procedural OK');
+}
+
 async function assertLaunchPad(): Promise<void> {
   assert(featureFlags.launchPads, 'launchPads flag should be on');
   assert(featureFlags.staticObstacles, 'staticObstacles flag should be on');
@@ -1009,6 +1041,10 @@ async function assertJumpTaskScores(): Promise<void> {
 
 async function assertMotorTorqueMoves(): Promise<void> {
   assert(featureFlags.motorWheels, 'motorWheels flag should be on');
+  assert(
+    MOTOR_GAP_PAST_X === 36,
+    'motor-gap credit starts at the landing slab (x=36), not the approach',
+  );
 
   const wheelsOnly = cloneDesign(MOTOR_CART);
   wheelsOnly.name = 'Wheels Only Cart';
@@ -1272,11 +1308,12 @@ function assertCatalogAndZones(): void {
   );
   const pngCount = countPngs(assets);
   assert(pngCount > 50, `expected body-part PNGs, got ${pngCount}`);
-  assert(ZONE_ORDER.length === 7, 'seven skills');
+  assert(ZONE_ORDER.length === 8, 'eight skills');
   assert(ZONES.walking.defaultTask === 'run', 'walking → run');
   assert(ZONES.jumping.defaultTask === 'jump', 'jumping → jump');
   assert(ZONES.disco.shortLabel === 'Disco', 'disco skill present');
   assert(ZONES.boxing.defaultTask === 'boxing', 'boxing skill present');
+  assert(ZONES.jousting.defaultTask === 'jousting', 'jousting skill present');
   assert(BUNDLED_MODELS.length >= 3, 'bundled models present');
   assert(GOAL_CATALOG.length >= 6, 'goal catalog has task families');
   assert(goalsForZone('walking').some((g) => g.id === 'run'), 'walking lists run');
@@ -1299,13 +1336,19 @@ function assertCatalogAndZones(): void {
   );
   assert(
     goalsForZone('free').length ===
-      GOAL_CATALOG.filter((g) => g.id !== 'dance' && g.id !== 'boxing').length,
-    'free lists solo evolve goals (excludes dance and boxing)',
+      GOAL_CATALOG.filter(
+        (g) => g.id !== 'dance' && g.id !== 'boxing' && g.id !== 'jousting',
+      ).length,
+    'free lists solo evolve goals (excludes dance, boxing, and jousting)',
   );
   assert(goalsForZone('disco').length === 0, 'disco has no evolve goals');
   assert(
     goalsForZone('boxing').some((g) => g.id === 'boxing'),
     'boxing lists points goal',
+  );
+  assert(
+    goalsForZone('jousting').some((g) => g.id === 'jousting'),
+    'jousting lists scorecard goal',
   );
   assert(
     GOAL_CATALOG.some((g) => g.id === 'dance'),
@@ -1950,11 +1993,29 @@ async function assertCourseMarkers(): Promise<void> {
     GAUNTLET_CURRICULUM.stages.length >= 4,
     'gauntlet has progressive stages',
   );
+  const gauntlet = gauntletEnv();
+  const stair = gauntlet.obstacles.find((o) => o.kind === 'stair');
+  const tower = gauntlet.tower;
+  const pit = gauntlet.obstacles.find((o) => o.kind === 'pit');
+  const courseFinish = (gauntlet.markers ?? []).find((m) => m.kind === 'finish');
+  assert(!!stair && !!tower && !!pit && !!courseFinish, 'gauntlet geometry');
   const stage0 = applyCourseCurriculumStage(GAUNTLET_CURRICULUM, 0);
+  const stageTower = applyCourseCurriculumStage(GAUNTLET_CURRICULUM, 1);
+  const stagePit = applyCourseCurriculumStage(GAUNTLET_CURRICULUM, 2);
   const stageFull = applyCourseCurriculumStage(GAUNTLET_CURRICULUM, 3);
+  const finishX = (env: typeof stage0) =>
+    (env.markers ?? []).find((m) => m.kind === 'finish')?.x;
   assert(
-    (stage0.markers ?? []).some((m) => m.kind === 'finish' && m.x === 40),
-    'stage 0 finish at stairs',
+    (finishX(stage0) ?? 0) >= stair!.x + stair!.w * 0.85,
+    'stage 0 finish at top of stairs',
+  );
+  assert(
+    Math.abs((finishX(stageTower) ?? 0) - tower!.x) < 1,
+    'stage 1 finish at tower',
+  );
+  assert(
+    (finishX(stagePit) ?? 0) > pit!.x + pit!.w / 2,
+    'stage 2 finish past pit center',
   );
   assert(
     (stage0.markers ?? []).filter((m) => m.kind === 'checkpoint').length === 0,
@@ -1966,7 +2027,7 @@ async function assertCourseMarkers(): Promise<void> {
     'full stage has no mid checkpoints',
   );
   assert(
-    (stageFull.markers ?? []).some((m) => m.kind === 'finish' && m.x === 130),
+    finishX(stageFull) === courseFinish!.x,
     'full stage finish at course end',
   );
   assert(stage0.spawn?.x === 0 && stage0.spawn?.y === 0, 'stage spawn at origin');
@@ -2019,7 +2080,7 @@ async function assertCourseMarkers(): Promise<void> {
     );
   }
   assert(
-    (stageFull.markers ?? []).some((m) => m.kind === 'finish' && m.x === 130),
+    finishX(stageFull) === courseFinish!.x,
     'full stage finish at course end',
   );
   const uiEnvs = listEnvironmentsForUi();
@@ -2252,6 +2313,7 @@ async function main(): Promise<void> {
   await assertStaticObstacles();
   await assertRampGrip();
   await assertTerrainHeightfield();
+  assertTerrainPaint();
   await assertLaunchTower();
   await assertLaunchPad();
   await assertSpecialistFlightGoals();

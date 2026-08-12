@@ -43,6 +43,21 @@ export const BOXING_MATCH_SECONDS = 45;
 /** Lateral gap between parallel training pairs (spatial isolation). */
 export const BOXING_TRAIN_PAIR_GAP = 80;
 
+/** L4/L5 — non-solving Jousting probe and lane constants. */
+export const JOUST_LANCE_PROBE_RADIUS = JOINT_RADIUS * 1.7;
+export const JOUST_TARGET_PROBE_RADIUS = JOINT_RADIUS * 1.65;
+export const JOUST_MIN_CLOSING_SPEED = 0.45;
+export const JOUST_MAX_POWER = 120;
+export const JOUST_HIT_COOLDOWN = 0.2;
+export const JOUST_SPAWN_X = 50;
+export const JOUST_LANE_HALF_WIDTH = 70;
+export const JOUST_LANE_WALL_WIDTH = 2;
+export const JOUST_LANE_WALL_HEIGHT = 18;
+export const JOUST_MAX_SECONDS = 12;
+export const JOUST_AFTERMATH_SECONDS = 2.5;
+/** Lateral gap between parallel joust training pairs (lane is long). */
+export const JOUST_TRAIN_PAIR_GAP = 220;
+
 /** SpringJoint-like restore toward rest length (Evolution: spring=1000, damper=50). */
 export const MUSCLE_SPRING = 360;
 export const MUSCLE_DAMPER = 24;
@@ -140,10 +155,10 @@ export const IDLE_PLANT_Y = PLANT_SLIDE_Y;
 /** @deprecated Use PLANT_SLIDE_BRAKE */
 export const IDLE_PLANT_BRAKE = PLANT_SLIDE_BRAKE;
 
-/** Motor wheel torque scale (E6.5) — applied as addTorque each fixed step. */
+/** Motor wheel torque scale — applied as addTorque each fixed step. */
 export const MOTOR_TORQUE_SCALE = 28;
 
-/** Aero-like coefficients (E6.6) — Fresh Start design, not parent tables. */
+/** Aero-like coefficients — area lift/drag when structural part type is omitted. */
 export const AERO_DRAG_COEFF = 0.55;
 export const AERO_LIFT_COEFF = 0.85;
 /**
@@ -154,7 +169,7 @@ export const AERO_LIFT_COEFF = 0.85;
 export const AERO_SPEED_FORCE_CAP = 48;
 
 /**
- * G10 wing — downstroke lift (world +Y) from descending wing speed.
+ * Wing — downstroke lift (world +Y) from descending wing speed.
  * Symmetric paddle pressure self-brakes flaps and cancels over a cycle;
  * this model only authorizes lift on the downstroke (feathered recovery).
  */
@@ -162,12 +177,12 @@ export const WING_FLAP_LIFT_COEFF = 18;
 /** Light residual paddle drag so wings still feel air both ways. */
 export const WING_PADDLE_DRAG_COEFF = 0.35;
 
-/** G10 glider — rigid sail AoA lift/drag. */
+/** Glider — rigid sail AoA lift/drag. */
 export const GLIDER_LIFT_COEFF = 1.05;
 export const GLIDER_DRAG_COEFF = 0.35;
 
 /**
- * G10 parachute — inflation drag (jointed canopy chain).
+ * Parachute — inflation drag (jointed canopy chain).
  * Inflates when cupped into relative wind; streams edge-on with low drag.
  */
 export const PARA_DRAG_COEFF = 2.4;
@@ -176,7 +191,7 @@ export const PARA_DEFLATE_RATE = 2.2;
 /** Residual drag scale when fully streamed (inflation ≈ 0). */
 export const PARA_STREAM_DRAG_SCALE = 0.08;
 
-/** G1 static obstacle size clamps (full widths before half-extents). */
+/** Static obstacle size clamps (full widths before half-extents). */
 export const OBSTACLE_MIN_SIZE = 0.6;
 /**
  * Authored env geometry max — large enough for Environment Studio’s 5× world
@@ -191,17 +206,25 @@ export const OBSTACLE_STAIR_STEPS = 4;
 /** Loop ring segment count (open at bottom). */
 export const OBSTACLE_LOOP_SEGMENTS = 10;
 
-/** G3 terrain heightfield clamps. */
+/** Terrain heightfield clamps. */
 export const TERRAIN_MIN_SAMPLES = 2;
 export const TERRAIN_MAX_SAMPLES = 512;
 export const TERRAIN_MIN_WIDTH = 5;
 export const TERRAIN_MAX_WIDTH = 10000;
 export const TERRAIN_MAX_AMPLITUDE = 1000;
+/** Environment Studio default drawable / sine span. */
+export const TERRAIN_DEFAULT_START_X = 0;
+export const TERRAIN_DEFAULT_END_X = 40;
+export const TERRAIN_DEFAULT_AMPLITUDE = 1.2;
+export const TERRAIN_DEFAULT_SAMPLES = 41;
+export const TERRAIN_DEFAULT_WAVES = 2.5;
+export const TERRAIN_MIN_WAVES = 0.5;
+export const TERRAIN_MAX_WAVES = 12;
 /** Obs[8] divisor — grade ≈ dy/dx / TERRAIN_GRADE_SCALE. */
 export const TERRAIN_GRADE_SCALE = 2;
 
 /**
- * E6.8 rough-terrain course (task-owned sine heightfield).
+ * Rough-terrain course (task-owned sine heightfield).
  * Starts ahead of typical spawn so the creature enters hills on flat ground.
  */
 export const ROUGH_COURSE_START_X = 15;
@@ -349,7 +372,7 @@ export function clampWheelMass(value: number): number {
   return Math.min(WHEEL_MASS_MAX, Math.max(WHEEL_MASS_MIN, value));
 }
 
-/** C2.4 launch tower clamps / proportions. */
+/** Launch tower clamps / proportions. */
 export const TOWER_MIN_BASE_W = 3;
 export const TOWER_MAX_BASE_W = 2000;
 export const TOWER_MIN_HEIGHT = 4;
@@ -360,7 +383,7 @@ export const TOWER_DECK_THICKNESS = 1.1;
 export const TOWER_STEM_WIDTH_RATIO = 0.42;
 
 /**
- * C2.1 launch pad — vertical boost.
+ * Launch pad — vertical boost.
  * Per-pad authored apex (ruler units) → VY = √(2|g|h) × damping compensation.
  * Builder slider clamps to [APEX_MIN, APEX_MAX]; default APEX_H.
  */

@@ -35,6 +35,7 @@ import {
   encodeWeights,
   type BoxingModelMeta,
   type DanceCurriculumMeta,
+  type JoustingModelMeta,
 } from './savedModels';
 
 export type JsonResult<T> =
@@ -58,6 +59,7 @@ export interface ModelExport {
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
   boxingMeta?: BoxingModelMeta;
+  joustingMeta?: JoustingModelMeta;
 }
 
 export interface EnvironmentExport {
@@ -90,6 +92,7 @@ const TASK_IDS: ReadonlySet<string> = new Set([
   'motor_hurdles',
   'motor_sprint',
   'boxing',
+  'jousting',
   'dance',
 ]);
 
@@ -106,6 +109,16 @@ function isBoxingModelMeta(v: unknown): v is BoxingModelMeta {
       meta.divisionId === 'open-frame') &&
     meta.ruleVersion === 1 &&
     meta.obsPackVersion === 2 &&
+    meta.brainHz === 30
+  );
+}
+
+function isJoustingModelMeta(v: unknown): v is JoustingModelMeta {
+  if (!v || typeof v !== 'object') return false;
+  const meta = v as Partial<JoustingModelMeta>;
+  return (
+    meta.ruleVersion === 1 &&
+    meta.obsPackVersion === 1 &&
     meta.brainHz === 30
   );
 }
@@ -139,6 +152,7 @@ export function exportModelJson(opts: {
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
   boxingMeta?: BoxingModelMeta;
+  joustingMeta?: JoustingModelMeta;
 }): string {
   const payload: ModelExport = {
     kind: 'freshstart-model',
@@ -151,6 +165,7 @@ export function exportModelJson(opts: {
     design: cloneDesign(opts.design),
     ...(opts.danceMeta ? { danceMeta: { ...opts.danceMeta } } : {}),
     ...(opts.boxingMeta ? { boxingMeta: { ...opts.boxingMeta } } : {}),
+    ...(opts.joustingMeta ? { joustingMeta: { ...opts.joustingMeta } } : {}),
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -164,6 +179,7 @@ export function importModelJson(raw: string): JsonResult<{
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
   boxingMeta?: BoxingModelMeta;
+  joustingMeta?: JoustingModelMeta;
 }> {
   try {
     const data = JSON.parse(raw) as Partial<ModelExport>;
@@ -183,6 +199,12 @@ export function importModelJson(raw: string): JsonResult<{
       return {
         ok: false,
         error: 'Invalid Boxing model JSON: incompatible division/brain metadata',
+      };
+    }
+    if (data.task === 'jousting' && !isJoustingModelMeta(data.joustingMeta)) {
+      return {
+        ok: false,
+        error: 'Invalid Jousting model JSON: incompatible brain metadata',
       };
     }
     if (
@@ -232,6 +254,7 @@ export function importModelJson(raw: string): JsonResult<{
         design: designResult.value,
         ...(data.danceMeta ? { danceMeta: { ...data.danceMeta } } : {}),
         ...(data.boxingMeta ? { boxingMeta: { ...data.boxingMeta } } : {}),
+        ...(data.joustingMeta ? { joustingMeta: { ...data.joustingMeta } } : {}),
       },
     };
   } catch (err) {
@@ -462,6 +485,9 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
         endX: rawT.endX,
         amplitude: rawT.amplitude,
         samples: rawT.samples.slice(),
+        ...(typeof rawT.waves === 'number' && Number.isFinite(rawT.waves)
+          ? { waves: rawT.waves }
+          : {}),
       };
     }
     let tower: EnvTower | undefined;

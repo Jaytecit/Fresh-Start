@@ -1,7 +1,8 @@
 /**
- * E5.2 — Morphology eligibility from Fresh Start design traits only.
+ * Morphology eligibility from design traits only.
  */
 import type { CreatureDesign } from '../creature/types';
+import { jointIsJoustTarget, jointIsLance } from '../jousting/marks';
 import type { SecretGoalDefinition } from './definitions';
 
 export interface MorphologyTraits {
@@ -10,6 +11,8 @@ export interface MorphologyTraits {
   headCount: number;
   gloveCount: number;
   hitTargetCount: number;
+  lanceCount: number;
+  joustTargetCount: number;
   hasAero: boolean;
   totalAeroArea: number;
 }
@@ -20,12 +23,19 @@ export function morphologyTraits(design: CreatureDesign): MorphologyTraits {
   let headCount = 0;
   let gloveCount = 0;
   let hitTargetCount = 0;
+  let lanceCount = 0;
+  let joustTargetCount = 0;
   for (const j of design.joints) {
     if (j.isFoot) footCount++;
     if (j.isWheel) wheelCount++;
     if (j.isHead) headCount++;
     if (j.isGlove) gloveCount++;
     if (j.isHitTarget) hitTargetCount++;
+    if (jointIsLance(j)) lanceCount++;
+  }
+  const explicitTargets = design.joints.some((j) => j.isHitTarget === true);
+  for (const j of design.joints) {
+    if (jointIsJoustTarget(j, explicitTargets)) joustTargetCount++;
   }
   let totalAeroArea = 0;
   for (const b of design.bones) {
@@ -37,6 +47,8 @@ export function morphologyTraits(design: CreatureDesign): MorphologyTraits {
     headCount,
     gloveCount,
     hitTargetCount,
+    lanceCount,
+    joustTargetCount,
     hasAero: totalAeroArea > 0.05,
     totalAeroArea,
   };

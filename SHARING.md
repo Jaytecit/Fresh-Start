@@ -1,4 +1,4 @@
-# Creature sharing (C6) & Public creations (C7)
+# Creature sharing & public creations
 
 Public **Share → link → preview → Open in Solemn Sandbox** for trained models, plus an opt-in **Public creations** library in the Creatures room.
 

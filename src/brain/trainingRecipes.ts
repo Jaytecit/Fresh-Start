@@ -1,5 +1,5 @@
 /**
- * D10/D11 — plain-language training recipes and GA knob presets.
+ * Plain-language training recipes and GA knob presets.
  * Physics-free: only brain/GA search parameters.
  */
 import {
@@ -38,7 +38,6 @@ export interface GaKnobSet {
   startFrom: StartFromMode;
   /** Settled when startFrom === 'saved'. */
   savedModelId: string | null;
-  /** D12 */
   annealMutation: boolean;
   shortTriesFirst: boolean;
   stopAfterFall: boolean;
@@ -288,7 +287,7 @@ export function saveGaKnobSet(knobs: GaKnobSet): void {
   }
 }
 
-/** D12 — anneal σ from exploratory → fine over generations. */
+/** Anneal σ from exploratory → fine over generations. */
 export function annealedMutationSigma(
   baseSigma: number,
   generation: number,
@@ -302,7 +301,7 @@ export function annealedMutationSigma(
   return start + (end - start) * t;
 }
 
-/** D12 — shorter episodes early, stretch later (never longer than base). */
+/** Shorter episodes early, stretch later (never longer than base). */
 export function adaptiveEpisodeSeconds(
   baseSeconds: number,
   generation: number,

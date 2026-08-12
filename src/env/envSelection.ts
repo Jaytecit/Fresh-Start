@@ -27,13 +27,15 @@ export type EnvTool =
   | 'checkpoint'
   | 'finish'
   | 'tower'
-  | 'spawn';
+  | 'spawn'
+  | 'terrain';
 
 export const PLACE_OBSTACLE_TOOLS: Exclude<
   EnvTool,
   | 'select'
   | 'tower'
   | 'spawn'
+  | 'terrain'
   | 'penalty'
   | 'reward'
   | 'landing'

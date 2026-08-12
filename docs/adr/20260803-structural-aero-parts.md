@@ -4,10 +4,6 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-G10, C1.8 (deepen), E6.6 (deepen). D6 multi-brain explicitly out of scope.
-
 ## Goal
 
 Author three structural aero part types on bones, driven by the normal single MLP + muscles (no deploy state machine, no multi-brain phases):
@@ -16,7 +12,7 @@ Author three structural aero part types on bones, driven by the normal single ML
 - **Glider** — rigid sail; lift from forward airspeed + pitch (AoA).
 - **Parachute** — jointed canopy chain; inflation drag when *descending* into a cupped canopy (strong on vertical fall, streams/deflates on horizontal motion so gait forward speed is not ruined).
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies / colliders / joints / materials involved:
   - Existing bone capsules + revolute impulse joints only.
@@ -34,9 +30,8 @@ Author three structural aero part types on bones, driven by the normal single ML
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body solver, aero tables, paraPilot gates, or flight-audit tuning.
 - No parachute deploy / packed state machine.
-- No multi-brain phase handoff (D6 deferred).
+- No multi-brain phase handoff (single MLP + muscles).
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
 
@@ -51,4 +46,4 @@ Author three structural aero part types on bones, driven by the normal single ML
 
 ## Rollback
 
-`featureFlags.structuralAeroParts` — when off, use legacy G9 lift/drag on any `aeroArea`.
+`featureFlags.structuralAeroParts` — when off, use legacy area lift/drag on any `aeroArea`.

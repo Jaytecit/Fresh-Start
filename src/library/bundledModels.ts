@@ -1,6 +1,6 @@
 /**
- * Default / bundled models library (F3).
- * Fresh Start–authored bodies only (from presets + Ulti Groove Bot II).
+ * Default / bundled models library.
+ * Authored bodies only (from presets + Ulti Groove Bot II).
  * Appearance starts empty — googly eyes are an opt-in joint add-on.
  */
 import { emptyAppearance, type AppearanceRig } from '../appearance/types';

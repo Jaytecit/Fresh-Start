@@ -6,9 +6,23 @@ import { cloneDesign, type CreatureDesign } from '../creature/types';
 import type { BestEverEntry } from '../library/bestEver';
 import { bodyFingerprint } from '../library/bestEver';
 import type { CreaturePackage } from '../library/creaturePackages';
-import { exportCreaturePackage } from '../library/creaturePackages';
+import {
+  exportCreaturePackage,
+  packageSkillOverride,
+} from '../library/creaturePackages';
 import { exportCreatureJson } from '../library/jsonIO';
 import type { SavedModel } from '../library/savedModels';
+import {
+  FLYING_SUBCATEGORIES,
+  SKILL_CATEGORIES,
+  inferSkillPlacement,
+  optionLabel,
+  placementKey,
+  resolveSkillPlacement,
+  validPlacementOptions,
+  type SkillCategoryId,
+  type SkillPlacement,
+} from '../library/skillCategories';
 import { isFeatureEnabled } from '../port/featureFlags';
 import { SECRET_GOALS } from '../secrets/definitions';
 import type { SecretGoalDiscovery } from '../secrets/progress';
@@ -53,6 +67,12 @@ interface Props {
   canShareModel?: boolean;
   /** C7 — open a public gallery share into the workspace. */
   onOpenPublicShare?: (id: string) => void;
+  presetSkillOverrides?: Record<string, SkillPlacement>;
+  currentSkillOverride?: SkillPlacement | null;
+  onSetSkillPlacement?: (
+    key: CreaturesBrowseKey,
+    placement: SkillPlacement | null,
+  ) => void;
 }
 
 function resolveBrowseDesign(
@@ -88,6 +108,39 @@ function resolveBrowseDesign(
   return null;
 }
 
+type LibraryEntry = {
+  key: CreaturesBrowseKey;
+  label: string;
+  kind: 'preset' | 'library';
+  design: CreatureDesign;
+  override: SkillPlacement | null;
+};
+
+function entryPlacement(entry: LibraryEntry): SkillPlacement {
+  return resolveSkillPlacement(entry.design, entry.override);
+}
+
+function groupedEntries(entries: LibraryEntry[]): Map<
+  SkillCategoryId,
+  Map<string, LibraryEntry[]>
+> {
+  const groups = new Map<SkillCategoryId, Map<string, LibraryEntry[]>>();
+  for (const cat of SKILL_CATEGORIES) {
+    groups.set(cat.id, new Map());
+  }
+  for (const entry of entries) {
+    const place = entryPlacement(entry);
+    const bucket = groups.get(place.category);
+    if (!bucket) continue;
+    const sub =
+      place.category === 'flying' ? place.flyingSub ?? 'glide' : '';
+    const list = bucket.get(sub) ?? [];
+    list.push(entry);
+    bucket.set(sub, list);
+  }
+  return groups;
+}
+
 /** Full-bleed creature database / management room. */
 export function CreaturesPanel({
   currentDesign,
@@ -108,6 +161,9 @@ export function CreaturesPanel({
   shareBusy = false,
   canShareModel = false,
   onOpenPublicShare,
+  presetSkillOverrides = {},
+  currentSkillOverride = null,
+  onSetSkillPlacement,
 }: Props) {
   const [browseKey, setBrowseKey] = useState<CreaturesBrowseKey>('current');
 
@@ -146,6 +202,50 @@ export function CreaturesPanel({
     : null;
 
   const pick = (key: CreaturesBrowseKey) => setBrowseKey(key);
+  const categorize = isFeatureEnabled('librarySkillCategories');
+
+  const libraryEntries = useMemo<LibraryEntry[]>(() => {
+    const presets: LibraryEntry[] = [...PRESETS, ...EXTRA_PRESETS].map(
+      (p) => ({
+        key: `preset:${p.name}` as const,
+        label: p.name,
+        kind: 'preset' as const,
+        design: p,
+        override: presetSkillOverrides[p.name] ?? null,
+      }),
+    );
+    const saved: LibraryEntry[] = isFeatureEnabled('creaturePackages')
+      ? packages.map((pkg) => ({
+          key: `pkg:${pkg.id}` as const,
+          label: isFeatureEnabled('creatureLibrary')
+            ? `${pkg.displayName} (r${pkg.revision})`
+            : pkg.displayName,
+          kind: 'library' as const,
+          design: pkg.design,
+          override: packageSkillOverride(pkg),
+        }))
+      : [];
+    return [...presets, ...saved];
+  }, [packages, presetSkillOverrides]);
+
+  const groups = useMemo(
+    () => groupedEntries(libraryEntries),
+    [libraryEntries],
+  );
+
+  const selectedOverride = browseKey === 'current'
+    ? currentSkillOverride
+    : browseKey.startsWith('preset:')
+      ? presetSkillOverrides[browseKey.slice('preset:'.length)] ?? null
+      : selectedPkg
+        ? packageSkillOverride(selectedPkg)
+        : null;
+  const selectedPlacement = resolveSkillPlacement(
+    selectedDesign,
+    selectedOverride,
+  );
+  const inferredPlacement = inferSkillPlacement(selectedDesign);
+  const categoryOptions = validPlacementOptions(selectedDesign);
 
   return (
     <div className="creatures-room">
@@ -154,9 +254,9 @@ export function CreaturesPanel({
           <p className="creatures-room-eyebrow">Solemn Sandbox</p>
           <h1>Creature Library</h1>
           <p className="creatures-room-lede">
-            Browse bodies, stats, saved brains, and achievements. Import or
-            export designs here; open one in the editor to change it. Train still
-            runs live sessions.
+            Browse bodies by skill, inspect stats, and manage saved brains.
+            Disco is a manual category — move a dancer there yourself. Open a
+            body in the editor to change it. Train still runs live sessions.
           </p>
         </div>
       </header>
@@ -174,47 +274,116 @@ export function CreaturesPanel({
             </button>
           </div>
 
-          <h3 className="subhead">Presets</h3>
-          <div className="button-col creatures-picker-list">
-            {[...PRESETS, ...EXTRA_PRESETS].map((p) => {
-              const key = `preset:${p.name}` as const;
-              return (
-                <button
-                  key={p.name}
-                  type="button"
-                  className={browseKey === key ? 'active' : ''}
-                  onClick={() => pick(key)}
-                >
-                  {p.name}
-                </button>
-              );
-            })}
-          </div>
-
-          {isFeatureEnabled('creaturePackages') && (
+          {categorize ? (
+            <div className="creatures-skill-groups">
+              {SKILL_CATEGORIES.map((cat) => {
+                const bucket = groups.get(cat.id);
+                const flying =
+                  cat.id === 'flying'
+                    ? FLYING_SUBCATEGORIES.map((sub) => ({
+                        sub: sub.id,
+                        label: sub.label,
+                        items: bucket?.get(sub.id) ?? [],
+                      }))
+                    : [{ sub: '', label: '', items: bucket?.get('') ?? [] }];
+                const total = flying.reduce((n, g) => n + g.items.length, 0);
+                return (
+                  <div key={cat.id} className="creatures-skill-group">
+                    <h3 className="subhead" title={cat.hint}>
+                      {cat.label}
+                      <span className="hint muted"> · {total}</span>
+                    </h3>
+                    {total === 0 ? (
+                      <p className="hint muted creatures-skill-empty">
+                        {cat.id === 'disco'
+                          ? 'Move a body here to dance with it.'
+                          : 'None yet.'}
+                      </p>
+                    ) : cat.id === 'flying' ? (
+                      flying.map((g) =>
+                        g.items.length === 0 ? null : (
+                          <div key={g.sub}>
+                            <p className="creatures-skill-sub">{g.label}</p>
+                            <div className="button-col creatures-picker-list">
+                              {g.items.map((entry) => (
+                                <button
+                                  key={entry.key}
+                                  type="button"
+                                  className={
+                                    browseKey === entry.key ? 'active' : ''
+                                  }
+                                  onClick={() => pick(entry.key)}
+                                >
+                                  {entry.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ),
+                      )
+                    ) : (
+                      <div className="button-col creatures-picker-list">
+                        {flying[0].items.map((entry) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            className={browseKey === entry.key ? 'active' : ''}
+                            onClick={() => pick(entry.key)}
+                          >
+                            {entry.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
             <>
-              <h3 className="subhead">Saved library</h3>
-              {packages.length === 0 ? (
-                <p className="hint muted">No saved packages yet.</p>
-              ) : (
-                <div className="button-col creatures-picker-list">
-                  {packages.map((pkg) => {
-                    const key = `pkg:${pkg.id}` as const;
-                    return (
-                      <button
-                        key={pkg.id}
-                        type="button"
-                        className={browseKey === key ? 'active' : ''}
-                        onClick={() => pick(key)}
-                      >
-                        {pkg.displayName}
-                        {isFeatureEnabled('creatureLibrary')
-                          ? ` (r${pkg.revision})`
-                          : ''}
-                      </button>
-                    );
-                  })}
-                </div>
+              <h3 className="subhead">Presets</h3>
+              <div className="button-col creatures-picker-list">
+                {[...PRESETS, ...EXTRA_PRESETS].map((p) => {
+                  const key = `preset:${p.name}` as const;
+                  return (
+                    <button
+                      key={p.name}
+                      type="button"
+                      className={browseKey === key ? 'active' : ''}
+                      onClick={() => pick(key)}
+                    >
+                      {p.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {isFeatureEnabled('creaturePackages') && (
+                <>
+                  <h3 className="subhead">Saved library</h3>
+                  {packages.length === 0 ? (
+                    <p className="hint muted">No saved packages yet.</p>
+                  ) : (
+                    <div className="button-col creatures-picker-list">
+                      {packages.map((pkg) => {
+                        const key = `pkg:${pkg.id}` as const;
+                        return (
+                          <button
+                            key={pkg.id}
+                            type="button"
+                            className={browseKey === key ? 'active' : ''}
+                            onClick={() => pick(key)}
+                          >
+                            {pkg.displayName}
+                            {isFeatureEnabled('creatureLibrary')
+                              ? ` (r${pkg.revision})`
+                              : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -227,6 +396,33 @@ export function CreaturesPanel({
               <span className="hint muted"> · {resolved.kind}</span>
             ) : null}
           </h2>
+          {categorize && selectedDesign.joints.length > 0 && (
+            <label className="creatures-category-row">
+              <span>Skill category</span>
+              <select
+                value={placementKey(selectedPlacement)}
+                disabled={!onSetSkillPlacement}
+                onChange={(e) => {
+                  const next = categoryOptions.find(
+                    (o) => placementKey(o) === e.target.value,
+                  );
+                  if (!next || !onSetSkillPlacement) return;
+                  const auto = placementKey(next) === placementKey(inferredPlacement);
+                  onSetSkillPlacement(browseKey, auto ? null : next);
+                }}
+                title="Auto from body type. Disco is manual. Only valid moves are listed."
+              >
+                {categoryOptions.map((opt) => (
+                  <option key={placementKey(opt)} value={placementKey(opt)}>
+                    {optionLabel(opt)}
+                    {placementKey(opt) === placementKey(inferredPlacement)
+                      ? ' · auto'
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <CreatureDesignPreview
             design={selectedDesign}
             width={420}

@@ -33,6 +33,7 @@ export function updateJoint(
       if (patch.isFoot === false) delete next.isFoot;
       if (patch.isHead === false) delete next.isHead;
       if (patch.isGlove === false) delete next.isGlove;
+      if (patch.isLance === false) delete next.isLance;
       if (patch.isHitTarget === false) {
         delete next.isHitTarget;
         delete next.hitValue;

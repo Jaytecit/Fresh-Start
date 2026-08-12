@@ -25,6 +25,9 @@ import {
 } from '../src/boxing/referenceFighters.ts';
 import { scoreBoxingHit, emptyFighterScore } from '../src/boxing/scoring.ts';
 import {
+  BOXING_ENGAGE_MAX,
+  BOXING_ENGAGE_MIN,
+  boxingEngageBand,
   boxingRangeQuality,
   computeBoxingTrainingFitness,
   createBoxingBehaviorMetrics,
@@ -425,6 +428,58 @@ function assertRewardShaping(): void {
   assert.equal(boxingRangeQuality(3), 1, 'mid-range engagement quality');
   assert.ok(boxingRangeQuality(9) < 0.5, 'far camp quality drops');
   assert.ok(boxingRangeQuality(0.2) < 0.5, 'clinch quality drops');
+  const wideBand = { min: 2.4, max: 10 };
+  assert.equal(
+    boxingRangeQuality(7, wideBand),
+    1,
+    '5 m-wide pair still engaged at 7 m',
+  );
+  assert.ok(
+    boxingRangeQuality(2, wideBand) < 1,
+    '5 m-wide pair overlapping is clinch',
+  );
+
+  const world = createWorld();
+  try {
+    const left = spawnCreature(world, cloneDesign(UPRIGHT_FIGHTER), {
+      x: -6,
+      y: 0,
+    });
+    const right = spawnCreature(world, cloneDesign(UPRIGHT_FIGHTER), {
+      x: 6,
+      y: 0,
+    });
+    const ref = boxingEngageBand(left, right);
+    assert.ok(
+      Math.abs(ref.min - BOXING_ENGAGE_MIN) < 0.2,
+      `reference clinch min ${ref.min}`,
+    );
+    assert.ok(
+      Math.abs(ref.max - BOXING_ENGAGE_MAX) < 0.2,
+      `reference engage max ${ref.max}`,
+    );
+
+    const wideDesign = cloneDesign(UPRIGHT_FIGHTER);
+    wideDesign.name = 'Wide Upright';
+    for (const joint of wideDesign.joints) joint.x *= 2;
+    const wideLeft = spawnCreature(world, wideDesign, { x: -8, y: 0 });
+    const wideRight = spawnCreature(world, cloneDesign(wideDesign), {
+      x: 8,
+      y: 0,
+    });
+    const wide = boxingEngageBand(wideLeft, wideRight);
+    assert.ok(
+      wide.max > ref.max * 1.5,
+      `wide engage max ${wide.max} vs reference ${ref.max}`,
+    );
+    assert.equal(boxingRangeQuality(7, wide), 1, 'wide punching range in-band');
+    assert.ok(
+      boxingRangeQuality(7) < 0.7,
+      '7 m is far on the reference-sized band',
+    );
+  } finally {
+    world.free();
+  }
 
   const engager = computeBoxingTrainingFitness(
     fixtureResult({

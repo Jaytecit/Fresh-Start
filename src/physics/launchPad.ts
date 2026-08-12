@@ -1,7 +1,7 @@
 /**
- * C2.1 launch pad — foot contact → multi-step vertical boost (per-pad apex).
+ * Launch pad — foot contact → multi-step vertical boost (per-pad apex).
  * Each pad fires once per episode/run; detection stays close to the drawn slab.
- * Fresh Start–native; post-step linvel (same family as plant-slide brake).
+ * Post-step linvel (same family as plant-slide brake).
  */
 import {
   clampLaunchPadApex,

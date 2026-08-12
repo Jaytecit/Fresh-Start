@@ -4,10 +4,6 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-K2, K4, K5, K6, K7
-
 ## Goal
 
 Support deterministic one-versus-one Boxing points matches in which authored glove
@@ -15,7 +11,7 @@ joints can score only against authored targets owned by the opposing creature.
 Measure an explainable power proxy and target-centre accuracy without enabling
 general creature-to-creature solving or self-collision.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies / colliders / joints / materials involved: each marked glove and target
   receives an additional circular sensor collider attached to its existing dynamic
@@ -49,10 +45,9 @@ general creature-to-creature solving or self-collision.
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body solver, arena code, combat tuning, or feel notes.
 - Do **not** enable full creature-to-creature collision outside Boxing matches, or
   alter default joint/bone filters on ordinary spawn. Match-only opponent solids
-  are covered by `20260812-boxing-opponent-contact.md` (K8).
+  are covered by `20260812-boxing-opponent-contact.md`.
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
 - Do **not** call the v1 power proxy a contact impulse.

@@ -1,6 +1,5 @@
 /**
- * D15 — shareable training recipes / experiment packs (metadata only).
- * Firewall: no parent NEAT/physics constants.
+ * Shareable training recipes / experiment packs (metadata only).
  */
 import type { CreatureDesign } from '../creature/types';
 import type { EnvironmentDesign } from '../env/types';

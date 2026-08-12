@@ -5,6 +5,7 @@ import {
 } from '../boxing/referenceFighters';
 import { BOXOBOT_V2 } from '../boxing/sparringOpponents';
 import { BOXOBOT } from './boxoBot';
+import { JOUSTBOT } from './joustBot';
 import type { CreatureDesign } from './types';
 
 /** Under-braced serial chain — collapses / pancakes without cross-bracing. */
@@ -158,7 +159,7 @@ export const DART_STRIDER: CreatureDesign = {
   ],
 };
 
-/** Two-wheel cart for motor zone (E6.5) — wheel joints + chassis brace. */
+/** Two-wheel cart for motor zone — wheel joints + chassis brace. */
 export const MOTOR_CART: CreatureDesign = {
   name: 'Motor Cart',
   joints: [
@@ -181,7 +182,7 @@ export const MOTOR_CART: CreatureDesign = {
   ],
 };
 
-/** Light glider with rigid sail surfaces (E6.6 / G10). */
+/** Light glider with rigid sail surfaces. */
 export const SIMPLE_GLIDER: CreatureDesign = {
   name: 'Simple Glider',
   joints: [
@@ -282,4 +283,5 @@ export const PRESETS: CreatureDesign[] = [
   UPRIGHT_FIGHTER,
   GROUNDED_FIGHTER,
   OPEN_FRAME_FIGHTER,
+  JOUSTBOT,
 ];

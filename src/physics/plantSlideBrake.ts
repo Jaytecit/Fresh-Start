@@ -1,6 +1,5 @@
 /**
  * Planted surface purchase — ball-foot grip assist on ground / obstacles.
- * Fresh Start product damping (not parent plant-grip / X-lock).
  * Used in Idle and during Evolve/brain so scoot cannot ice-skate for distance.
  *
  * Strength scales with the Train-dock Anti-scoot slider (universal):

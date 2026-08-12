@@ -141,14 +141,8 @@ function assertFeatureFlagsAreBooleans(): void {
   console.log(`feature flags OK (${on.length} enabled: ${on.join(', ') || 'none'})`);
 }
 
-function assertNoParentPhysicsImports(): void {
-  // Fresh Start must not import parent sandbox physics modules by relative path escape.
+function assertNoEscapedPhysicsImports(): void {
   const offenders: string[] = [];
-  const scanDirs = ['src', 'scripts'];
-  for (const dir of scanDirs) {
-    // Lightweight: check known entry files for parent-path imports.
-    // Full tree walk is overkill; package lives in Fresh Start/ and should not reach ../src/physics.
-  }
   const files = [
     'src/App.tsx',
     'src/sim/simulation.ts',
@@ -169,9 +163,8 @@ function assertNoParentPhysicsImports(): void {
       offenders.push(rel);
     }
   }
-  assert(offenders.length === 0, `parent physics import leak in: ${offenders.join(', ')}`);
-  console.log('no parent physics imports OK');
-  void scanDirs;
+  assert(offenders.length === 0, `escaped physics import in: ${offenders.join(', ')}`);
+  console.log('no escaped physics imports OK');
 }
 
 async function main(): Promise<void> {
@@ -180,7 +173,7 @@ async function main(): Promise<void> {
   assertMuscleThirdLaw();
   assertSeededRngOnlyInNetworkPath();
   assertFeatureFlagsAreBooleans();
-  assertNoParentPhysicsImports();
+  assertNoEscapedPhysicsImports();
   await assertInfiniteGroundFarFromOrigin();
   await assertDeterministicIdleSettle();
   console.log('smoke-firewall OK');

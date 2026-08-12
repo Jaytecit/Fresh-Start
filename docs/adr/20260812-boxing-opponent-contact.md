@@ -4,10 +4,6 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-K8
-
 ## Goal
 
 In Boxing matches only, opposing fighters must physically push and block each
@@ -15,7 +11,7 @@ other so gloves and limbs stop on contact. Scoring remains on the existing
 opponent-only sensor probes. Ordinary solo, H2H, disco, and training cohort
 spawns keep ghost-through creature pairs.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies / colliders / joints / materials involved: existing dynamic joint balls
   and bone capsules created by `spawnCreature`. No new bodies. Sensor probe
@@ -33,7 +29,7 @@ spawns keep ghost-through creature pairs.
 - New keys in `src/physics/constants.ts`: none required for v1 (reuse body /
   foot contact materials). Any future contact tuning must land here.
 
-This narrowly supersedes the K4 ADR non-goal of “no creature-to-creature
+This narrowly supersedes the hit-probe ADR non-goal of “no creature-to-creature
 solving” for Boxing matches only.
 
 ## Determinism and lifecycle
@@ -48,7 +44,6 @@ solving” for Boxing matches only.
 - Do **not** enable self-collision within a fighter.
 - Do **not** change H2H, disco, cohort, or solo collision filters.
 - Do **not** replace sensor scoring with contact impulses.
-- Do **not** import parent arena/combat physics or feel notes.
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
 

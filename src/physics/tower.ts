@@ -1,6 +1,6 @@
 /**
- * C2.4 — Launch tower from Environment Studio designs.
- * Fresh Start–native stem + deck; not parent geometry.
+ * Launch tower from Environment Studio designs.
+ * Stem + deck cuboids.
  */
 import type { EnvTower } from '../env/types';
 import {

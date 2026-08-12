@@ -93,6 +93,11 @@ import {
   type Vec2,
 } from './rampDraw';
 import { resolveSpawn, type EnvironmentDesign } from './types';
+import {
+  ensureTerrain,
+  paintTerrainAt,
+  paintTerrainSegment,
+} from './terrainMath';
 
 interface Props {
   environment: EnvironmentDesign;
@@ -215,6 +220,12 @@ type DragState =
       a: Vec2;
       b: Vec2;
       moved: boolean;
+    }
+  | {
+      kind: 'paintTerrain';
+      lastX: number;
+      lastY: number;
+      moved: boolean;
     };
 
 const HANDLE_HIT_R = 0.28;
@@ -253,7 +264,8 @@ export function EnvEditorCanvas({
   if (
     toolRef.current !== tool &&
     (dragRef.current?.kind === 'drawRamp' ||
-      dragRef.current?.kind === 'drawStair')
+      dragRef.current?.kind === 'drawStair' ||
+      dragRef.current?.kind === 'paintTerrain')
   ) {
     dragRef.current = null;
     rampHoverRef.current = null;
@@ -418,7 +430,8 @@ export function EnvEditorCanvas({
       if (e.key === 'Escape') {
         if (
           dragRef.current?.kind === 'drawRamp' ||
-          dragRef.current?.kind === 'drawStair'
+          dragRef.current?.kind === 'drawStair' ||
+          dragRef.current?.kind === 'paintTerrain'
         ) {
           dragRef.current = null;
           rampHoverRef.current = null;
@@ -431,7 +444,8 @@ export function EnvEditorCanvas({
       if (e.key === 'v' || e.key === 'V') {
         if (
           dragRef.current?.kind === 'drawRamp' ||
-          dragRef.current?.kind === 'drawStair'
+          dragRef.current?.kind === 'drawStair' ||
+          dragRef.current?.kind === 'paintTerrain'
         ) {
           dragRef.current = null;
         }
@@ -559,7 +573,8 @@ export function EnvEditorCanvas({
     if (e.button === 2) {
       if (
         dragRef.current?.kind === 'drawRamp' ||
-        dragRef.current?.kind === 'drawStair'
+        dragRef.current?.kind === 'drawStair' ||
+        dragRef.current?.kind === 'paintTerrain'
       ) {
         dragRef.current = null;
         return;
@@ -658,6 +673,34 @@ export function EnvEditorCanvas({
       envRef.current = next;
       onSelectRef.current([{ kind: 'spawn' }]);
       onChangeRef.current(next);
+      return;
+    }
+
+    if (currentTool === 'terrain' && isFeatureEnabled('terrainHeightfield')) {
+      const grabEnd = hitTerrainEndpoint(env.terrain, world.x, world.y);
+      if (grabEnd && env.terrain) {
+        onSelectRef.current([{ kind: 'terrain' }]);
+        dragRef.current = {
+          kind: 'resizeTerrain',
+          endpoint: grabEnd,
+          moved: false,
+        };
+        return;
+      }
+      const painted = paintTerrainAt(
+        ensureTerrain(env.terrain),
+        world.x,
+        Math.max(0, world.y),
+      );
+      const next = { ...env, terrain: painted };
+      envRef.current = next;
+      onSelectRef.current([{ kind: 'terrain' }]);
+      dragRef.current = {
+        kind: 'paintTerrain',
+        lastX: world.x,
+        lastY: world.y,
+        moved: true,
+      };
       return;
     }
 
@@ -931,6 +974,21 @@ export function EnvEditorCanvas({
       if (Math.hypot(snapped.x - drag.a.x, snapped.y - drag.a.y) > 1e-4) {
         drag.moved = true;
       }
+      return;
+    }
+
+    if (drag.kind === 'paintTerrain') {
+      const nextTerrain = paintTerrainSegment(
+        ensureTerrain(envRef.current.terrain),
+        drag.lastX,
+        drag.lastY,
+        world.x,
+        Math.max(0, world.y),
+      );
+      envRef.current = { ...envRef.current, terrain: nextTerrain };
+      drag.lastX = world.x;
+      drag.lastY = world.y;
+      drag.moved = true;
       return;
     }
 

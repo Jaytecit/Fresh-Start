@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-C2.9
-
 ## Goal
 
 Author axis-aligned penalty, reward, and landing regions in Environment Studio so training fitness can discourage keep-out zones, grant one-shot bonuses, and heavily reward airborne→touchdown landings — without new Rapier geometry.
 
-## Design (Fresh Start only — non-Rapier)
+## Design (non-Rapier)
 
 - Schema: `EnvironmentDesign.regions: EnvScoreRegion[]` (`penalty` | `reward` | `landing`)
 - Geometry: AABB centered at `(x, y)` with size `w×h`
@@ -30,8 +26,7 @@ Author axis-aligned penalty, reward, and landing regions in Environment Studio s
 - Rapier sensors / solid hazard colliders
 - Episode-end on penalty / reward enter (landing only)
 - Auto-derived pit-gap regions
-- Object sensors in observations (D7 stays contact/terrain only)
-- Parent soft-body / feel tuning
+- Object identity sensors in observations (loco pack stays contact/terrain, optional raycasts)
 
 ## Smoke gate
 

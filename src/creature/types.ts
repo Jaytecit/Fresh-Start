@@ -8,22 +8,24 @@ export interface JointDef {
   x: number;
   y: number;
   mass?: number;
-  /** Marked foot for lift/contact scoring (C1.1). */
+  /** Marked foot for lift/contact scoring. */
   isFoot?: boolean;
   /** Marked head / designed highest point for upright scoring. */
   isHead?: boolean;
-  /** K2 — Boxing strike point; only scores against an opponent target probe. */
+  /** Boxing strike point; only scores against an opponent target probe. */
   isGlove?: boolean;
-  /** K2 — Boxing body target; never acts as match health. */
+  /** L2 — Jousting lance tip; `isGlove` also counts as a lance. */
+  isLance?: boolean;
+  /** Boxing body target; never acts as match health. */
   isHitTarget?: boolean;
   /** Base points for this target before power / accuracy bonuses. */
   hitValue?: number;
-  /** Motor/wheeled joint (E6.5) — dedicated brain/manual torque channel. */
+  /** Motor/wheeled joint — dedicated brain/manual torque channel. */
   isWheel?: boolean;
   motorStrength?: number;
 }
 
-/** G10 structural aero part kind. Omit / none = legacy G9 area-only forces. */
+/** Structural aero part kind. Omit / none = legacy area-only forces. */
 export type AeroType = 'wing' | 'glider' | 'parachute';
 
 export interface BoneDef {
@@ -32,13 +34,13 @@ export interface BoneDef {
   endJointId: number;
   mass?: number;
   /**
-   * G8 — rigid strut: Rapier fixed joint between joint balls, no capsule body.
+   * Rigid strut: Rapier fixed joint between joint balls, no capsule body.
    * Cannot host muscles or aero. Omit / false = hinged bone (default).
    */
   rigid?: boolean;
-  /** Aero surface area scale (E6.6 / G10); force tag. */
+  /** Aero surface area scale; force tag. */
   aeroArea?: number;
-  /** Structural aero part type (G10). Requires aeroArea > 0 to act. */
+  /** Structural aero part type. Requires aeroArea > 0 to act. */
   aeroType?: AeroType;
 }
 
@@ -54,7 +56,7 @@ export interface MuscleDef {
   /** Max active force multiplier; defaults to MUSCLE_MAX_FORCE. */
   strength?: number;
   canExpand?: boolean;
-  /** Shared brain channel id; siblings reuse one output (C1.2). */
+  /** Shared brain channel id; siblings reuse one output. */
   driveGroup?: number;
 }
 
@@ -65,12 +67,12 @@ export interface CreatureDesign {
   muscles: MuscleDef[];
   appearance?: AppearanceRig;
   /**
-   * Mass for joints marked `isFoot` (C1.1 weighted feet).
+   * Mass for joints marked `isFoot` (weighted feet).
    * Applied in every mode at spawn; omit → DEFAULT_JOINT_MASS / joint.mass.
    */
   footMass?: number;
   /**
-   * Mass for joints marked `isWheel` (E6.5 weighted wheels).
+   * Mass for joints marked `isWheel` (weighted wheels).
    * Applied in every mode at spawn; omit → DEFAULT_JOINT_MASS / joint.mass.
    * Wins over `footMass` when a joint is both foot and wheel.
    */

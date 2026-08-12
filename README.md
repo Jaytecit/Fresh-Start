@@ -14,7 +14,7 @@ Inspired by [Evolution by Keiwan](https://keiwando.com/evolution/).
 | **Creatures** | Browse presets and your library, inspect stats, saved brains, best scores, and trophies earned by a body. |
 | **Train** | Pick a goal and environment, then **Evolve** a brain. Watch a pack of try-outs, play the best, save models. |
 | **Environment builder** | Author flat ground, hills, obstacles, launch pads, score regions, and course markers for practice. |
-| **Skill / Goal / Env strip** | Switch skill areas (walk, jump, fly, motor, free, disco) and the training course without leaving the main view. |
+| **Skill / Goal / Env strip** | Switch skill areas (walk, jump, fly, motor, boxing, jousting, free, disco) and the training course without leaving the main view. |
 | **Disco** | Load music, route frequency bands to muscles, record / learn dances, run multi-dancer slots. |
 | **Trophy room** | Collect secret goals unlocked while experimenting. |
 | **Head-to-head** | Pit two saved brains against each other on a goal. |
@@ -63,15 +63,11 @@ Physics knobs live in [`src/physics/constants.ts`](src/physics/constants.ts). Si
 
 ### Learning
 
-Training uses a fixed **MLP** brain and a **genetic algorithm** over weights (and optional body/structure morph genes) — not NEAT. Goals and scoring live under `src/brain/` and `src/goals/`. Background: [`PHASE2_NEURAL_NETWORK.md`](./PHASE2_NEURAL_NETWORK.md).
+Training uses a fixed **MLP** brain and a **genetic algorithm** over weights (and optional body/structure morph genes). Goals and scoring live under `src/brain/` and `src/goals/`. Background: [`docs/BRAIN.md`](./docs/BRAIN.md).
 
-### Feature tracking & physics rules
+### Physics & open work
 
-1. Mark planned work in [`FEATURE_PORT_CHECKLIST.md`](./FEATURE_PORT_CHECKLIST.md)
-2. Track implementation in [`FEATURE_PORT_BACKLOG.md`](./FEATURE_PORT_BACKLOG.md)
-3. Keep physics changes inside the Rapier-native contract: [`docs/PHYSICS_FIREWALL.md`](./docs/PHYSICS_FIREWALL.md)
-
-Capability ADRs: [`docs/adr/`](./docs/adr/).
+Keep physics changes inside the Rapier contract: [`docs/PHYSICS_FIREWALL.md`](./docs/PHYSICS_FIREWALL.md). New Rapier capabilities need an ADR from [`docs/CAPABILITY_ADR_TEMPLATE.md`](./docs/CAPABILITY_ADR_TEMPLATE.md) (accepted ADRs: [`docs/adr/`](./docs/adr/)). Remaining product work lives in [`TASKS.md`](./TASKS.md).
 
 ### Smoke tests
 
@@ -81,7 +77,7 @@ After physics-adjacent changes, run:
 npm run smoke:all
 ```
 
-Suites cover the physics contract (fixed-dt, third-law muscles, determinism), feel (brace / hopper / collapse), evolve progress, tasks/envs, disco dance, training recipes, structure morph, editor selection, raycasts, rigid struts, and cloth.
+Suites cover the physics contract (fixed-dt, third-law muscles, determinism), feel (brace / hopper / collapse), evolve progress, tasks/envs, disco dance, training recipes, structure morph, editor selection, raycasts, rigid struts, cloth, sharing, boxing, and jousting.
 
 ### Stack
 

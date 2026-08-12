@@ -1,6 +1,6 @@
 /**
  * Edit-time flight/glide readiness heuristics (product UI).
- * Not parent capability physics — uses Fresh Start mass defaults + aero coeffs.
+ * Uses mass defaults + aero coeffs from `physics/constants.ts`.
  */
 import type { CreatureDesign } from '../creature/types';
 import {

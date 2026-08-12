@@ -1,18 +1,14 @@
-# Capability ADR — Cosmetic cloth garments (H9)
+# Capability ADR — Cosmetic cloth garments
 
 ## Status
 
 Accepted / Implemented
 
-## Checklist IDs
-
-H9 — Cosmetic cloth garments
-
 ## Goal
 
-Let Studio-authored creatures wear flexible cloth (starting with a two-pin cape) that drapes and flows from skeleton motion — disco-first, for dancers with automated/reactive muscles. Cosmetics only: no Rapier soft bodies, no parent Verlet/soft-body import, no wind v1.
+Let Studio-authored creatures wear flexible cloth (starting with a two-pin cape) that drapes and flows from skeleton motion — disco-first, for dancers with automated/reactive muscles. Cosmetics only: no Rapier soft bodies, no wind v1.
 
-## Design (Fresh Start only)
+## Design
 
 - Authortime: `AppearanceRig.cloth[]` rectangular particle grids with pins to joints/bones (`ClothGarmentDef` / `ClothPinDef`).
 - Runtime: render-only Verlet integration in `src/appearance/cloth.ts` (keyed state like googly eyes).
@@ -25,7 +21,6 @@ Let Studio-authored creatures wear flexible cloth (starting with a two-pin cape)
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body / Verlet curtain solver or feel tuning.
 - No cloth↔world or cloth↔cloth collision.
 - No wind fields (v1); fabric motion from pin / creature movement only.
 - No Rapier colliders, joints, or forces.

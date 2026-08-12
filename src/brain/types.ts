@@ -7,11 +7,11 @@ export type TaskId =
   | 'climb'
   | 'motor'
   | 'flight'
-  /** E6.6 deepen — wing climb / sustain + landing. */
+  /** Wing climb / sustain + landing. */
   | 'flight_wing'
-  /** E6.6 deepen — glider range + landing. */
+  /** Glider range + landing. */
   | 'flight_glider'
-  /** E6.6 deepen — parachute soft descent + landing. */
+  /** Parachute soft descent + landing. */
   | 'flight_para'
   /** Aero-agnostic peak / mean altitude. */
   | 'flight_height'
@@ -42,6 +42,8 @@ export type TaskId =
   | 'motor_sprint'
   /** K6 — division-matched points boxing. */
   | 'boxing'
+  /** L6 — single-pass jousting scorecard. */
+  | 'jousting'
   /** H6 — disco imitation / freestyle (not GA-evolved). */
   | 'dance';
 
@@ -79,9 +81,9 @@ export interface NetworkShape {
 export interface Genome {
   weights: Float32Array;
   fitness: number;
-  /** D17 — soft morph genes (fixed topology); omitted when morph evolve is off. */
+  /** Soft morph genes (fixed topology); omitted when morph evolve is off. */
   morph?: MorphGenes;
-  /** D18 — per-member body graph; omitted when structural morph evolve is off. */
+  /** Per-member body graph; omitted when structural morph evolve is off. */
   topology?: CreatureDesign;
 }
 

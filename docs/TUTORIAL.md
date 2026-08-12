@@ -65,6 +65,7 @@ All optional; defaults work. When you want to steer a run:
 - Load **Disco**, pick a track, and mess with band → muscle routing (chaos is allowed).
 - Leave Train running while you check **Trophy room** — secrets unlock as you experiment.
 - Save two models and try **Head-to-head**.
+- Mark gloves / targets and spar in **Boxing**, or a lance and charge in **Jousting**.
 
 ## If something feels stuck
 

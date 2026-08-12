@@ -1,4 +1,4 @@
-# H7 — Disco multi-track dance curriculum
+# Disco multi-track dance curriculum
 
 Disco-only learning path. Free evolve, Edit, World, and Head-to-Head stay unchanged.
 
@@ -23,8 +23,8 @@ Locomotion evolve always uses `OBS_COUNT = 12` only.
 
 ## Feature flags
 
-- `discoDanceLearn` — H6 single-track Record → Learn → Freestyle
-- `discoDanceCurriculum` — H7 playlist curriculum UI + refine
+- `discoDanceLearn` — single-track Record → Learn → Freestyle
+- `discoDanceCurriculum` — playlist curriculum UI + refine
 
 ## Physics isolation
 

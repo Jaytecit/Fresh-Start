@@ -1,5 +1,5 @@
 /**
- * A7 — MLP network visualizer (Fresh Start fixed topology, not NEAT).
+ * MLP network visualizer (fixed topology).
  * Shows live activations and weight strength/sign when a probe is available.
  */
 import { useMemo } from 'react';

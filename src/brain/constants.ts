@@ -6,7 +6,7 @@ export type BrainHz = typeof BRAIN_HZ | typeof BRAIN_HZ_FAST;
 export const BRAIN_DT = 1 / BRAIN_HZ;
 
 /**
- * Observation vector length (D7 contact/terrain pack + phase clock).
+ * Observation vector length (contact/terrain pack + phase clock).
  * 0–5: body stats · 6 foot contact · 7 foot clearance · 8 terrain grade (G3)
  * · 9 head height · 10–11 sin/cos phase clock (rhythmic prior for flapping/gait)
  */
@@ -15,7 +15,7 @@ export const OBS_COUNT = 12;
 export const PHASE_CLOCK_HZ = 2.5;
 
 /**
- * Optional raycast whiskers (D7 deepen) appended after OBS_COUNT when enabled.
+ * Optional raycast whiskers appended after OBS_COUNT when enabled.
  * Angles from +X toward +Y (up): forward, forward-up, forward-down, steep-down, down.
  */
 export const RAYCAST_RAY_COUNT = 5;
@@ -136,7 +136,7 @@ export const SPRINT_DIST_SCALE = 0.15;
  * mid-episode climb is not wiped by post-fall thrash / tumble.
  */
 export const SPRINT_FALL_PROGRESS_FLOOR = 0.5;
-/** D13 priority tilt: meters of travel that saturate the distance slider. */
+/** Priority tilt: meters of travel that saturate the distance slider. */
 export const GOAL_PRIORITY_DISTANCE_SCALE = 40;
 /** Speed task: peak COM speed scale (m/s → fitness). */
 export const SPEED_PEAK_SCALE = 4;
@@ -171,7 +171,7 @@ export const MIN_DESIGNED_HEAD_Y = 0.5;
 /** Floor so a brief crouch/dip does not zero the whole episode. */
 export const UPRIGHT_QUALITY_FLOOR = 0.2;
 
-/** Task scoring scales (E6.*) — not physics tunables. */
+/** Task scoring scales — not physics tunables. */
 export const JUMP_HEIGHT_SCALE = 2.5;
 export const CLIMB_HEIGHT_SCALE = 3.5;
 export const MOTOR_DIST_SCALE = 1;
@@ -215,6 +215,9 @@ export const FLIGHT_DIST_TRAVEL_SCALE = 10;
 /** Motor ramp jump: air + height mix on top of wheeled distance. */
 export const MOTOR_RAMP_AIR_SCALE = 0.45;
 export const MOTOR_RAMP_HEIGHT_SCALE = 0.3;
-/** Motor gap: credit distance past the pit center. */
-export const MOTOR_GAP_PAST_X = 7;
+/**
+ * Motor gap: credit distance past the landing-slab start.
+ * `spawnMotorGapCourse` approach ends at x=24, gap 24–36, landing starts at 36.
+ */
+export const MOTOR_GAP_PAST_X = 36;
 export const MOTOR_GAP_DIST_SCALE = 1.2;

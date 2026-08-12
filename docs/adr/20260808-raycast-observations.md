@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-D7 deepen (optional geometry whiskers for obstacle courses)
-
 ## Goal
 
 Give locomotion brains optional local geometry senses (forward / down whiskers) so authored obstacle courses (ramps, walls, pits, platforms) can be anticipated before contact — without baking object IDs into the observation vector.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies / colliders / joints / materials involved: none new — query existing ground / obstacle / terrain / tower colliders
 - Collision group bits: only colliders with world membership bit `0b0100` (ground / obstacles / terrain / tower); creature joints/bones ignored
@@ -29,10 +25,9 @@ Give locomotion brains optional local geometry senses (forward / down whiskers) 
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body solver, aero tables, or feel tuning.
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
-- Object identity / material sensors, moving world-object tracking (G4 still off)
+- Object identity / material sensors, moving world-object tracking
 - Dance / disco observation packs (loco evolve only)
 
 ## Smoke gate

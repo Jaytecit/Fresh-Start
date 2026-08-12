@@ -1,5 +1,5 @@
 /**
- * D17 — Soft morphology genes (fixed topology).
+ * Soft morphology genes (fixed topology).
  * Mutates mass, limb length, aero, and wheels without changing muscle/drive layout.
  */
 import type { AeroType, CreatureDesign } from './types';

@@ -123,6 +123,8 @@ export interface EnvTerrain {
   endX: number;
   samples: number[];
   amplitude: number;
+  /** Procedural sine frequency; omitted on hand-drawn profiles. */
+  waves?: number;
 }
 
 export interface EnvTower {

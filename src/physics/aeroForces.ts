@@ -1,5 +1,5 @@
 /**
- * Aero forces (E6.6 / G10) — Fresh Start coefficients only.
+ * Aero forces — coefficients from `physics/constants.ts`.
  * Legacy area-only lift/drag when structural parts flag is off or type omitted.
  */
 import {

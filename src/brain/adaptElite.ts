@@ -2,6 +2,7 @@ import {
   shapeForBoxingDesign,
   shapeForDanceDesign,
   shapeForDesign,
+  shapeForJoustingDesign,
   type ShapeForDesignOptions,
 } from '../sim/simulation';
 import type { CreatureDesign } from '../creature/types';
@@ -25,6 +26,7 @@ function expectedShapeFor(
   opts?: AdaptEliteOptions,
 ): NetworkShape {
   if (opts?.task === 'boxing') return shapeForBoxingDesign(design);
+  if (opts?.task === 'jousting') return shapeForJoustingDesign(design);
   if (opts?.task === 'dance') return shapeForDanceDesign(design);
   return shapeForDesign(design, opts);
 }

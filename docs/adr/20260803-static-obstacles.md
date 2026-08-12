@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-G1, C2.1 (partial set: box / ramp / stair / pit / loop / pad)
-
 ## Goal
 
-Spawn authored environment obstacles as fixed Rapier colliders so Environment Studio packages are playable, not data-only. Climb’s hardcoded course (E6.3) stays separate.
+Spawn authored environment obstacles as fixed Rapier colliders so Environment Studio packages are playable, not data-only. Climb’s hardcoded course stays a separate spawn path.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Fixed rigid bodies + cuboid colliders composed per `ObstacleKind`
 - Collision groups: same as ground (membership bit 2), collide with creature parts — no new bits
@@ -23,7 +19,7 @@ Spawn authored environment obstacles as fixed Rapier colliders so Environment St
 - Spawn via `spawnStaticObstacles(world, obstacles, worldGrip?)`; destroy on env replace / clear
 - Gated by `featureFlags.staticObstacles`
 
-Kind mapping (Fresh Start–native, not parent):
+Kind mapping:
 
 | Kind | Composition |
 |---|---|
@@ -36,9 +32,8 @@ Kind mapping (Fresh Start–native, not parent):
 
 ## Explicit non-goals
 
-- No parent obstacle / soft-body / feel tuning
-- No heightfields (G3), towers (C2.4), or para deployables (G10)
-- No ice, world objects, or collision-group scheme changes
+- No ice materials or movable world objects
+- No new collision-group bits
 - Does not replace climb course for task `climb`
 
 ## Smoke gate

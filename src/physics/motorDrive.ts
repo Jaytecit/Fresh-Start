@@ -1,5 +1,5 @@
 /**
- * Motor wheel torque (E6.5) — Rapier addTorque on tagged joints.
+ * Motor wheel torque — Rapier addTorque on tagged joints.
  */
 import { MOTOR_TORQUE_SCALE } from './constants';
 import type { SpawnedCreature } from './spawn';

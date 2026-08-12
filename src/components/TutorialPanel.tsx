@@ -539,6 +539,10 @@ function buildChapters(
             {canJumpH2h && (
               <li>Save two models and try Head-to-Head.</li>
             )}
+            <li>
+              Mark gloves / targets and spar in Boxing, or a lance and charge
+              in Jousting.
+            </li>
           </ul>
           <div className="tutorial-actions">
             {jump(

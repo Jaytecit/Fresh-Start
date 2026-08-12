@@ -10,7 +10,7 @@ export interface BestEverEntry {
   task: TaskId;
   fitness: number;
   designName: string;
-  /** Stable-ish fingerprint of body graph + task (not parent physics hash). */
+  /** Stable-ish fingerprint of body graph + task. */
   recipeFingerprint: string;
   updatedAt: number;
 }

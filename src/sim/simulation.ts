@@ -85,6 +85,10 @@ import {
   buildBoxingObservations,
 } from '../brain/boxingObs';
 import {
+  JOUST_OBS_COUNT,
+  buildJoustObservations,
+} from '../brain/joustObs';
+import {
   buildRaycastObservations,
   raycastObsEnabled,
 } from '../brain/raycastObs';
@@ -126,6 +130,36 @@ import {
   type BoxingMatchScore,
   type BoxingOwner,
 } from '../boxing/scoring';
+import { joustingEligibility } from '../jousting/eligibility';
+import {
+  createJoustHitTracker,
+  createJoustProbes,
+  detectJoustHits,
+  type JoustHitTracker,
+  type JoustProbeSet,
+} from '../jousting/hitProbes';
+import { enableJoustOpponentContact } from '../jousting/opponentContact';
+import {
+  createJoustPassState,
+  updateJoustPass,
+  type JoustClashReason,
+  type JoustPassPhase,
+  type JoustPassState,
+} from '../jousting/pass';
+import {
+  computeJoustingFitness,
+  createJoustScorecard,
+  DEFAULT_JOUSTING_PRIORITIES,
+  freezeJoustScorecard,
+  joustWinner,
+  type JoustingPriorities,
+  type JoustScorecard,
+} from '../jousting/scorecard';
+import {
+  recordJoustHit,
+  type JoustHitEvent,
+  type JoustOwner,
+} from '../jousting/scoring';
 import {
   applyMuscleForces,
   type MuscleForceOptions,
@@ -153,6 +187,10 @@ import {
   BOXING_MATCH_SECONDS,
   BOXING_SPAWN_X,
   BOXING_TRAIN_PAIR_GAP,
+  JOUST_AFTERMATH_SECONDS,
+  JOUST_MAX_SECONDS,
+  JOUST_SPAWN_X,
+  JOUST_TRAIN_PAIR_GAP,
   DEFAULT_DISCO_PUPPET_MODE,
   DEFAULT_JOINT_MASS,
   FOOT_MASS_DEFAULT,
@@ -257,7 +295,9 @@ export interface AgentSnapshot {
     vx: number;
     vy: number;
     isGlove?: boolean;
+    isLance?: boolean;
     isHitTarget?: boolean;
+    isHead?: boolean;
     hitValue?: number;
   }[];
   bones: {
@@ -365,6 +405,8 @@ export interface SimulationSnapshot {
   headToHead: HeadToHeadSnapshot | null;
   /** K5 — active or just-finished Boxing points match. */
   boxing?: BoxingMatchSnapshot | null;
+  /** L5 — active or just-finished Jousting pass. */
+  jousting?: JoustMatchSnapshot | null;
 }
 
 interface CohortMember {
@@ -492,6 +534,52 @@ export interface BoxingMatchSnapshot {
   lastHit: BoxingHitEvent | null;
   finished: boolean;
   winner: BoxingOwner | null;
+}
+
+export type JoustMatchEntry = HeadToHeadEntry;
+
+export interface JoustMatchResult {
+  scorecard: JoustScorecard;
+  winner: JoustOwner | null;
+  reason: JoustClashReason | 'draw';
+  episodeDuration: number;
+}
+
+export interface JoustMatchOptions {
+  entries: [JoustMatchEntry, JoustMatchEntry];
+  episodeSeconds?: number;
+  priorities?: JoustingPriorities;
+  onProgress?: (snapshot: JoustMatchSnapshot) => void;
+  onFinished?: (result: JoustMatchResult) => void;
+}
+
+export interface JoustLiveEvolveOptions {
+  design: CreatureDesign;
+  opponentDesign: CreatureDesign;
+  opponentWeights?: Float32Array;
+  populationSize?: number;
+  batchSize?: number;
+  maxGenerations?: number;
+  episodeSeconds?: number;
+  seed?: number;
+  seedGenome?: { shape: NetworkShape; weights: Float32Array };
+  breed?: BreedOptions;
+  priorities?: JoustingPriorities;
+  onProgress?: (p: EvolutionProgress) => void;
+  onFinished?: (best: Genome, shape: NetworkShape) => void;
+}
+
+export interface JoustMatchSnapshot {
+  episodeT: number;
+  episodeDuration: number;
+  names: [string, string];
+  totals: [number, number];
+  hits: [number, number];
+  phase: JoustPassPhase;
+  clashReason: JoustClashReason | null;
+  lastHit: JoustHitEvent | null;
+  finished: boolean;
+  winner: JoustOwner | null;
 }
 
 /** E5 — champion / replay metrics snapshot for secret evaluation. */
@@ -646,6 +734,51 @@ interface BoxingLiveEvolveState {
   onFinished?: (best: Genome, shape: NetworkShape) => void;
 }
 
+interface JoustLivePair {
+  genomeIndex: number;
+  trainee: CohortMember;
+  sparring: CohortMember;
+  probes: [JoustProbeSet, JoustProbeSet];
+  hitTracker: JoustHitTracker;
+  scorecard: JoustScorecard;
+  pass: JoustPassState;
+  frozen: boolean;
+}
+
+interface JoustLiveEvolveState {
+  design: CreatureDesign;
+  shape: NetworkShape;
+  opponentDesign: CreatureDesign;
+  opponentShape: NetworkShape;
+  opponentWeights: Float32Array;
+  population: Genome[];
+  popSize: number;
+  batchSize: number;
+  maxGenerations: number;
+  generation: number;
+  batchIndex: number;
+  batchCount: number;
+  episodeT: number;
+  episodeDuration: number;
+  focusIndex: number;
+  rng: () => number;
+  bestOverall: Genome;
+  displayMeanFitness: number;
+  stopRequested: boolean;
+  status: string;
+  breed: {
+    eliteCount: number;
+    tournamentSize: number;
+    mutationSigma: number;
+    mutationResetRate: number;
+    crossover: boolean;
+  };
+  priorities: JoustingPriorities;
+  pairs: JoustLivePair[];
+  onProgress?: (p: EvolutionProgress) => void;
+  onFinished?: (best: Genome, shape: NetworkShape) => void;
+}
+
 export interface LiveEvolveOptions {
   design: CreatureDesign;
   task?: TaskId;
@@ -723,6 +856,15 @@ export function shapeForBoxingDesign(design: CreatureDesign): NetworkShape {
   return makeShape(Math.max(channels, 1), BOXING_OBS_COUNT);
 }
 
+/** L6 — Jousting brains use an opponent-relative observation pack. */
+export function shapeForJoustingDesign(design: CreatureDesign): NetworkShape {
+  const channels = countDesignActuatorChannels(
+    design,
+    includeWheelActuators(),
+  );
+  return makeShape(Math.max(channels, 1), JOUST_OBS_COUNT);
+}
+
 function zeroActuatorDrives(design: CreatureDesign): number[] {
   return new Array(
     countDesignActuatorChannels(design, includeWheelActuators()),
@@ -777,7 +919,9 @@ function agentFromCreature(
       vx: v.x,
       vy: v.y,
       isGlove: j.isGlove,
+      isLance: j.isLance,
       isHitTarget: j.isHitTarget,
+      isHead: j.isHead,
       hitValue: j.hitValue,
     };
   });
@@ -1039,6 +1183,19 @@ export class Simulation {
   /** Focused fighter index for Boxing / H2H exhibition brain viz (0 = A, 1 = B). */
   private duelFocusIndex = 0;
   private boxingLive: BoxingLiveEvolveState | null = null;
+  private jousting: {
+    episodeT: number;
+    episodeDuration: number;
+    scorecard: JoustScorecard;
+    probes: [JoustProbeSet, JoustProbeSet];
+    hitTracker: JoustHitTracker;
+    pass: JoustPassState;
+    priorities: JoustingPriorities;
+    onProgress?: (snapshot: JoustMatchSnapshot) => void;
+    onFinished?: (result: JoustMatchResult) => void;
+  } | null = null;
+  private joustingFinished: JoustMatchResult | null = null;
+  private joustingLive: JoustLiveEvolveState | null = null;
   private live: LiveEvolveState | null = null;
   private course: CourseHandle | null = null;
   private roughCourse: RoughCourseHandle | null = null;
@@ -1069,7 +1226,7 @@ export class Simulation {
   }
 
   get isEvolving(): boolean {
-    return this.live !== null || this.boxingLive !== null;
+    return this.live !== null || this.boxingLive !== null || this.joustingLive !== null;
   }
 
   get isHeadToHead(): boolean {
@@ -1078,6 +1235,10 @@ export class Simulation {
 
   get isBoxing(): boolean {
     return this.boxing !== null || this.boxingLive !== null;
+  }
+
+  get isJousting(): boolean {
+    return this.jousting !== null || this.joustingLive !== null;
   }
 
   private pinBoxingControllerRate(): void {
@@ -1093,6 +1254,12 @@ export class Simulation {
     this.boxingPreviousBrainHz = null;
   }
 
+  private clearJoustingState(): void {
+    this.jousting = null;
+    this.joustingFinished = null;
+    this.joustingLive = null;
+  }
+
   get isMultiDisco(): boolean {
     return this.discoDancers.length > 0;
   }
@@ -1105,6 +1272,7 @@ export class Simulation {
     this.boxing = null;
     this.boxingFinished = null;
     this.boxingLive = null;
+    this.clearJoustingState();
     this.clearCohort();
     this.live = null;
     this.soloWatch = null;
@@ -1482,7 +1650,7 @@ export class Simulation {
   /** Toggle brain eval rate (30 Hz default ↔ 60 Hz). Muscle forces stay at FIXED_DT. */
   setBrainHz(hz: BrainHz): void {
     // Boxing pins the controller at training rate; stash the UI choice for restore.
-    if (this.boxing || this.boxingFinished || this.boxingLive) {
+    if (this.boxing || this.boxingFinished || this.boxingLive || this.jousting || this.joustingFinished || this.joustingLive) {
       this.boxingPreviousBrainHz = hz;
       return;
     }
@@ -1539,6 +1707,7 @@ export class Simulation {
     this.boxing = null;
     this.boxingFinished = null;
     this.boxingLive = null;
+    this.clearJoustingState();
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1677,6 +1846,7 @@ export class Simulation {
     this.restoreControllerRateAfterBoxing();
     this.boxing = null;
     this.boxingFinished = null;
+    this.clearJoustingState();
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1798,6 +1968,7 @@ export class Simulation {
     this.boxing = null;
     this.boxingFinished = null;
     this.boxingLive = null;
+    this.clearJoustingState();
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1998,6 +2169,7 @@ export class Simulation {
     this.h2hFinished = null;
     this.boxing = null;
     this.boxingFinished = null;
+    this.clearJoustingState();
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -2069,6 +2241,305 @@ export class Simulation {
         : null;
     this.clearCohort();
     this.boxingLive = null;
+    this.restoreControllerRateAfterBoxing();
+    if (this.world && design) {
+      this.creature = this.spawnCreatureWithGrip(
+        design,
+        resolveSpawn(this.environment),
+      );
+      this.design = design;
+      this.manualDrives = zeroActuatorDrives(design);
+      this.brainDrives = zeroActuatorDrives(design);
+    }
+    this.driveMode = 'idle';
+    this.time = 0;
+    this.accumulator = 0;
+    return promoted;
+  }
+
+  /** L5 — start a deterministic single-pass joust. */
+  startJoustMatch(options: JoustMatchOptions): void {
+    if (!this.world) throw new Error('Simulation not initialized');
+    if (!isFeatureEnabled('joustingMode')) {
+      throw new Error('Jousting skill is disabled');
+    }
+    const [a, b] = options.entries;
+    if (
+      !designHasActuators(a.design, includeWheelActuators()) ||
+      !designHasActuators(b.design, includeWheelActuators())
+    ) {
+      throw new Error('Both jousters need muscles');
+    }
+    for (const entry of [a, b]) {
+      const eligibility = joustingEligibility(entry.design);
+      if (!eligibility.eligible) {
+        throw new Error(
+          `${entry.design.name} is not eligible for jousting: ${eligibility.reasons.join(' ')}`,
+        );
+      }
+    }
+
+    this.clearDiscoDancers();
+    this.clearCohort();
+    this.live = null;
+    this.h2h = null;
+    this.h2hFinished = null;
+    this.boxing = null;
+    this.boxingFinished = null;
+    this.boxingLive = null;
+    this.clearJoustingState();
+    this.soloWatch = null;
+    this.clearBrain();
+    if (this.creature) {
+      destroyCreature(this.world, this.creature);
+      this.creature = null;
+    }
+
+    this.task = 'jousting';
+    this.syncCourseForTask('jousting');
+    this.syncEnvironmentGeometry();
+    const spawn = resolveSpawn(this.environment);
+    const entries: [JoustMatchEntry, JoustMatchEntry] = [a, b];
+    const matchDesigns: [CreatureDesign, CreatureDesign] = [
+      cloneDesign(a.design),
+      mirrorBoxingDesign(b.design),
+    ];
+    const probes: JoustProbeSet[] = [];
+    for (let i = 0; i < 2; i++) {
+      const entry = entries[i];
+      const memberDesign = matchDesigns[i];
+      const creature = this.spawnCreatureWithGrip(memberDesign, {
+        x: i === 0 ? -JOUST_SPAWN_X : JOUST_SPAWN_X,
+        y: spawn.y,
+      });
+      enableJoustOpponentContact(creature, i as JoustOwner);
+      this.cohort.push(
+        this.makeBoxingCohortMember(
+          creature,
+          i,
+          entry.weights,
+          entry.shape,
+          memberDesign,
+        ),
+      );
+      probes.push(createJoustProbes(this.world, creature, i as JoustOwner));
+    }
+
+    this.design = a.design;
+    this.driveMode = 'brain';
+    this.discoDriveProvider = null;
+    this.time = 0;
+    this.accumulator = 0;
+    this.running = true;
+    this.duelFocusIndex = 0;
+    this.pinBoxingControllerRate();
+    const pass = createJoustPassState();
+    const maxSeconds = options.episodeSeconds ?? JOUST_MAX_SECONDS;
+    this.jousting = {
+      episodeT: 0,
+      episodeDuration: maxSeconds + JOUST_AFTERMATH_SECONDS,
+      scorecard: createJoustScorecard(pass),
+      probes: probes as [JoustProbeSet, JoustProbeSet],
+      hitTracker: createJoustHitTracker(),
+      pass,
+      priorities: options.priorities
+        ? { ...options.priorities }
+        : { ...DEFAULT_JOUSTING_PRIORITIES },
+      onProgress: options.onProgress,
+      onFinished: options.onFinished,
+    };
+  }
+
+  abortJoustMatch(): void {
+    if (!this.jousting && !this.joustingFinished) return;
+    const design = this.cohort[0]?.memberDesign ?? this.design ?? null;
+    this.clearCohort();
+    this.clearJoustingState();
+    this.restoreControllerRateAfterBoxing();
+    if (!this.world || !design) return;
+    this.creature = this.spawnCreatureWithGrip(
+      design,
+      resolveSpawn(this.environment),
+    );
+    this.design = design;
+    this.manualDrives = zeroActuatorDrives(design);
+    this.brainDrives = zeroActuatorDrives(design);
+    this.driveMode = 'idle';
+    this.task = 'jousting';
+    this.time = 0;
+    this.accumulator = 0;
+  }
+
+  startJoustingLiveEvolve(options: JoustLiveEvolveOptions): void {
+    if (!this.world) throw new Error('Simulation not initialized');
+    if (!isFeatureEnabled('joustingMode')) {
+      throw new Error('Jousting skill is disabled');
+    }
+    const design = cloneDesign(options.design);
+    const eligibility = joustingEligibility(design);
+    if (!eligibility.eligible) {
+      throw new Error(
+        `${design.name} is not eligible for jousting: ${eligibility.reasons.join(' ')}`,
+      );
+    }
+    if (!designHasActuators(design, includeWheelActuators())) {
+      throw new Error('Design has no muscles to control');
+    }
+    const opponentDesign = cloneDesign(options.opponentDesign);
+    if (!joustingEligibility(opponentDesign).eligible) {
+      throw new Error('Sparring partner is not eligible for jousting');
+    }
+
+    const popSize = options.populationSize ?? LIVE_POPULATION_SIZE;
+    const batchSize = Math.max(
+      1,
+      Math.min(options.batchSize ?? LIVE_BATCH_SIZE, popSize),
+    );
+    const maxGenerations = options.maxGenerations ?? LIVE_MAX_GENERATIONS;
+    const chargeSeconds = Math.max(
+      6,
+      options.episodeSeconds ?? JOUST_MAX_SECONDS,
+    );
+    const episodeDuration = chargeSeconds + JOUST_AFTERMATH_SECONDS;
+    const breedOpts = options.breed ?? {};
+    const breed = {
+      eliteCount: breedOpts.eliteCount ?? ELITE_COUNT,
+      tournamentSize: breedOpts.tournamentSize ?? TOURNAMENT_SIZE,
+      mutationSigma: breedOpts.mutationSigma ?? MUTATION_SIGMA,
+      mutationResetRate: breedOpts.mutationResetRate ?? MUTATION_RESET_RATE,
+      crossover: breedOpts.crossover ?? true,
+    };
+    const rng = createRng(options.seed ?? 1);
+    const shape = shapeForJoustingDesign(design);
+    const opponentShape = shapeForJoustingDesign(opponentDesign);
+    if (
+      options.opponentWeights &&
+      options.opponentWeights.length !== opponentShape.weightCount
+    ) {
+      throw new Error('Sparring brain does not match the sparring body');
+    }
+    const opponentWeights = options.opponentWeights
+      ? cloneWeights(options.opponentWeights)
+      : randomWeights(opponentShape, createRng((options.seed ?? 1) + 991));
+
+    let resolvedSeed = options.seedGenome;
+    if (resolvedSeed) {
+      if (
+        resolvedSeed.shape.inputCount !== shape.inputCount ||
+        resolvedSeed.shape.hiddenCount !== shape.hiddenCount ||
+        resolvedSeed.shape.outputCount !== shape.outputCount ||
+        resolvedSeed.weights.length !== shape.weightCount
+      ) {
+        throw new Error(
+          'Seed genome shape mismatch — Jousting continue training needs a matching layout.',
+        );
+      }
+    }
+
+    const population: Genome[] = [];
+    if (resolvedSeed) {
+      population.push({
+        weights: cloneWeights(resolvedSeed.weights),
+        fitness: 0,
+      });
+      while (population.length < popSize) {
+        population.push({
+          weights: mutate(resolvedSeed.weights, rng, {
+            mutationSigma: breed.mutationSigma,
+            mutationResetRate: breed.mutationResetRate,
+          }),
+          fitness: 0,
+        });
+      }
+    } else {
+      for (let i = 0; i < popSize; i++) {
+        population.push({
+          weights: randomWeights(shape, rng),
+          fitness: 0,
+        });
+      }
+    }
+
+    this.clearDiscoDancers();
+    this.clearCohort();
+    this.live = null;
+    this.h2h = null;
+    this.h2hFinished = null;
+    this.boxing = null;
+    this.boxingFinished = null;
+    this.boxingLive = null;
+    this.jousting = null;
+    this.joustingFinished = null;
+    this.soloWatch = null;
+    this.clearBrain();
+    if (this.creature) {
+      destroyCreature(this.world, this.creature);
+      this.creature = null;
+    }
+
+    this.task = 'jousting';
+    this.syncCourseForTask('jousting');
+    this.syncEnvironmentGeometry();
+    this.design = design;
+    this.driveMode = 'brain';
+    this.discoDriveProvider = null;
+    this.running = true;
+    this.pinBoxingControllerRate();
+
+    this.joustingLive = {
+      design,
+      shape,
+      opponentDesign,
+      opponentShape,
+      opponentWeights,
+      population,
+      popSize,
+      batchSize,
+      maxGenerations: Math.max(1, maxGenerations),
+      generation: 0,
+      batchIndex: 0,
+      batchCount: Math.ceil(popSize / batchSize),
+      episodeT: 0,
+      episodeDuration,
+      focusIndex: 0,
+      rng,
+      bestOverall: {
+        weights: cloneWeights(population[0]!.weights),
+        fitness: -Infinity,
+      },
+      displayMeanFitness: 0,
+      stopRequested: false,
+      status: 'Starting Jousting pass…',
+      breed,
+      priorities: options.priorities
+        ? { ...options.priorities }
+        : { ...DEFAULT_JOUSTING_PRIORITIES },
+      pairs: [],
+      onProgress: options.onProgress,
+      onFinished: options.onFinished,
+    };
+
+    this.spawnJoustingLiveBatch();
+    this.emitJoustingLiveProgress();
+  }
+
+  abortJoustingLiveEvolve(): { shape: NetworkShape; genome: Genome } | null {
+    if (!this.joustingLive) return null;
+    const design = this.joustingLive.design;
+    const shape = this.joustingLive.shape;
+    const best = this.joustingLive.bestOverall;
+    const promoted =
+      best.fitness > -Infinity
+        ? {
+            shape,
+            genome: {
+              weights: cloneWeights(best.weights),
+              fitness: best.fitness,
+            },
+          }
+        : null;
+    this.clearCohort();
+    this.joustingLive = null;
     this.restoreControllerRateAfterBoxing();
     if (this.world && design) {
       this.creature = this.spawnCreatureWithGrip(
@@ -2246,6 +2717,7 @@ export class Simulation {
     this.boxing = null;
     this.boxingFinished = null;
     this.boxingLive = null;
+    this.clearJoustingState();
     this.soloWatch = null;
     if (this.creature) {
       destroyCreature(this.world, this.creature);
@@ -2322,6 +2794,11 @@ export class Simulation {
       this.boxingLive.status = 'Stopping after this batch…';
       this.emitBoxingLiveProgress();
     }
+    if (this.joustingLive) {
+      this.joustingLive.stopRequested = true;
+      this.joustingLive.status = 'Stopping after this batch…';
+      this.emitJoustingLiveProgress();
+    }
   }
 
   /**
@@ -2342,6 +2819,10 @@ export class Simulation {
       this.boxingLive.episodeDuration = duration;
       this.emitBoxingLiveProgress();
     }
+    if (this.joustingLive) {
+      this.joustingLive.episodeDuration = duration;
+      this.emitJoustingLiveProgress();
+    }
     if (this.soloWatch) {
       this.soloWatch.episodeDuration = duration;
     }
@@ -2351,12 +2832,18 @@ export class Simulation {
     if (this.boxing) {
       this.boxing.episodeDuration = duration;
     }
+    if (this.jousting) {
+      this.jousting.episodeDuration = duration;
+    }
   }
 
   /** Immediately tear down a live evolve session; returns elite if one exists. */
   abortLiveEvolve(): { shape: NetworkShape; genome: Genome } | null {
     if (this.boxingLive) {
       return this.abortBoxingLiveEvolve();
+    }
+    if (this.joustingLive) {
+      return this.abortJoustingLiveEvolve();
     }
     if (!this.live || !this.world) return null;
     const design = this.live.design;
@@ -2392,6 +2879,12 @@ export class Simulation {
   }
 
   focusNextCreature(): void {
+    if (this.joustingLive && this.joustingLive.pairs.length > 0) {
+      this.joustingLive.focusIndex =
+        (this.joustingLive.focusIndex + 1) % this.joustingLive.pairs.length;
+      this.emitJoustingLiveProgress();
+      return;
+    }
     if (this.boxingLive && this.boxingLive.pairs.length > 0) {
       this.boxingLive.focusIndex =
         (this.boxingLive.focusIndex + 1) % this.boxingLive.pairs.length;
@@ -2403,7 +2896,7 @@ export class Simulation {
       this.emitEvolveProgress();
       return;
     }
-    if (this.isBoxingView() || this.isHeadToHeadView()) {
+    if (this.isBoxingView() || this.isHeadToHeadView() || this.isJoustingView()) {
       const n = Math.min(2, this.cohort.length);
       if (n <= 0) return;
       this.duelFocusIndex = (this.duelFocusIndex + 1) % n;
@@ -2411,6 +2904,13 @@ export class Simulation {
   }
 
   focusPrevCreature(): void {
+    if (this.joustingLive && this.joustingLive.pairs.length > 0) {
+      const n = this.joustingLive.pairs.length;
+      this.joustingLive.focusIndex =
+        (this.joustingLive.focusIndex - 1 + n) % n;
+      this.emitJoustingLiveProgress();
+      return;
+    }
     if (this.boxingLive && this.boxingLive.pairs.length > 0) {
       const n = this.boxingLive.pairs.length;
       this.boxingLive.focusIndex =
@@ -2424,7 +2924,7 @@ export class Simulation {
       this.emitEvolveProgress();
       return;
     }
-    if (this.isBoxingView() || this.isHeadToHeadView()) {
+    if (this.isBoxingView() || this.isHeadToHeadView() || this.isJoustingView()) {
       const n = Math.min(2, this.cohort.length);
       if (n <= 0) return;
       this.duelFocusIndex = (this.duelFocusIndex - 1 + n) % n;
@@ -2438,12 +2938,15 @@ export class Simulation {
     if (
       !this.live &&
       !this.boxingLive &&
+      !this.joustingLive &&
       !this.creature &&
       this.discoDancers.length === 0 &&
       !this.h2h &&
       !this.h2hFinished &&
       !this.boxing &&
-      !this.boxingFinished
+      !this.boxingFinished &&
+      !this.jousting &&
+      !this.joustingFinished
     ) {
       return this.snapshot();
     }
@@ -2477,6 +2980,20 @@ export class Simulation {
 
     if (this.live) {
       this.physicsStepCohort(dt);
+      return;
+    }
+
+    if (this.joustingLive) {
+      this.physicsStepJoustingLive(dt);
+      return;
+    }
+
+    if (this.jousting) {
+      this.physicsStepJousting(dt);
+      return;
+    }
+
+    if (this.isJoustingView() && this.joustingFinished) {
       return;
     }
 
@@ -3310,6 +3827,532 @@ export class Simulation {
     }
   }
 
+  private physicsStepJousting(dt: number): void {
+    if (!this.world || !this.jousting || this.cohort.length < 2) return;
+    const frozen = this.jousting.pass.phase === 'done';
+
+    for (let memberIndex = 0; memberIndex < 2; memberIndex++) {
+      const member = this.cohort[memberIndex];
+      const shape = member.memberShape;
+      const memberDesign = member.memberDesign;
+      if (!shape || !memberDesign) continue;
+      if (!frozen) this.tickJoustingBrainMember(memberIndex, shape, dt);
+      const muscleDrives = frozen
+        ? member.brainDrives.map(() => 0)
+        : expandChannelDrives(memberDesign.muscles, member.brainDrives);
+      resetCreatureForces(member.creature);
+      applyMuscleForces(
+        member.creature.muscles,
+        muscleDrives,
+        member.muscleVisual,
+      );
+      applyExtraForces(member.creature, memberDesign, member.brainDrives, {
+        skipAero: true,
+      });
+    }
+
+    for (const member of this.cohort.slice(0, 2)) {
+      syncCreatureSoftCcd(member.creature);
+    }
+    this.world.timestep = dt;
+    this.world.step();
+    this.time += dt;
+    this.jousting.episodeT += dt;
+
+    const events = detectJoustHits(
+      this.world,
+      this.jousting.probes,
+      this.jousting.hitTracker,
+      this.jousting.episodeT,
+    );
+    this.jousting.scorecard.hits[0].attempts =
+      this.jousting.hitTracker.attempts[0];
+    this.jousting.scorecard.hits[1].attempts =
+      this.jousting.hitTracker.attempts[1];
+    for (const event of events) {
+      recordJoustHit(this.jousting.scorecard.hits, event);
+      this.jousting.scorecard.events.push(event);
+    }
+
+    const done = updateJoustPass(
+      this.jousting.pass,
+      this.cohort[0].creature,
+      this.cohort[1].creature,
+      this.jousting.episodeT,
+      dt,
+      this.jousting.episodeDuration - JOUST_AFTERMATH_SECONDS,
+      events,
+    );
+    if (done) {
+      freezeJoustScorecard(this.jousting.scorecard, this.jousting.priorities);
+    }
+
+    const terrain = this.activeTerrain();
+    for (const member of this.cohort.slice(0, 2)) {
+      applyPlantSlideBrake(
+        member.creature,
+        terrain,
+        this.world,
+        this.envObstacles,
+        this.antiScoot,
+      );
+    }
+
+    const progress = this.joustingSnapshot();
+    const tickHz = Math.floor(this.jousting.episodeT * 4);
+    const prevTickHz = Math.floor((this.jousting.episodeT - dt) * 4);
+    if (progress && tickHz !== prevTickHz) {
+      this.jousting.onProgress?.(progress);
+    }
+    if (!done && this.jousting.episodeT < this.jousting.episodeDuration) return;
+
+    freezeJoustScorecard(this.jousting.scorecard, this.jousting.priorities);
+    const winner = joustWinner(this.jousting.scorecard);
+    const result: JoustMatchResult = {
+      scorecard: this.jousting.scorecard,
+      winner,
+      reason: winner === null ? 'draw' : (this.jousting.pass.clashReason ?? 'draw'),
+      episodeDuration: this.jousting.episodeT,
+    };
+    const onProgress = this.jousting.onProgress;
+    const onFinished = this.jousting.onFinished;
+    if (progress) onProgress?.(progress);
+    this.jousting = null;
+    this.joustingFinished = result;
+    onFinished?.(result);
+  }
+
+  private spawnJoustingLiveBatch(): void {
+    if (!this.world || !this.joustingLive) return;
+    this.clearCohort();
+    const live = this.joustingLive;
+    live.pairs = [];
+    const start = live.batchIndex * live.batchSize;
+    const count = Math.min(live.batchSize, live.popSize - start);
+    const spawn = resolveSpawn(this.environment);
+
+    if (this.outBuf.length < Math.max(live.shape.outputCount, live.opponentShape.outputCount)) {
+      this.outBuf = new Float32Array(
+        Math.max(live.shape.outputCount, live.opponentShape.outputCount),
+      );
+    }
+    if (this.hidBuf.length < Math.max(live.shape.hiddenCount, live.opponentShape.hiddenCount)) {
+      this.hidBuf = new Float32Array(
+        Math.max(live.shape.hiddenCount, live.opponentShape.hiddenCount),
+      );
+    }
+    if (this.obsBuf.length < JOUST_OBS_COUNT) {
+      this.obsBuf = new Float32Array(JOUST_OBS_COUNT);
+    }
+
+    for (let i = 0; i < count; i++) {
+      const genomeIndex = start + i;
+      const genome = live.population[genomeIndex]!;
+      const centerX = i * JOUST_TRAIN_PAIR_GAP;
+      const traineeDesign = cloneDesign(live.design);
+      const sparringDesign = mirrorBoxingDesign(live.opponentDesign);
+      const traineeCreature = this.spawnCreatureWithGrip(traineeDesign, {
+        x: centerX - JOUST_SPAWN_X,
+        y: spawn.y,
+      });
+      const sparringCreature = this.spawnCreatureWithGrip(sparringDesign, {
+        x: centerX + JOUST_SPAWN_X,
+        y: spawn.y,
+      });
+      enableJoustOpponentContact(traineeCreature, 0);
+      enableJoustOpponentContact(sparringCreature, 1);
+      const trainee = this.makeBoxingCohortMember(
+        traineeCreature,
+        genomeIndex,
+        genome.weights,
+        live.shape,
+        traineeDesign,
+      );
+      const sparring = this.makeBoxingCohortMember(
+        sparringCreature,
+        -1,
+        live.opponentWeights,
+        live.opponentShape,
+        sparringDesign,
+      );
+      const probes: [JoustProbeSet, JoustProbeSet] = [
+        createJoustProbes(this.world, traineeCreature, 0),
+        createJoustProbes(this.world, sparringCreature, 1),
+      ];
+      const pass = createJoustPassState();
+      this.cohort.push(trainee, sparring);
+      live.pairs.push({
+        genomeIndex,
+        trainee,
+        sparring,
+        probes,
+        hitTracker: createJoustHitTracker(),
+        scorecard: createJoustScorecard(pass),
+        pass,
+        frozen: false,
+      });
+    }
+
+    live.episodeT = 0;
+    live.focusIndex = 0;
+    this.time = 0;
+    this.accumulator = 0;
+    live.status = `Joust · round ${live.generation} · batch ${live.batchIndex + 1}/${live.batchCount}`;
+  }
+
+  private physicsStepJoustingLive(dt: number): void {
+    if (!this.world || !this.joustingLive || this.joustingLive.pairs.length === 0) {
+      return;
+    }
+    const live = this.joustingLive;
+
+    for (const pair of live.pairs) {
+      if (!pair.frozen) {
+        this.tickJoustingPairMember(
+          pair.trainee,
+          pair.sparring,
+          pair.scorecard,
+          0,
+          live.episodeT,
+          live.episodeDuration,
+          pair.pass,
+          dt,
+        );
+        this.tickJoustingPairMember(
+          pair.sparring,
+          pair.trainee,
+          pair.scorecard,
+          1,
+          live.episodeT,
+          live.episodeDuration,
+          pair.pass,
+          dt,
+        );
+      }
+      for (const member of [pair.trainee, pair.sparring]) {
+        const shape = member.memberShape;
+        const memberDesign = member.memberDesign;
+        if (!shape || !memberDesign) continue;
+        const muscleDrives = pair.frozen
+          ? member.brainDrives.map(() => 0)
+          : expandChannelDrives(memberDesign.muscles, member.brainDrives);
+        resetCreatureForces(member.creature);
+        applyMuscleForces(
+          member.creature.muscles,
+          muscleDrives,
+          member.muscleVisual,
+        );
+        applyExtraForces(member.creature, memberDesign, member.brainDrives, {
+          skipAero: true,
+        });
+      }
+    }
+
+    for (const member of this.cohort) {
+      syncCreatureSoftCcd(member.creature);
+    }
+    this.world.timestep = dt;
+    this.world.step();
+    this.time += dt;
+    live.episodeT += dt;
+
+    const terrain = this.activeTerrain();
+    for (const pair of live.pairs) {
+      const events = pair.frozen
+        ? []
+        : detectJoustHits(
+            this.world,
+            pair.probes,
+            pair.hitTracker,
+            live.episodeT,
+          );
+      pair.scorecard.hits[0].attempts = pair.hitTracker.attempts[0];
+      pair.scorecard.hits[1].attempts = pair.hitTracker.attempts[1];
+      for (const event of events) {
+        recordJoustHit(pair.scorecard.hits, event);
+        pair.scorecard.events.push(event);
+      }
+      if (!pair.frozen) {
+        const done = updateJoustPass(
+          pair.pass,
+          pair.trainee.creature,
+          pair.sparring.creature,
+          live.episodeT,
+          dt,
+          live.episodeDuration - JOUST_AFTERMATH_SECONDS,
+          events,
+        );
+        if (done) {
+          freezeJoustScorecard(pair.scorecard, live.priorities);
+          pair.frozen = true;
+        }
+      }
+      for (const member of [pair.trainee, pair.sparring]) {
+        applyPlantSlideBrake(
+          member.creature,
+          terrain,
+          this.world,
+          this.envObstacles,
+          this.antiScoot,
+        );
+      }
+    }
+
+    const tickHz = Math.floor(live.episodeT * 4);
+    const prevTickHz = Math.floor((live.episodeT - dt) * 4);
+    if (tickHz !== prevTickHz) {
+      this.emitJoustingLiveProgress();
+    }
+    const allDone = live.pairs.every((pair) => pair.frozen);
+    if (!allDone && live.episodeT < live.episodeDuration) return;
+    this.finishJoustingLiveBatch();
+  }
+
+  private tickJoustingPairMember(
+    member: CohortMember,
+    opponent: CohortMember,
+    scorecard: JoustScorecard,
+    memberOwner: JoustOwner,
+    episodeT: number,
+    episodeDuration: number,
+    pass: JoustPassState,
+    dt: number,
+  ): void {
+    const shape = member.memberShape;
+    if (!shape || shape.inputCount !== JOUST_OBS_COUNT) return;
+    const brainDt = this.brainDt;
+    member.brainAccumulator += dt;
+    while (member.brainAccumulator >= brainDt) {
+      member.brainAccumulator -= brainDt;
+      if (this.obsBuf.length < JOUST_OBS_COUNT) {
+        this.obsBuf = new Float32Array(JOUST_OBS_COUNT);
+      }
+      if (this.outBuf.length < shape.outputCount) {
+        this.outBuf = new Float32Array(shape.outputCount);
+      }
+      if (this.hidBuf.length < shape.hiddenCount) {
+        this.hidBuf = new Float32Array(shape.hiddenCount);
+      }
+      const ownTotal = scorecard.fighters[memberOwner].total;
+      const opponentTotal =
+        scorecard.fighters[memberOwner === 0 ? 1 : 0].total;
+      buildJoustObservations(
+        member.creature,
+        opponent.creature,
+        ownTotal,
+        opponentTotal,
+        pass.phase === 'charge' ? 0 : 1,
+        1 - episodeT / episodeDuration,
+        episodeT,
+        this.obsBuf,
+      );
+      const outs = evaluateNetwork(
+        shape,
+        member.weights,
+        this.obsBuf,
+        this.outBuf,
+        this.hidBuf,
+      );
+      member.lastObs.set(this.obsBuf.subarray(0, shape.inputCount));
+      member.lastHidden.set(this.hidBuf.subarray(0, shape.hiddenCount));
+      for (let i = 0; i < member.brainDrives.length; i++) {
+        member.brainDrives[i] = outs[i] ?? 0;
+      }
+    }
+  }
+
+  private finishJoustingLiveBatch(): void {
+    const live = this.joustingLive;
+    if (!live) return;
+
+    for (const pair of live.pairs) {
+      freezeJoustScorecard(pair.scorecard, live.priorities);
+      const winner = joustWinner(pair.scorecard);
+      const fitness = computeJoustingFitness(
+        pair.scorecard,
+        winner,
+        live.priorities,
+      ).fitness;
+      live.population[pair.genomeIndex]!.fitness = fitness;
+      if (fitness > live.bestOverall.fitness) {
+        live.bestOverall = {
+          weights: cloneWeights(live.population[pair.genomeIndex]!.weights),
+          fitness,
+        };
+      }
+    }
+
+    const evaluated = Math.min(
+      (live.batchIndex + 1) * live.batchSize,
+      live.popSize,
+    );
+    live.displayMeanFitness = meanFitness(live.population.slice(0, evaluated));
+
+    if (live.stopRequested) {
+      this.endJoustingLiveEvolve('Stopped — use Play best');
+      return;
+    }
+
+    if (live.batchIndex + 1 < live.batchCount) {
+      live.batchIndex += 1;
+      live.status = `Joust · round ${live.generation} · batch ${live.batchIndex + 1}/${live.batchCount}`;
+      this.spawnJoustingLiveBatch();
+      this.emitJoustingLiveProgress(evaluated);
+      return;
+    }
+
+    live.population.sort((a, b) => b.fitness - a.fitness);
+    live.status = `Round ${live.generation} done · best ${live.population[0]!.fitness.toFixed(3)}`;
+    this.emitJoustingLiveProgress(live.popSize);
+
+    if (live.generation + 1 >= live.maxGenerations) {
+      this.endJoustingLiveEvolve('Done — use Play best');
+      return;
+    }
+
+    live.population = breedNextGeneration(
+      live.population,
+      live.popSize,
+      live.rng,
+      {
+        eliteCount: live.breed.eliteCount,
+        tournamentSize: live.breed.tournamentSize,
+        mutationSigma: live.breed.mutationSigma,
+        mutationResetRate: live.breed.mutationResetRate,
+        crossover: live.breed.crossover,
+      },
+    );
+    live.generation += 1;
+    live.batchIndex = 0;
+    live.batchCount = Math.ceil(live.popSize / live.batchSize);
+    live.status = `Joust · round ${live.generation} · batch 1/${live.batchCount}`;
+    this.spawnJoustingLiveBatch();
+    this.emitJoustingLiveProgress(0);
+  }
+
+  private emitJoustingLiveProgress(evaluatedOverride?: number): void {
+    const live = this.joustingLive;
+    if (!live) return;
+    const scored =
+      evaluatedOverride !== undefined
+        ? evaluatedOverride
+        : Math.min(live.batchIndex * live.batchSize, live.popSize);
+    live.onProgress?.({
+      generation: live.generation,
+      evaluated: scored,
+      populationSize: live.popSize,
+      bestFitness:
+        live.bestOverall.fitness === -Infinity ? 0 : live.bestOverall.fitness,
+      meanFitness: live.displayMeanFitness,
+      running: true,
+      status: live.status,
+      batch: live.batchIndex + 1,
+      batchCount: live.batchCount,
+      focusIndex: live.focusIndex,
+      cohortSize: live.pairs.length,
+      episodeT: live.episodeT,
+      episodeDuration: live.episodeDuration,
+    });
+  }
+
+  private endJoustingLiveEvolve(status: string): void {
+    const live = this.joustingLive;
+    if (!live) return;
+    const best = live.bestOverall;
+    const shape = live.shape;
+    const design = live.design;
+    const onFinished = live.onFinished;
+    const onProgress = live.onProgress;
+    this.clearCohort();
+    this.joustingLive = null;
+    this.restoreControllerRateAfterBoxing();
+    if (this.world) {
+      this.creature = this.spawnCreatureWithGrip(
+        design,
+        resolveSpawn(this.environment),
+      );
+      this.design = design;
+      this.manualDrives = zeroActuatorDrives(design);
+      this.brainDrives = zeroActuatorDrives(design);
+    }
+    this.driveMode = 'idle';
+    this.time = 0;
+    this.accumulator = 0;
+    onProgress?.({
+      generation: live.generation,
+      evaluated: live.popSize,
+      populationSize: live.popSize,
+      bestFitness: best.fitness === -Infinity ? 0 : best.fitness,
+      meanFitness: live.displayMeanFitness,
+      running: false,
+      status,
+      batch: live.batchCount,
+      batchCount: live.batchCount,
+      episodeT: 0,
+      episodeDuration: live.episodeDuration,
+    });
+    if (best.fitness > -Infinity) {
+      onFinished?.(best, shape);
+    }
+  }
+
+  private tickJoustingBrainMember(
+    memberIndex: number,
+    shape: NetworkShape,
+    dt: number,
+  ): void {
+    const member = this.cohort[memberIndex];
+    const opponent = this.cohort[memberIndex === 0 ? 1 : 0];
+    if (
+      !member ||
+      !opponent ||
+      !this.jousting ||
+      shape.inputCount !== JOUST_OBS_COUNT
+    ) {
+      if (member) this.tickBrainMember(member, shape, dt);
+      return;
+    }
+    const brainDt = this.brainDt;
+    member.brainAccumulator += dt;
+    while (member.brainAccumulator >= brainDt) {
+      member.brainAccumulator -= brainDt;
+      if (this.obsBuf.length < JOUST_OBS_COUNT) {
+        this.obsBuf = new Float32Array(JOUST_OBS_COUNT);
+      }
+      if (this.outBuf.length < shape.outputCount) {
+        this.outBuf = new Float32Array(shape.outputCount);
+      }
+      if (this.hidBuf.length < shape.hiddenCount) {
+        this.hidBuf = new Float32Array(shape.hiddenCount);
+      }
+      const ownTotal = this.jousting.scorecard.fighters[memberIndex].total;
+      const opponentTotal =
+        this.jousting.scorecard.fighters[memberIndex === 0 ? 1 : 0].total;
+      buildJoustObservations(
+        member.creature,
+        opponent.creature,
+        ownTotal,
+        opponentTotal,
+        this.jousting.pass.phase === 'charge' ? 0 : 1,
+        1 - this.jousting.episodeT / this.jousting.episodeDuration,
+        this.jousting.episodeT,
+        this.obsBuf,
+      );
+      const outs = evaluateNetwork(
+        shape,
+        member.weights,
+        this.obsBuf,
+        this.outBuf,
+        this.hidBuf,
+      );
+      member.lastObs.set(this.obsBuf.subarray(0, shape.inputCount));
+      member.lastHidden.set(this.hidBuf.subarray(0, shape.hiddenCount));
+      for (let i = 0; i < member.brainDrives.length; i++) {
+        member.brainDrives[i] = outs[i] ?? 0;
+      }
+    }
+  }
+
   private physicsStepHeadToHead(dt: number): void {
     if (!this.world || !this.h2h) return;
 
@@ -4094,6 +5137,22 @@ export class Simulation {
    * UI should read them each frame and not retain them across sessions.
    */
   private probeFocusedBrain(): LiveBrainProbe | null {
+    if (this.joustingLive && this.joustingLive.pairs.length > 0) {
+      const focus = Math.min(
+        this.joustingLive.focusIndex,
+        Math.max(0, this.joustingLive.pairs.length - 1),
+      );
+      const member = this.joustingLive.pairs[focus]!.trainee;
+      return {
+        shape: this.joustingLive.shape,
+        weights: member.weights,
+        inputs: member.lastObs,
+        outputs: Float32Array.from(member.brainDrives),
+        hidden: member.lastHidden,
+        genomeIndex: member.genomeIndex,
+        focusIndex: focus,
+      };
+    }
     if (this.boxingLive && this.boxingLive.pairs.length > 0) {
       const focus = Math.min(
         this.boxingLive.focusIndex,
@@ -4127,7 +5186,7 @@ export class Simulation {
       };
     }
     if (
-      (this.isBoxingView() || this.isHeadToHeadView()) &&
+      (this.isBoxingView() || this.isHeadToHeadView() || this.isJoustingView()) &&
       this.cohort.length > 0
     ) {
       const focus = Math.min(
@@ -4445,6 +5504,61 @@ export class Simulation {
     );
   }
 
+  private isJoustingView(): boolean {
+    return (
+      this.cohort.length >= 2 &&
+      this.cohort[0].memberDesign !== undefined &&
+      (this.jousting !== null || this.joustingFinished !== null)
+    );
+  }
+
+  private joustingSnapshot(): JoustMatchSnapshot | null {
+    if (this.cohort.length < 2) return null;
+    const names: [string, string] = [
+      this.cohort[0]?.memberDesign?.name ?? 'A',
+      this.cohort[1]?.memberDesign?.name ?? 'B',
+    ];
+    if (this.jousting) {
+      return {
+        episodeT: this.jousting.episodeT,
+        episodeDuration: this.jousting.episodeDuration,
+        names,
+        totals: [
+          this.jousting.scorecard.fighters[0].total,
+          this.jousting.scorecard.fighters[1].total,
+        ],
+        hits: [
+          this.jousting.scorecard.hits[0].hits,
+          this.jousting.scorecard.hits[1].hits,
+        ],
+        phase: this.jousting.pass.phase,
+        clashReason: this.jousting.pass.clashReason,
+        lastHit: this.jousting.scorecard.events.at(-1) ?? null,
+        finished: false,
+        winner: null,
+      };
+    }
+    if (!this.joustingFinished) return null;
+    return {
+      episodeT: this.joustingFinished.episodeDuration,
+      episodeDuration: this.joustingFinished.episodeDuration,
+      names,
+      totals: [
+        this.joustingFinished.scorecard.fighters[0].total,
+        this.joustingFinished.scorecard.fighters[1].total,
+      ],
+      hits: [
+        this.joustingFinished.scorecard.hits[0].hits,
+        this.joustingFinished.scorecard.hits[1].hits,
+      ],
+      phase: 'done',
+      clashReason: this.joustingFinished.scorecard.pass.clashReason,
+      lastHit: this.joustingFinished.scorecard.events.at(-1) ?? null,
+      finished: true,
+      winner: this.joustingFinished.winner,
+    };
+  }
+
   private agentCenter(agent: AgentSnapshot): { x: number; y: number } {
     if (agent.joints.length === 0) return { x: 0, y: 2 };
     return {
@@ -4535,6 +5649,136 @@ export class Simulation {
           episodeDuration: this.live.episodeDuration,
         },
         headToHead: null,
+        hideMuscles: this.hideMuscles,
+        hideBones: this.hideBones,
+        hideSolidStruts: this.hideSolidStruts,
+      };
+    }
+
+    if (this.joustingLive && this.joustingLive.pairs.length > 0) {
+      const live = this.joustingLive;
+      const pairFocus = Math.min(
+        live.focusIndex,
+        Math.max(0, live.pairs.length - 1),
+      );
+      const focusedPair = live.pairs[pairFocus]!;
+      const appearance = live.design.appearance;
+      const agents: AgentSnapshot[] = [];
+      if (this.showGhostPack) {
+        for (let pi = 0; pi < live.pairs.length; pi++) {
+          const pair = live.pairs[pi]!;
+          const pairFocused = pi === pairFocus;
+          const opacity = pairFocused ? 1 : GHOST_OPACITY;
+          agents.push(
+            agentFromCreature(
+              pair.trainee.creature,
+              pair.trainee.muscleVisual,
+              opacity,
+              pairFocused,
+              appearance,
+            ),
+            agentFromCreature(
+              pair.sparring.creature,
+              pair.sparring.muscleVisual,
+              opacity,
+              false,
+              pair.sparring.memberDesign?.appearance,
+            ),
+          );
+        }
+      } else {
+        agents.push(
+          agentFromCreature(
+            focusedPair.trainee.creature,
+            focusedPair.trainee.muscleVisual,
+            1,
+            true,
+            appearance,
+          ),
+          agentFromCreature(
+            focusedPair.sparring.creature,
+            focusedPair.sparring.muscleVisual,
+            1,
+            false,
+            focusedPair.sparring.memberDesign?.appearance,
+          ),
+        );
+      }
+      const tAgent = this.showGhostPack
+        ? agents[pairFocus * 2]!
+        : agents[0]!;
+      const sAgent = this.showGhostPack
+        ? agents[pairFocus * 2 + 1]!
+        : agents[1]!;
+      const c0 = this.agentCenter(tAgent);
+      const c1 = this.agentCenter(sAgent);
+      const focusX = (c0.x + c1.x) / 2;
+      const focusY = (c0.y + c1.y) / 2;
+      const focusedCard = focusedPair.scorecard;
+      return {
+        joints: tAgent.joints,
+        bones: tAgent.bones,
+        struts: tAgent.struts,
+        muscles: tAgent.muscles,
+        time: this.time,
+        agents,
+        focusX,
+        focusY,
+        cameraFollow: true,
+        appearance,
+        task: 'jousting',
+        extrapolateDt: Math.min(this.accumulator, FIXED_DT),
+        brain: this.probeFocusedBrain(),
+        obstacles: this.envObstacles?.visuals ?? [],
+        terrain: this.activeTerrainVisual(),
+        tower: this.envTower?.visuals ?? [],
+        scoreRegions: activeScoreRegions(this.environment),
+        courseMarkers: activeCourseMarkers(this.environment),
+        theme: this.environment.theme,
+        liveStats: this.liveStatsFromMember(
+          focusedPair.trainee,
+          'jousting',
+          live.episodeT,
+        ),
+        lastEpisodeMetrics: this.lastEpisodeMetrics,
+        evolve: {
+          generation: live.generation,
+          evaluated: live.batchIndex * live.batchSize,
+          populationSize: live.popSize,
+          bestFitness:
+            live.bestOverall.fitness === -Infinity
+              ? 0
+              : live.bestOverall.fitness,
+          meanFitness: live.displayMeanFitness,
+          running: true,
+          status: live.status,
+          batch: live.batchIndex + 1,
+          batchCount: live.batchCount,
+          focusIndex: pairFocus,
+          cohortSize: live.pairs.length,
+          episodeT: live.episodeT,
+          episodeDuration: live.episodeDuration,
+        },
+        headToHead: null,
+        boxing: null,
+        jousting: {
+          episodeT: live.episodeT,
+          episodeDuration: live.episodeDuration,
+          names: [
+            live.design.name || 'Trainee',
+            live.opponentDesign.name || 'Sparring',
+          ],
+          totals: [
+            focusedCard.fighters[0].total,
+            focusedCard.fighters[1].total,
+          ],
+          hits: [focusedCard.hits[0].hits, focusedCard.hits[1].hits],
+          phase: focusedPair.pass.phase,
+          clashReason: focusedPair.pass.clashReason,
+          lastHit: focusedCard.events.at(-1) ?? null,
+          finished: focusedPair.frozen,
+          winner: null,
+        },
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
         hideSolidStruts: this.hideSolidStruts,
@@ -4667,15 +5911,21 @@ export class Simulation {
           finished: false,
           winner: null,
         },
+        jousting: null,
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
         hideSolidStruts: this.hideSolidStruts,
       };
     }
 
-    if (this.isHeadToHeadView() || this.isBoxingView()) {
+    if (this.isHeadToHeadView() || this.isBoxingView() || this.isJoustingView()) {
       const boxing = this.boxingSnapshot();
-      const task: TaskId = boxing ? 'boxing' : (this.h2h?.task ?? this.task);
+      const jousting = this.joustingSnapshot();
+      const task: TaskId = jousting
+        ? 'jousting'
+        : boxing
+          ? 'boxing'
+          : (this.h2h?.task ?? this.task);
       const focus = Math.min(
         this.duelFocusIndex,
         Math.max(0, Math.min(2, this.cohort.length) - 1),
@@ -4717,12 +5967,13 @@ export class Simulation {
         liveStats: this.liveStatsFromMember(
           this.cohort[focus] ?? this.cohort[0],
           task,
-          boxing?.episodeT ?? this.h2h?.episodeT ?? 0,
+          boxing?.episodeT ?? jousting?.episodeT ?? this.h2h?.episodeT ?? 0,
         ),
         lastEpisodeMetrics: this.lastEpisodeMetrics,
         evolve: null,
-        headToHead: boxing ? null : this.headToHeadSnapshot(),
+        headToHead: boxing || jousting ? null : this.headToHeadSnapshot(),
         boxing,
+        jousting,
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
         hideSolidStruts: this.hideSolidStruts,

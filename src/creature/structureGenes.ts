@@ -1,6 +1,6 @@
 /**
- * D18 — Structural morphology genes (grow/prune from authored design).
- * Topology may change; soft morph (D17) still applies on top.
+ * Structural morphology genes (grow/prune from authored design).
+ * Topology may change; soft morph still applies on top.
  */
 import {
   countBrainActuatorChannels,

@@ -36,6 +36,20 @@ import {
   type BoxingPriorities,
 } from "./boxing/rewards";
 import {
+  DEFAULT_JOUST_SPARRING_ID,
+  resolveJoustSparringOpponent,
+  JOUST_SPARRING_OPPONENTS,
+  joustSparringOpponentLabel,
+  type JoustSparringId,
+} from "./jousting/sparringOpponents";
+import { joustingEligibility } from "./jousting/eligibility";
+import {
+  DEFAULT_JOUSTING_PRIORITIES,
+  JOUSTING_PRIORITY_KEYS,
+  JOUSTING_PRIORITY_LABELS,
+  type JoustingPriorities,
+} from "./jousting/scorecard";
+import {
   DEFAULT_GOAL_PRIORITIES,
   DEFAULT_RUN_STAGES,
   relevantPriorityKeys,
@@ -167,6 +181,7 @@ import { DiscoCurriculumPanel } from "./components/DiscoCurriculumPanel";
 import { DiscoTrackLearnPanel } from "./components/DiscoTrackLearnPanel";
 import { DiscoZonePanel } from "./components/DiscoZonePanel";
 import { BoxingSkillPanel, type BoxingMatchOpponent } from "./components/BoxingSkillPanel";
+import { JoustingSkillPanel, type JoustMatchOpponent } from "./components/JoustingSkillPanel";
 import {
   HeadToHeadPanel,
   headToHeadEntriesFromModels,
@@ -230,6 +245,7 @@ import {
 import { isFeatureEnabled } from "./port/featureFlags";
 import { discoFloorEnv } from "./env/discoEnv";
 import { boxingRingEnv, isBoxingRingEnv } from "./env/boxingRingEnv";
+import { joustLaneEnv, isJoustLaneEnv } from "./env/joustLaneEnv";
 import {
   DEFAULT_DISCO_BALL_X,
   DEFAULT_DISCO_BALL_Y,
@@ -237,6 +253,7 @@ import {
   FOOT_MASS_DEFAULT,
   FOOT_MASS_MAX,
   FOOT_MASS_MIN,
+  JOUST_MAX_SECONDS,
   WHEEL_MASS_DEFAULT,
   WHEEL_MASS_MAX,
   WHEEL_MASS_MIN,
@@ -253,7 +270,7 @@ import {
   duplicateSelection as duplicateEnvSelection,
   rotateSelection as rotateEnvSelection,
 } from "./env/envSelectionOps";
-import { makeSineTerrain } from "./env/terrainMath";
+import { setTerrainAmplitude, studioSineTerrain } from "./env/terrainMath";
 import {
   cloneEnvironment,
   ENV_THEMES,
@@ -284,6 +301,7 @@ import {
   loadCreaturePackages,
   saveNewPackage,
   savePackageRevision,
+  setPackageSkillPlacement,
   type CreaturePackage,
 } from "./library/creaturePackages";
 import {
@@ -319,6 +337,12 @@ import {
   importEnvironmentJson,
   importModelJson,
 } from "./library/jsonIO";
+import {
+  isValidSkillPlacement,
+  loadAllPresetSkillOverrides,
+  savePresetSkillOverride,
+  type SkillPlacement,
+} from "./library/skillCategories";
 import { createShare, fetchShare } from "./library/shareApi";
 import { clampCourseMarker } from "./brain/courseMarkers";
 import {
@@ -345,9 +369,11 @@ import { SimCanvas } from "./sim/SimCanvas";
 import {
   shapeForDanceDesign,
   shapeForBoxingDesign,
+  shapeForJoustingDesign,
   shapeForDesign,
   Simulation,
   type BoxingMatchResult,
+  type JoustMatchResult,
   type DriveMode,
   type EpisodeCompleteSnapshot,
   type HeadToHeadResult,
@@ -472,6 +498,8 @@ export default function App() {
   const [boxingPriorities, setBoxingPriorities] = useState<BoxingPriorities>(
     () => ({ ...DEFAULT_BOXING_PRIORITIES }),
   );
+  const [joustingPriorities, setJoustingPriorities] =
+    useState<JoustingPriorities>(() => ({ ...DEFAULT_JOUSTING_PRIORITIES }));
   const [stageTrainerOn, setStageTrainerOn] = useState(false);
   const [courseCurriculumOn, setCourseCurriculumOn] = useState(false);
   const [courseStageIndex, setCourseStageIndex] = useState(0);
@@ -518,6 +546,13 @@ export default function App() {
     genome: Genome;
   } | null>(null);
   const [packages, setPackages] = useState<CreaturePackage[]>([]);
+  const [presetSkillOverrides, setPresetSkillOverrides] = useState<
+    Record<string, SkillPlacement>
+  >(() => loadAllPresetSkillOverrides());
+  const [currentSkillOverride, setCurrentSkillOverride] = useState<{
+    fp: string;
+    placement: SkillPlacement;
+  } | null>(null);
   const [saveName, setSaveName] = useState(LANDING_PRESET.name);
   const [savedModels, setSavedModels] = useState<SavedModel[]>([]);
   const [discoTrack, setDiscoTrack] = useState("");
@@ -631,6 +666,21 @@ export default function App() {
   const boxingLiveMetaRef = useRef<{
     design: CreatureDesign;
     divisionId: BoxingDivisionId;
+  } | null>(null);
+  const [joustingRunning, setJoustingRunning] = useState(false);
+  const [joustingProgress, setJoustingProgress] = useState<{
+    episodeT: number;
+    episodeDuration: number;
+    totals: [number, number];
+    phase: string;
+  } | null>(null);
+  const [joustingResult, setJoustingResult] = useState<JoustMatchResult | null>(
+    null,
+  );
+  const [joustingSparringId, setJoustingSparringId] =
+    useState<JoustSparringId>(DEFAULT_JOUST_SPARRING_ID);
+  const joustingLiveMetaRef = useRef<{
+    design: CreatureDesign;
   } | null>(null);
   const [bestEverList, setBestEverList] = useState<BestEverEntry[]>([]);
   const [envDesign, setEnvDesign] = useState<EnvironmentDesign>(() =>
@@ -992,11 +1042,14 @@ export default function App() {
     const elite = captureLiveElite();
     if (simulation.isHeadToHead) simulation.abortHeadToHead();
     simulation.abortBoxingMatch();
+    simulation.abortJoustMatch();
     simulation.clearDiscoDancers();
     setH2hRunning(false);
     setH2hProgress(null);
     setBoxingRunning(false);
     setBoxingProgress(null);
+    setJoustingRunning(false);
+    setJoustingProgress(null);
     if (!elite) {
       setEvolveProgress(idleProgress());
     } else {
@@ -1302,6 +1355,27 @@ export default function App() {
   }, [simulation]);
 
   const restorePreBoxingEnvironment = useCallback(() => {
+    const previous = preSpecialEnvRef.current;
+    if (!previous) return;
+    preSpecialEnvRef.current = null;
+    const restored = cloneEnvironment(previous);
+    envDesignRef.current = restored;
+    setEnvDesign(restored);
+    simulation.setEnvironment(previous);
+  }, [simulation]);
+
+  const applyJoustingEnvironment = useCallback(() => {
+    if (!preSpecialEnvRef.current) {
+      preSpecialEnvRef.current = cloneEnvironment(envDesignRef.current);
+    }
+    if (isJoustLaneEnv(envDesignRef.current)) return;
+    const lane = joustLaneEnv();
+    envDesignRef.current = lane;
+    setEnvDesign(lane);
+    simulation.setEnvironment(lane);
+  }, [simulation]);
+
+  const restorePreJoustingEnvironment = useCallback(() => {
     const previous = preSpecialEnvRef.current;
     if (!previous) return;
     preSpecialEnvRef.current = null;
@@ -1939,8 +2013,11 @@ export default function App() {
     setH2hRunning(false);
     setH2hProgress(null);
     simulation.abortBoxingMatch();
+    simulation.abortJoustMatch();
     setBoxingRunning(false);
     setBoxingProgress(null);
+    setJoustingRunning(false);
+    setJoustingProgress(null);
     simulation.clearDiscoDancers();
     applyBoxingEnvironment();
     const body = designRef.current;
@@ -1979,6 +2056,50 @@ export default function App() {
     setBoxingProgress(null);
     if (restoreEnvironment) restorePreBoxingEnvironment();
   }, [restorePreBoxingEnvironment, simulation]);
+
+  const enterJoustingSkill = useCallback(() => {
+    captureLiveElite();
+    if (simulation.isHeadToHead) simulation.abortHeadToHead();
+    setH2hRunning(false);
+    setH2hProgress(null);
+    simulation.abortBoxingMatch();
+    simulation.abortJoustMatch();
+    setBoxingRunning(false);
+    setBoxingProgress(null);
+    setJoustingRunning(false);
+    setJoustingProgress(null);
+    simulation.clearDiscoDancers();
+    applyJoustingEnvironment();
+    const body = designRef.current;
+    if (body.joints.length === 0) {
+      setError(
+        "No creature loaded — mark a lance and a target (or head) before training.",
+      );
+    } else {
+      const eligibility = joustingEligibility(body);
+      if (!eligibility.eligible) {
+        setError(
+          `Current creature is not suitable for jousting: ${eligibility.reasons.join(" ")} Your design was kept — mark a lance tip and a target.`,
+        );
+      } else {
+        setError(null);
+      }
+      simulation.loadDesign(body);
+      simulation.setTask("jousting");
+    }
+    setDriveMode("idle");
+    driveModeRef.current = "idle";
+    simulation.driveMode = "idle";
+    setMode("sim");
+    setSandboxTab("skill");
+  }, [applyJoustingEnvironment, captureLiveElite, simulation]);
+
+  const leaveJoustingSkill = useCallback((restoreEnvironment = true) => {
+    simulation.abortJoustMatch();
+    setJoustingRunning(false);
+    setJoustingProgress(null);
+    if (restoreEnvironment) restorePreJoustingEnvironment();
+  }, [restorePreJoustingEnvironment, simulation]);
 
   /** H7 — load a saved dance brain into Disco freestyle (not Free evolve). */
   const loadDanceFreestyle = useCallback(
@@ -2357,17 +2478,20 @@ export default function App() {
   const selectSkill = (id: SkillId) => {
     if (id === "disco" && !isFeatureEnabled("discoMode")) return;
     if (id === "boxing" && !isFeatureEnabled("boxingMode")) return;
+    if (id === "jousting" && !isFeatureEnabled("joustingMode")) return;
     const prev = skill;
     if (prev === "disco" && id !== "disco") {
-      leaveDiscoSkill(id !== "boxing");
+      leaveDiscoSkill(id !== "boxing" && id !== "jousting");
     }
     if (prev === "boxing" && id !== "boxing") {
-      leaveBoxingSkill(id !== "disco");
+      leaveBoxingSkill(id !== "disco" && id !== "jousting");
+    }
+    if (prev === "jousting" && id !== "jousting") {
+      leaveJoustingSkill(id !== "disco" && id !== "boxing");
     }
     setSkill(id);
     saveActiveSkill(id);
     if (id === "disco") {
-      // Disco uses a separate dance brain; keep the free-evolve elite for later.
       enterDiscoSkill();
       return;
     }
@@ -2376,6 +2500,13 @@ export default function App() {
       setGoalId(next.id);
       saveActiveGoalId(next.id);
       enterBoxingSkill();
+      return;
+    }
+    if (id === "jousting") {
+      const next = defaultGoalForSkill(id);
+      setGoalId(next.id);
+      saveActiveGoalId(next.id);
+      enterJoustingSkill();
       return;
     }
     const next = defaultGoalForSkill(id);
@@ -2393,11 +2524,14 @@ export default function App() {
       const elite = captureLiveElite();
       if (simulation.isHeadToHead) simulation.abortHeadToHead();
       simulation.abortBoxingMatch();
+      simulation.abortJoustMatch();
       simulation.clearDiscoDancers();
       setH2hRunning(false);
       setH2hProgress(null);
       setBoxingRunning(false);
       setBoxingProgress(null);
+      setJoustingRunning(false);
+      setJoustingProgress(null);
       setLiveBrain(null);
       simulation.setTask(activeTask);
       simulation.loadDesign(next);
@@ -2466,6 +2600,7 @@ export default function App() {
     if (tab === "edit") {
       if (skill === "disco") leaveDiscoSkill();
       if (skill === "boxing") leaveBoxingSkill();
+      if (skill === "jousting") leaveJoustingSkill();
       if (editPhysics) {
         // Stay in settle preview if already watching physics on Edit.
         setSandboxTab("edit");
@@ -2477,6 +2612,7 @@ export default function App() {
     if (tab === "world") {
       if (skill === "disco") leaveDiscoSkill();
       if (skill === "boxing") leaveBoxingSkill();
+      if (skill === "jousting") leaveJoustingSkill();
       setEditPhysics(false);
       enterWorld();
       return;
@@ -2510,6 +2646,11 @@ export default function App() {
         setSandboxTab("skill");
         return;
       }
+      if (skill === "jousting" && isFeatureEnabled("joustingMode")) {
+        enterJoustingSkill();
+        setSandboxTab("skill");
+        return;
+      }
       startSim();
       return;
     }
@@ -2524,6 +2665,9 @@ export default function App() {
       }
       if (skill === "boxing" && isFeatureEnabled("boxingMode")) {
         enterBoxingSkill();
+      }
+      if (skill === "jousting" && isFeatureEnabled("joustingMode")) {
+        enterJoustingSkill();
       }
       return;
     }
@@ -2587,6 +2731,7 @@ export default function App() {
       design: CreatureDesign;
       danceMeta?: import("./library/savedModels").DanceCurriculumMeta;
       boxingMeta?: import("./library/savedModels").BoxingModelMeta;
+      joustingMeta?: import("./library/savedModels").JoustingModelMeta;
     },
     opts: { persistToLibrary: boolean },
   ) => {
@@ -2602,6 +2747,10 @@ export default function App() {
       setError("Imported Boxing model is incompatible or Boxing is disabled.");
       return;
     }
+    if (m.task === "jousting" && (!m.joustingMeta || !isFeatureEnabled("joustingMode"))) {
+      setError("Imported Jousting model is incompatible or Jousting is disabled.");
+      return;
+    }
     if (opts.persistToLibrary && isFeatureEnabled("savedModels")) {
       saveModel({
         name: m.name,
@@ -2611,6 +2760,7 @@ export default function App() {
         design: m.design,
         ...(m.danceMeta ? { danceMeta: m.danceMeta } : {}),
         ...(m.boxingMeta ? { boxingMeta: m.boxingMeta } : {}),
+        ...(m.joustingMeta ? { joustingMeta: m.joustingMeta } : {}),
       });
       refreshModels();
     }
@@ -2621,6 +2771,17 @@ export default function App() {
       applyBoxingEnvironment();
       simulation.loadDesign(m.design);
       simulation.setTask("boxing");
+      setMode("sim");
+      setSandboxTab("skill");
+      return;
+    }
+    if (m.task === "jousting") {
+      if (skill === "disco") leaveDiscoSkill(false);
+      setSkill("jousting");
+      saveActiveSkill("jousting");
+      applyJoustingEnvironment();
+      simulation.loadDesign(m.design);
+      simulation.setTask("jousting");
       setMode("sim");
       setSandboxTab("skill");
       return;
@@ -2684,6 +2845,14 @@ export default function App() {
             brainHz: 30,
           } as const)
         : undefined;
+    const joustingMeta =
+      activeTask === "jousting"
+        ? ({
+            ruleVersion: 1,
+            obsPackVersion: 1,
+            brainHz: 30,
+          } as const)
+        : undefined;
     const json = exportModelJson({
       name,
       task: activeTask,
@@ -2692,6 +2861,7 @@ export default function App() {
       fitness: adapted.genome.fitness,
       design,
       ...(boxingMeta ? { boxingMeta } : {}),
+      ...(joustingMeta ? { joustingMeta } : {}),
     });
     shareBusyRef.current = true;
     setShareBusy(true);
@@ -2830,7 +3000,9 @@ export default function App() {
       const expected =
         activeTask === "boxing"
           ? shapeForBoxingDesign(design)
-          : shapeForDesign(design, shapeOpts);
+          : activeTask === "jousting"
+            ? shapeForJoustingDesign(design)
+            : shapeForDesign(design, shapeOpts);
       if (!shapesCompatible(model.shape, expected) || model.task !== activeTask) {
         setError(
           "Saved brain shape/task mismatch — pick a matching creature and goal first.",
@@ -3022,6 +3194,170 @@ export default function App() {
     ],
   );
 
+  const startJoustingLiveEvolve = useCallback(
+    (seedFrom?: { shape: NetworkShape; weights: Float32Array }) => {
+      const trainingDesign = cloneDesign(designRef.current);
+      const eligibility = joustingEligibility(trainingDesign);
+      if (!eligibility.eligible) {
+        setError(`Not eligible for jousting: ${eligibility.reasons.join(" ")}`);
+        return;
+      }
+      if (!designHasActuators(trainingDesign, isFeatureEnabled("motorWheels"))) {
+        setError("Add at least one muscle before evolving a jouster.");
+        return;
+      }
+
+      const popSize = isFeatureEnabled("trainRecipes")
+        ? gaKnobs.populationSize
+        : LIVE_POPULATION_SIZE;
+      const batchSize = isFeatureEnabled("trainRecipes")
+        ? Math.min(gaKnobs.batchSize, popSize)
+        : LIVE_BATCH_SIZE;
+      const trySeconds = isFeatureEnabled("trainRecipes")
+        ? Math.max(gaKnobs.episodeSeconds, JOUST_MAX_SECONDS)
+        : JOUST_MAX_SECONDS;
+      const maxGens = isFeatureEnabled("trainRecipes")
+        ? gaKnobs.maxGenerations
+        : LIVE_MAX_GENERATIONS;
+      const opponent = resolveJoustSparringOpponent(
+        trainingDesign,
+        joustingSparringId,
+        runSeed,
+      );
+
+      let resolvedSeed = seedFrom;
+      if (resolvedSeed) {
+        const shape = shapeForJoustingDesign(trainingDesign);
+        if (
+          resolvedSeed.shape.inputCount !== shape.inputCount ||
+          resolvedSeed.shape.hiddenCount !== shape.hiddenCount ||
+          resolvedSeed.shape.outputCount !== shape.outputCount ||
+          resolvedSeed.weights.length !== shape.weightCount
+        ) {
+          setError(
+            "Seed genome shape mismatch — Jousting continue training needs a matching layout.",
+          );
+          return;
+        }
+      }
+
+      if (isJoustLaneEnv(envDesignRef.current)) {
+        restorePreJoustingEnvironment();
+      }
+      if (isJoustLaneEnv(envDesignRef.current)) {
+        const flat = flatGroundEnv("Jousting Training");
+        envDesignRef.current = flat;
+        setEnvDesign(flat);
+        simulation.setEnvironment(flat);
+      }
+
+      setMode("sim");
+      setSandboxTab("train");
+      simulation.timeScale = trainSpeed;
+      setDriveMode("brain");
+      simulation.driveMode = "brain";
+      joustingLiveMetaRef.current = { design: trainingDesign };
+
+      try {
+        simulation.startJoustingLiveEvolve({
+          design: trainingDesign,
+          opponentDesign: opponent.design,
+          opponentWeights: opponent.weights,
+          populationSize: popSize,
+          batchSize,
+          maxGenerations: Math.max(1, maxGens),
+          episodeSeconds: trySeconds,
+          seed: runSeed,
+          seedGenome: resolvedSeed
+            ? { shape: resolvedSeed.shape, weights: resolvedSeed.weights }
+            : undefined,
+          breed: {
+            eliteCount: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.eliteCount
+              : ELITE_COUNT,
+            tournamentSize: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.tournamentSize
+              : TOURNAMENT_SIZE,
+            mutationSigma: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.mutationSigma
+              : MUTATION_SIGMA,
+            mutationResetRate: isFeatureEnabled("trainRecipes")
+              ? gaKnobs.mutationResetRate
+              : MUTATION_RESET_RATE,
+            crossover: isFeatureEnabled("trainSchedules")
+              ? gaKnobs.crossover
+              : true,
+          },
+          priorities: isFeatureEnabled("goalPriorities")
+            ? { ...joustingPriorities }
+            : { ...DEFAULT_JOUSTING_PRIORITIES },
+          onProgress: (p) => setEvolveProgress(p),
+          onFinished: (genome, shape) => {
+            const meta = joustingLiveMetaRef.current;
+            joustingLiveMetaRef.current = null;
+            setDriveMode("idle");
+            simulation.driveMode = "idle";
+            simulation.timeScale = observeSpeed;
+            if (Number.isFinite(genome.fitness) && genome.fitness > -Infinity) {
+              setBestGenome({ shape, genome });
+              preferBestOfRun();
+              if (meta) {
+                saveModel({
+                  name: trainedModelName(meta.design.name),
+                  task: "jousting",
+                  shape,
+                  genome,
+                  design: meta.design,
+                  joustingMeta: {
+                    ruleVersion: 1,
+                    obsPackVersion: 1,
+                    brainHz: 30,
+                  },
+                });
+                refreshModels();
+                if (isFeatureEnabled("bestEverLedger")) {
+                  considerBestEver("jousting", genome.fitness, meta.design);
+                  setBestEverList(loadBestEver());
+                }
+              }
+            }
+          },
+        });
+        setEvolveProgress({
+          ...idleProgress(),
+          running: true,
+          status: "Jousting pass (round 0 · batch 1)…",
+          populationSize: popSize,
+          batch: 1,
+          batchCount: Math.ceil(popSize / Math.max(1, batchSize)),
+          episodeDuration: trySeconds,
+          episodeT: 0,
+        });
+      } catch (err) {
+        joustingLiveMetaRef.current = null;
+        setError(err instanceof Error ? err.message : String(err));
+        setEvolveProgress((prev) => ({
+          ...prev,
+          running: false,
+          status: "Error",
+        }));
+      }
+    },
+    [
+      episodeSeconds,
+      gaKnobs,
+      joustingPriorities,
+      joustingSparringId,
+      observeSpeed,
+      preferBestOfRun,
+      refreshModels,
+      restorePreJoustingEnvironment,
+      runSeed,
+      simulation,
+      trainSpeed,
+    ],
+  );
+
   const startEvolve = (seedFrom?: {
     shape: NetworkShape;
     weights: Float32Array;
@@ -3033,6 +3369,18 @@ export default function App() {
         return;
       }
       startBoxingLiveEvolve(
+        seedFrom
+          ? { shape: seedFrom.shape, weights: seedFrom.weights }
+          : undefined,
+      );
+      return;
+    }
+    if (activeTask === "jousting") {
+      if (!isFeatureEnabled("joustingMode")) {
+        setError("Jousting skill is disabled.");
+        return;
+      }
+      startJoustingLiveEvolve(
         seedFrom
           ? { shape: seedFrom.shape, weights: seedFrom.weights }
           : undefined,
@@ -3229,6 +3577,21 @@ export default function App() {
       });
       return;
     }
+    if (activeTask === "jousting") {
+      if (
+        !shapesCompatible(bestGenome.shape, shapeForJoustingDesign(design))
+      ) {
+        setError(
+          "Brain layout mismatch — the creature changed too much to continue.",
+        );
+        return;
+      }
+      startJoustingLiveEvolve({
+        shape: bestGenome.shape,
+        weights: bestGenome.genome.weights,
+      });
+      return;
+    }
     const adapted = adaptEliteToDesign(bestGenome, design, {
       task: activeTask,
       raycast:
@@ -3288,6 +3651,40 @@ export default function App() {
       );
       return;
     }
+    if (model.task === "jousting") {
+      if (
+        !model.joustingMeta ||
+        model.joustingMeta.ruleVersion !== 1 ||
+        model.joustingMeta.obsPackVersion !== 1 ||
+        model.joustingMeta.brainHz !== 30
+      ) {
+        setError("Saved Jousting model uses incompatible brain metadata.");
+        return;
+      }
+      const jouster = cloneDesign(model.joustingDesign ?? design);
+      const seed = modelToSeed(model);
+      if (!shapesCompatible(seed.shape, shapeForJoustingDesign(jouster))) {
+        setError("Saved Jousting model shape does not match its body.");
+        return;
+      }
+      if (skill === "disco") leaveDiscoSkill(false);
+      if (simulation.isEvolving) simulation.abortLiveEvolve();
+      simulation.abortJoustMatch();
+      loadPreset(jouster, "custom");
+      setSkill("jousting");
+      saveActiveSkill("jousting");
+      setGoalId("jousting");
+      saveActiveGoalId("jousting");
+      simulation.loadDesign(jouster);
+      simulation.setTask("jousting");
+      setMode("sim");
+      setSandboxTab("train");
+      startJoustingLiveEvolve({
+        shape: seed.shape,
+        weights: seed.weights,
+      });
+      return;
+    }
     const expected = shapeForDesign(design, {
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
@@ -3324,6 +3721,8 @@ export default function App() {
       try {
         captureLiveElite();
         simulation.clearDiscoDancers();
+        simulation.abortJoustMatch();
+        simulation.abortBoxingMatch();
         const task = getGoal(opts.goalId).task;
         if (opts.useCurrentEnv) {
           simulation.setEnvironment(envDesignRef.current);
@@ -3362,6 +3761,14 @@ export default function App() {
     simulation.abortBoxingMatch();
     setBoxingRunning(false);
     setBoxingProgress(null);
+    setDriveMode("idle");
+    simulation.driveMode = "idle";
+  }, [simulation]);
+
+  const stopJoustMatch = useCallback(() => {
+    simulation.abortJoustMatch();
+    setJoustingRunning(false);
+    setJoustingProgress(null);
     setDriveMode("idle");
     simulation.driveMode = "idle";
   }, [simulation]);
@@ -3407,6 +3814,7 @@ export default function App() {
       }
       try {
         captureLiveElite();
+        simulation.abortJoustMatch();
         applyBoxingEnvironment();
         simulation.startBoxingMatch({
           entries: [
@@ -3461,6 +3869,100 @@ export default function App() {
       simulation,
     ],
   );
+
+  const startJoustMatch = useCallback(
+    (opts: { modelA: SavedModel; opponent: JoustMatchOpponent }) => {
+      const pool = designCandidatePool(packages, BUNDLED_MODELS, design);
+      const designA =
+        opts.modelA.joustingDesign ?? resolveDesignForModel(opts.modelA, pool);
+      const seedA = modelToSeed(opts.modelA);
+      let designB: CreatureDesign | null = null;
+      let seedB: { shape: NetworkShape; weights: Float32Array } | null = null;
+      if (opts.opponent.kind === "sparring") {
+        const sparring = resolveJoustSparringOpponent(
+          designA ?? design,
+          opts.opponent.id,
+          runSeed,
+        );
+        designB = sparring.design;
+        seedB = { shape: sparring.shape, weights: sparring.weights };
+      } else {
+        designB =
+          opts.opponent.model.joustingDesign ??
+          resolveDesignForModel(opts.opponent.model, pool);
+        seedB = modelToSeed(opts.opponent.model);
+      }
+      if (!designA || !designB || !seedB) {
+        setError("Could not resolve both Jousting designs.");
+        return;
+      }
+      const expectedA = shapeForJoustingDesign(designA);
+      const expectedB = shapeForJoustingDesign(designB);
+      if (
+        !shapesCompatible(seedA.shape, expectedA) ||
+        !shapesCompatible(seedB.shape, expectedB)
+      ) {
+        setError("A Jousting brain does not match its body.");
+        return;
+      }
+      try {
+        captureLiveElite();
+        applyJoustingEnvironment();
+        simulation.startJoustMatch({
+          entries: [
+            {
+              design: cloneDesign(designA),
+              shape: seedA.shape,
+              weights: seedA.weights,
+            },
+            {
+              design: cloneDesign(designB),
+              shape: seedB.shape,
+              weights: seedB.weights,
+            },
+          ],
+          episodeSeconds: JOUST_MAX_SECONDS,
+          priorities: joustingPriorities,
+          onProgress: (snapshot) => {
+            setJoustingProgress({
+              episodeT: snapshot.episodeT,
+              episodeDuration: snapshot.episodeDuration,
+              totals: snapshot.totals,
+              phase: snapshot.phase,
+            });
+          },
+          onFinished: (result) => {
+            setJoustingResult(result);
+            setJoustingRunning(false);
+            setJoustingProgress(null);
+          },
+        });
+        setMode("sim");
+        setSandboxTab("skill");
+        setDriveMode("brain");
+        simulation.driveMode = "brain";
+        setJoustingRunning(true);
+        setJoustingResult(null);
+        setJoustingProgress({
+          episodeT: 0,
+          episodeDuration: JOUST_MAX_SECONDS,
+          totals: [0, 0],
+          phase: "charge",
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [
+      applyJoustingEnvironment,
+      captureLiveElite,
+      design,
+      joustingPriorities,
+      packages,
+      runSeed,
+      simulation,
+    ],
+  );
   const saveBestModel = () => {
     if (!bestGenome) {
       setError("No elite genome to save.");
@@ -3486,6 +3988,14 @@ export default function App() {
             brainHz: 30,
           } as const)
         : undefined;
+    const joustingMeta =
+      activeTask === "jousting"
+        ? ({
+            ruleVersion: 1,
+            obsPackVersion: 1,
+            brainHz: 30,
+          } as const)
+        : undefined;
     saveModel({
       name,
       task: activeTask,
@@ -3493,6 +4003,7 @@ export default function App() {
       genome: adapted.genome,
       design,
       ...(boxingMeta ? { boxingMeta } : {}),
+      ...(joustingMeta ? { joustingMeta } : {}),
     });
     downloadText(
       `${name.replace(/\s+/g, "_")}.json`,
@@ -3504,6 +4015,7 @@ export default function App() {
         fitness: adapted.genome.fitness,
         design,
         ...(boxingMeta ? { boxingMeta } : {}),
+        ...(joustingMeta ? { joustingMeta } : {}),
       }),
     );
     refreshModels();
@@ -3545,6 +4057,11 @@ export default function App() {
   };
   const saveCurrentPackage = () => {
     const name = saveName.trim() || design.name.trim() || "Creature";
+    const fp = design.joints.length > 0 ? bodyFingerprint(design) : "";
+    const skill =
+      currentSkillOverride && currentSkillOverride.fp === fp
+        ? currentSkillOverride.placement
+        : null;
     const existing = packages.find(
       (p) => p.displayName.toLowerCase() === name.toLowerCase(),
     );
@@ -3557,6 +4074,12 @@ export default function App() {
         design: { ...design, name },
         appearance: design.appearance,
         displayName: name,
+        ...(skill
+          ? {
+              skillCategory: skill.category,
+              flyingSubcategory: skill.flyingSub ?? null,
+            }
+          : {}),
       });
       if (!result.ok) {
         setError(result.error);
@@ -3569,6 +4092,12 @@ export default function App() {
           displayName: name,
           appearance: design.appearance,
           source: "user",
+          ...(skill
+            ? {
+                skillCategory: skill.category,
+                flyingSubcategory: skill.flyingSub,
+              }
+            : {}),
         },
       );
       if (!result.ok) {
@@ -3739,6 +4268,22 @@ export default function App() {
                     lastResult={boxingResult}
                     onStartMatch={startBoxingMatch}
                     onStopMatch={stopBoxingMatch}
+                    onOpenTrain={() => {
+                      setMode("sim");
+                      setSandboxTab("train");
+                    }}
+                  />
+                ) : skill === "jousting" && isFeatureEnabled("joustingMode") ? (
+                  <JoustingSkillPanel
+                    currentDesign={design}
+                    savedModels={savedModels}
+                    packages={packages}
+                    busy={evolveProgress.running || h2hRunning}
+                    running={joustingRunning}
+                    progress={joustingProgress}
+                    lastResult={joustingResult}
+                    onStartMatch={startJoustMatch}
+                    onStopMatch={stopJoustMatch}
                     onOpenTrain={() => {
                       setMode("sim");
                       setSandboxTab("train");
@@ -4028,6 +4573,10 @@ export default function App() {
                   skill === "boxing" && isFeatureEnabled("boxingMode")
                     ? boxingEligibility(design, boxingDivisionId)
                     : null;
+                const joustLine =
+                  skill === "jousting" && isFeatureEnabled("joustingMode")
+                    ? joustingEligibility(design)
+                    : null;
                 return (
                   <div
                     className="hint"
@@ -4051,6 +4600,13 @@ export default function App() {
                         {boxingLine.eligible
                           ? `Division ready · ${boxingLine.metrics.gloves} gloves · ${boxingLine.metrics.targets} targets`
                           : `Division gaps: ${boxingLine.reasons[0] ?? "check marks"}`}
+                      </p>
+                    )}
+                    {joustLine && (
+                      <p className="hint">
+                        {joustLine.eligible
+                          ? `Joust ready · ${joustLine.metrics.lances} lance · ${joustLine.metrics.targets} targets`
+                          : `Joust gaps: ${joustLine.reasons[0] ?? "check marks"}`}
                       </p>
                     )}
                   </div>
@@ -4657,6 +5213,41 @@ export default function App() {
                               <span className="val">{joint.hitValue ?? 1}</span>
                             </label>
                           )}
+                        </>
+                      )}
+                      {isFeatureEnabled("joustingMode") && skill === "jousting" && (
+                        <>
+                          <label className="toggle-row">
+                            <input
+                              type="checkbox"
+                              checked={!!joint.isLance}
+                              onChange={() =>
+                                commitDesign(
+                                  updateJoint(design, joint.id, {
+                                    isLance: !joint.isLance,
+                                  }),
+                                )
+                              }
+                            />
+                            Jousting lance
+                          </label>
+                          <label className="toggle-row">
+                            <input
+                              type="checkbox"
+                              checked={!!joint.isHitTarget}
+                              onChange={() =>
+                                commitDesign(
+                                  updateJoint(design, joint.id, {
+                                    isHitTarget: !joint.isHitTarget,
+                                    hitValue: joint.isHitTarget
+                                      ? undefined
+                                      : (joint.hitValue ?? 1),
+                                  }),
+                                )
+                              }
+                            />
+                            Joust hit target
+                          </label>
                         </>
                       )}
                       {isFeatureEnabled("googlyEyes") && (
@@ -5439,8 +6030,76 @@ export default function App() {
                   ))}
                 </div>
               )}
+              {activeTask === "jousting" && isFeatureEnabled("joustingMode") && (
+                <div className="priority-sliders">
+                  <h3 className="subhead">Sparring partner</h3>
+                  <p className="hint muted">
+                    Level 1 is a random-weight dummy of your body. Level 2 is
+                    JoustBot, a bundled lance creature.
+                  </p>
+                  <label className="field-row">
+                    <span>Opponent</span>
+                    <select
+                      value={joustingSparringId}
+                      disabled={evolveProgress.running}
+                      onChange={(event) =>
+                        setJoustingSparringId(
+                          event.target.value as JoustSparringId,
+                        )
+                      }
+                    >
+                      {JOUST_SPARRING_OPPONENTS.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          Level {item.level} ·{" "}
+                          {joustSparringOpponentLabel(item.id, design.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="hint muted">
+                    {
+                      JOUST_SPARRING_OPPONENTS.find(
+                        (item) => item.id === joustingSparringId,
+                      )?.description
+                    }
+                  </p>
+                </div>
+              )}
               {isFeatureEnabled("goalPriorities") &&
-                activeTask !== "boxing" && (
+                activeTask === "jousting" && (
+                <div className="priority-sliders">
+                  <h3 className="subhead">Jousting priorities</h3>
+                  <p className="hint muted">
+                    What matters more — reweights the same scorecard used to
+                    pick a winner. Hit, stay up, unhorse, knockback, and commit.
+                  </p>
+                  {JOUSTING_PRIORITY_KEYS.map((key) => (
+                    <label key={key}>
+                      <span>{JOUSTING_PRIORITY_LABELS[key]}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={joustingPriorities[key]}
+                        disabled={evolveProgress.running}
+                        onChange={(e) =>
+                          setJoustingPriorities((p) => ({
+                            ...p,
+                            [key]: Number(e.target.value),
+                          }))
+                        }
+                      />
+                      <span className="val">
+                        {joustingPriorities[key].toFixed(2)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {isFeatureEnabled("goalPriorities") &&
+                activeTask !== "boxing" &&
+                activeTask !== "jousting" && (
                 <div className="priority-sliders">
                   <h3 className="subhead">Priorities</h3>
                   <p className="hint muted">
@@ -6629,13 +7288,37 @@ export default function App() {
             onSineTerrain={() => {
               commitEnv({
                 ...envDesign,
-                terrain: makeSineTerrain({
-                  startX: envDesign.terrain?.startX ?? 0,
-                  endX: envDesign.terrain?.endX ?? 40,
-                  amplitude: envDesign.terrain?.amplitude ?? 1.2,
-                  sampleCount: envDesign.terrain?.samples.length ?? 41,
+                terrain: studioSineTerrain({
+                  startX: envDesign.terrain?.startX,
+                  endX: envDesign.terrain?.endX,
+                  amplitude: envDesign.terrain?.amplitude,
+                  waves: envDesign.terrain?.waves,
+                  sampleCount: envDesign.terrain?.samples.length,
                 }),
               });
+              setEnvSelection([{ kind: "terrain" }]);
+            }}
+            onPatchTerrain={(patch) => {
+              const prev = envDesign.terrain;
+              if (patch.waves != null) {
+                commitEnv({
+                  ...envDesign,
+                  terrain: studioSineTerrain({
+                    startX: prev?.startX,
+                    endX: prev?.endX,
+                    amplitude: patch.amplitude ?? prev?.amplitude,
+                    waves: patch.waves,
+                    sampleCount: prev?.samples.length,
+                  }),
+                });
+              } else if (patch.amplitude != null) {
+                commitEnv({
+                  ...envDesign,
+                  terrain: prev
+                    ? setTerrainAmplitude(prev, patch.amplitude)
+                    : studioSineTerrain({ amplitude: patch.amplitude }),
+                });
+              }
               setEnvSelection([{ kind: "terrain" }]);
             }}
             onClearTerrain={() => {
@@ -6834,6 +7517,58 @@ export default function App() {
                 ? (id) => void openSharedCreature(id)
                 : undefined
             }
+            presetSkillOverrides={presetSkillOverrides}
+            currentSkillOverride={
+              currentSkillOverride &&
+              design.joints.length > 0 &&
+              currentSkillOverride.fp === bodyFingerprint(design)
+                ? currentSkillOverride.placement
+                : null
+            }
+            onSetSkillPlacement={(key, placement) => {
+              if (key === "current") {
+                if (
+                  placement &&
+                  !isValidSkillPlacement(design, placement)
+                ) {
+                  return;
+                }
+                setCurrentSkillOverride(
+                  placement && design.joints.length > 0
+                    ? { fp: bodyFingerprint(design), placement }
+                    : null,
+                );
+                return;
+              }
+              if (key.startsWith("preset:")) {
+                const name = key.slice("preset:".length);
+                const preset =
+                  name === ULTI_GROOVE_BOT_II.name
+                    ? ULTI_GROOVE_BOT_II
+                    : PRESETS.find((p) => p.name === name);
+                if (
+                  placement &&
+                  preset &&
+                  !isValidSkillPlacement(preset, placement)
+                ) {
+                  return;
+                }
+                savePresetSkillOverride(name, placement);
+                setPresetSkillOverrides(loadAllPresetSkillOverrides());
+                return;
+              }
+              if (key.startsWith("pkg:")) {
+                const result = setPackageSkillPlacement(
+                  key.slice("pkg:".length),
+                  placement,
+                );
+                if (!result.ok) {
+                  setError(result.error);
+                  return;
+                }
+                refreshPackages();
+              }
+            }}
           />
         );
 
@@ -6933,6 +7668,7 @@ export default function App() {
                       showSkillTabs={isFeatureEnabled("skillTabs")}
                       showDiscoSkill={isFeatureEnabled("discoMode")}
                       showBoxingSkill={isFeatureEnabled("boxingMode")}
+                      showJoustingSkill={isFeatureEnabled("joustingMode")}
                       goals={skillGoals}
                       goalId={goalId}
                       onSelectGoal={selectGoal}

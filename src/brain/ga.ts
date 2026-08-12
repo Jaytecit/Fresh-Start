@@ -21,17 +21,17 @@ import type { CreatureDesign } from '../creature/types';
 import { cloneWeights, gaussian } from './network';
 import type { Genome } from './types';
 
-/** Optional overrides for live-evolve / recipe knobs (D10–D12). */
+/** Optional overrides for live-evolve / recipe knobs. */
 export interface BreedOptions {
   eliteCount?: number;
   tournamentSize?: number;
   mutationSigma?: number;
   mutationResetRate?: number;
-  /** Blend two parents before mutate (D12). */
+  /** Blend two parents before mutate. */
   crossover?: boolean;
-  /** D17 — also breed/mutate morph genes. */
+  /** Also breed/mutate morph genes. */
   morphEvolve?: boolean;
-  /** D18 — also breed/mutate body topology (implies morphEvolve). */
+  /** Also breed/mutate body topology (implies morphEvolve). */
   structuralMorphEvolve?: boolean;
   /** Authored base design for structural caps (required when structural on). */
   structureBase?: CreatureDesign;

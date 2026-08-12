@@ -53,6 +53,14 @@ export const SKILL_BUILD_HINTS: Record<SkillId, SkillBuildHints> = {
     ],
     tip: 'Train from the Train tab once the fighter meets the selected division rules. Start against the Dummy, then switch to BoxoBot V2T when you want a live sparring partner.',
   },
+  jousting: {
+    essentials: [
+      'Mark one lance tip (or reuse a Boxing glove) and at least one hit target or head.',
+      'Mark feet for gait; no wheels or aero in v1.',
+      'Build facing right (+X). The far jouster is mirrored automatically.',
+    ],
+    tip: 'Train a charge first — commit and stay up still score if the lances miss.',
+  },
   disco: {
     essentials: [
       'Any actuated body works; dance brains are learned in Disco, not GA Train.',

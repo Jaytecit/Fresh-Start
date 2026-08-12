@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-G1 / C2.1 deepen (static obstacles contact quality); creature spawn hardening
-
 ## Goal
 
 Stop joint/bone colliders from visibly tunneling into static obstacles (ramps, boxes, stairs) at evolve speeds — especially thin-ramp → tall-box corners on courses like Gauntlet.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies: creature **joints** and **bones** (dynamic)
 - API: `RigidBody.setSoftCcdPrediction(...)` each fixed step via `syncCreatureSoftCcd` (`src/physics/spawn.ts`), called from `Simulation` immediately before `world.step()`
@@ -28,7 +24,6 @@ Soft-CCD is Rapier’s cheaper predictive-constraint path (not full shape-cast C
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body solver, aero tables, or feel tuning.
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
 - No hard `setCcdEnabled` by default (measured no help on this smash/ballistic case; costlier).

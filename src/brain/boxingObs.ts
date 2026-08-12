@@ -1,4 +1,5 @@
 import {
+  boxingEngageBand,
   boxingObsUpright,
   boxingRangeQuality,
   comDistance,
@@ -105,7 +106,13 @@ export function buildBoxingObservations(
   out[20] = Math.max(0, Math.min(1, boxingObsUpright(own)));
   out[21] = Math.max(
     0,
-    Math.min(1, boxingRangeQuality(comDistance(own, opponent))),
+    Math.min(
+      1,
+      boxingRangeQuality(
+        comDistance(own, opponent),
+        boxingEngageBand(own, opponent),
+      ),
+    ),
   );
   out[22] = Math.max(
     0,

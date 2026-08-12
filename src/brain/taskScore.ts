@@ -1,5 +1,5 @@
 /**
- * Task fitness adapters (E6.*) — Fresh Start Rapier state only.
+ * Task fitness adapters — Rapier creature state only.
  */
 import type { AeroType } from '../creature/types';
 import type { SpawnedCreature } from '../physics/spawn';
@@ -275,7 +275,7 @@ export function scoreTaskPerformance(
     withCourseMetrics(base, courseAccum, episodeSimTime);
 
   // Dance / Boxing use dedicated multi-agent evaluators, not this solo scorer.
-  if (task === 'dance' || task === 'boxing') {
+  if (task === 'dance' || task === 'boxing' || task === 'jousting') {
     return finish(
       withRegionScore(
         {
@@ -1292,6 +1292,8 @@ export function scoringLegendForTask(task: TaskId): string {
       return 'Disco imitation fitness (1 / (1 + MSE)); not GA-evolved.';
     case 'boxing':
       return 'Points for opponent-only glove hits; training also rewards accuracy and controlled power while subtracting points conceded.';
+    case 'jousting':
+      return 'Single-pass scorecard: lance hit quality, stay up, unhorse, knockback, and commit. Same numbers decide the winner and train the brain.';
     default:
       return 'Task fitness from episode metrics.' + zoneNote;
   }

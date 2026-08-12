@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-E6.3 (Climb). Minimal static geometry only — not full G1 Environment Studio.
-
 ## Goal
 
-Provide ordered step boxes so climb-task fitness (max supported height) is meaningful.
+Provide ordered step boxes so climb-task fitness (max supported height) is meaningful. Environment Studio obstacles are a separate spawn path.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Fixed cuboid colliders for 4 ascending steps
 - Collision groups: same as ground (membership bit 2), collide with creature parts
@@ -21,8 +17,8 @@ Provide ordered step boxes so climb-task fitness (max supported height) is meani
 
 ## Explicit non-goals
 
-- No parent stair physics / calibration
-- No ice, terrain heightfields, or Environment Studio authoring yet
+- No ice materials
+- Does not replace Environment Studio authored obstacles or heightfields
 
 ## Smoke gate
 

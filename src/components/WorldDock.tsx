@@ -5,6 +5,11 @@ import {
   LAUNCH_PAD_APEX_H,
   LAUNCH_PAD_APEX_MAX,
   LAUNCH_PAD_APEX_MIN,
+  TERRAIN_DEFAULT_AMPLITUDE,
+  TERRAIN_DEFAULT_WAVES,
+  TERRAIN_MAX_AMPLITUDE,
+  TERRAIN_MAX_WAVES,
+  TERRAIN_MIN_WAVES,
 } from '../physics/constants';
 import { isFeatureEnabled } from '../port/featureFlags';
 import {
@@ -40,6 +45,7 @@ interface Props {
   undoDisabled: boolean;
   onSineTerrain: () => void;
   onClearTerrain: () => void;
+  onPatchTerrain?: (patch: { amplitude?: number; waves?: number }) => void;
   onClearTower: () => void;
   /** Remove obstacles, regions, markers, terrain, tower, curriculum; reset spawn. */
   onClearAll: () => void;
@@ -93,6 +99,7 @@ export function WorldDock({
   undoDisabled,
   onSineTerrain,
   onClearTerrain,
+  onPatchTerrain,
   onClearTower,
   onClearAll,
   onEnsureCourse,
@@ -182,6 +189,15 @@ export function WorldDock({
           >
             Spawn
           </button>
+          {isFeatureEnabled('terrainHeightfield') && (
+            <button
+              type="button"
+              className={tool === 'terrain' ? 'active' : ''}
+              onClick={() => onToolChange('terrain')}
+            >
+              Hills
+            </button>
+          )}
         </div>
         <span className="dock-summary-stats">{label}</span>
       </div>
@@ -271,6 +287,16 @@ export function WorldDock({
           >
             Spawn
           </button>
+          {isFeatureEnabled('terrainHeightfield') && (
+            <button
+              type="button"
+              className={tool === 'terrain' ? 'active' : ''}
+              onClick={() => onToolChange('terrain')}
+              title="Draw the ground surface — drag on the canvas to paint hills"
+            >
+              Draw hills
+            </button>
+          )}
         </div>
         <p className="hint muted">
           Ramp: drag start→end (snaps flush to ground / object edges). Other
@@ -556,8 +582,48 @@ export function WorldDock({
               Clear terrain
             </button>
           </div>
+          {onPatchTerrain && (
+            <div className="dock-col" style={{ marginTop: '0.4rem', gap: '0.25rem' }}>
+              <label className="toggle-row">
+                <span>Difficulty</span>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={Math.min(24, TERRAIN_MAX_AMPLITUDE)}
+                  step={0.1}
+                  value={environment.terrain?.amplitude ?? TERRAIN_DEFAULT_AMPLITUDE}
+                  onChange={(e) =>
+                    onPatchTerrain({ amplitude: Number(e.target.value) })
+                  }
+                  title="Hill height (scales a drawn or sine surface)"
+                />
+                <span className="muted">
+                  {(environment.terrain?.amplitude ?? TERRAIN_DEFAULT_AMPLITUDE).toFixed(1)}
+                </span>
+              </label>
+              <label className="toggle-row">
+                <span>Frequency</span>
+                <input
+                  type="range"
+                  min={TERRAIN_MIN_WAVES}
+                  max={TERRAIN_MAX_WAVES}
+                  step={0.25}
+                  value={environment.terrain?.waves ?? TERRAIN_DEFAULT_WAVES}
+                  onChange={(e) =>
+                    onPatchTerrain({ waves: Number(e.target.value) })
+                  }
+                  title="Rebuilds sine hills — more waves, rougher ground"
+                />
+                <span className="muted">
+                  {(environment.terrain?.waves ?? TERRAIN_DEFAULT_WAVES).toFixed(1)}
+                </span>
+              </label>
+            </div>
+          )}
           <p className="hint muted">
-            Drag the Start / End dots on the hills to cover more or less ground.
+            Draw hills on the canvas, or generate sine ground. Difficulty scales
+            height; frequency rebuilds the sine. Drag Start / End dots to cover
+            more ground.
           </p>
         </div>
       )}

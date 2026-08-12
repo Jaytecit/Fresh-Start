@@ -11,9 +11,20 @@ import {
   type BoxingOwner,
 } from './scoring';
 
-/** Engaged combat band (COM–COM distance, world units). */
+/**
+ * Reference-fighter engage band (COM–COM, world units).
+ * Matches two ~2.5 m uprights: clinch below 1.2, full credit through 5.
+ * Live scoring / obs use `boxingEngageBand()` so ~5 m user bodies keep a
+ * punching gap instead of being marked “far” the moment they stop overlapping.
+ */
 export const BOXING_ENGAGE_MIN = 1.2;
 export const BOXING_ENGAGE_MAX = 5.0;
+/** Combined width of two reference uprights (2.5 + 2.5). */
+const BOXING_REFERENCE_PAIR_WIDTH = 5;
+export const BOXING_ENGAGE_MIN_WIDTH_FRAC =
+  BOXING_ENGAGE_MIN / BOXING_REFERENCE_PAIR_WIDTH;
+export const BOXING_ENGAGE_MAX_WIDTH_FRAC =
+  BOXING_ENGAGE_MAX / BOXING_REFERENCE_PAIR_WIDTH;
 
 export interface BoxingFighterBehavior {
   steps: number;
@@ -154,15 +165,61 @@ export function comDistance(
   return Math.hypot(dx, dy);
 }
 
-/** 1 inside the combat band; falls off toward clinch and far range. */
-export function boxingRangeQuality(distance: number): number {
-  if (!Number.isFinite(distance) || distance < 0) return 0;
-  if (distance >= BOXING_ENGAGE_MIN && distance <= BOXING_ENGAGE_MAX) return 1;
-  if (distance < BOXING_ENGAGE_MIN) {
-    return Math.max(0, distance / BOXING_ENGAGE_MIN);
+/** Current joint span along X (world). */
+export function creatureSpanX(creature: SpawnedCreature): number {
+  const joints = creature.joints;
+  if (joints.length === 0) return 0;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const joint of joints) {
+    const x = joint.body.translation().x;
+    if (x < min) min = x;
+    if (x > max) max = x;
   }
-  const over = distance - BOXING_ENGAGE_MAX;
-  return Math.max(0, 1 - over / BOXING_ENGAGE_MAX);
+  return Math.max(0, max - min);
+}
+
+export interface BoxingEngageBand {
+  min: number;
+  max: number;
+}
+
+/**
+ * Clinch / engage / far thresholds from both fighters’ current widths.
+ * Ratios preserve the reference 2.5 m + 2.5 m band.
+ */
+export function boxingEngageBand(
+  own: SpawnedCreature,
+  opponent: SpawnedCreature,
+): BoxingEngageBand {
+  const combined = creatureSpanX(own) + creatureSpanX(opponent);
+  if (!(combined > 0.5)) {
+    return { min: BOXING_ENGAGE_MIN, max: BOXING_ENGAGE_MAX };
+  }
+  return {
+    min: combined * BOXING_ENGAGE_MIN_WIDTH_FRAC,
+    max: combined * BOXING_ENGAGE_MAX_WIDTH_FRAC,
+  };
+}
+
+/** 1 inside the combat band; falls off toward clinch and far range. */
+export function boxingRangeQuality(
+  distance: number,
+  band: BoxingEngageBand = {
+    min: BOXING_ENGAGE_MIN,
+    max: BOXING_ENGAGE_MAX,
+  },
+): number {
+  if (!Number.isFinite(distance) || distance < 0) return 0;
+  const min = band.min;
+  const max = band.max;
+  if (!(max > min) || min < 0) return 0;
+  if (distance >= min && distance <= max) return 1;
+  if (distance < min) {
+    return Math.max(0, distance / min);
+  }
+  const over = distance - max;
+  return Math.max(0, 1 - over / max);
 }
 
 export function nearestRoleDistance(
@@ -224,11 +281,12 @@ export function updateBoxingBehaviorMetrics(
 ): void {
   // COM distance is symmetric; both fighters share the same band classification.
   const distance = comDistance(own, opponent);
+  const band = boxingEngageBand(own, opponent);
   for (const owner of [0, 1] as const) {
     const row = metrics.fighters[owner];
     row.steps++;
-    if (distance < BOXING_ENGAGE_MIN) row.clinchSteps++;
-    else if (distance > BOXING_ENGAGE_MAX) row.farSteps++;
+    if (distance < band.min) row.clinchSteps++;
+    else if (distance > band.max) row.farSteps++;
     else row.engagementSteps++;
 
     const attemptCount = attempts[owner];

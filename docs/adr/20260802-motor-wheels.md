@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-E6.5 (Motor / wheeled). Minimal unlock; full G6 Studio authoring still unchecked.
-
 ## Goal
 
 Allow brain (or manual) drives to spin designated wheel joints via Rapier torque each fixed step. Wheels are first-class actuators (dedicated MLP outputs), so wheeled carts can Evolve without muscles.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Optional `JointDef.isWheel` + `motorStrength?`
 - Optional design-level `CreatureDesign.wheelMass` (same clamp range as `footMass`) applied to all `isWheel` joints at spawn / live retune — heavier wheels bias CG for airborne undercarriage pivot
@@ -26,8 +22,7 @@ Allow brain (or manual) drives to spin designated wheel joints via Rapier torque
 
 ## Explicit non-goals
 
-- No parent soft-body motor cart formulas
-- No wheel-as-separate-body / axle constraint v1 (joint ball + torque is enough for a motor task)
+- No wheel-as-separate-body / axle constraint (joint ball + torque is enough for a motor task)
 
 ## Smoke gate
 

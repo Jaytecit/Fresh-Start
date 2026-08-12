@@ -6,15 +6,11 @@
 
 Proposed | Accepted | Implemented | Rejected
 
-## Checklist IDs
-
-List marked `FEATURE_PORT_CHECKLIST.md` IDs this unlocks (e.g. G4, C2.5).
-
 ## Goal
 
 What product behavior needs this capability?
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Bodies / colliders / joints / materials involved:
 - Collision group bits (extend the existing scheme deliberately):
@@ -23,7 +19,6 @@ What product behavior needs this capability?
 
 ## Explicit non-goals
 
-- Do **not** import parent soft-body solver, aero tables, or feel tuning.
 - Do **not** step physics with variable/render dt.
 - Do **not** introduce unseeded randomness on the eval path.
 

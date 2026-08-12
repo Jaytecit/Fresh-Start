@@ -1,12 +1,14 @@
 /**
- * Creature packages repository (F1) — versioned localStorage.
- * Fresh Start schema only; no parent physics fields.
+ * Creature packages repository — versioned localStorage.
  */
-import {
-  cloneAppearance,
-  type AppearanceRig,
-} from '../appearance/types';
+import { cloneAppearance, type AppearanceRig } from '../appearance/types';
 import { cloneDesign, type CreatureDesign } from '../creature/types';
+import {
+  isValidSkillPlacement,
+  type FlyingSubcategory,
+  type SkillCategoryId,
+  type SkillPlacement,
+} from './skillCategories';
 
 export const CREATURE_PACKAGE_SCHEMA = 1;
 const STORAGE_KEY = 'freshstart_creature_packages_v1';
@@ -29,6 +31,9 @@ export interface CreaturePackage {
   appearance?: AppearanceRig;
   source: PackageSource;
   notes?: string;
+  /** Manual library category; omitted → infer from body type. */
+  skillCategory?: SkillCategoryId;
+  flyingSubcategory?: FlyingSubcategory;
 }
 
 export type RepoResult<T> =
@@ -70,6 +75,8 @@ export function saveNewPackage(
     appearance?: AppearanceRig;
     source?: PackageSource;
     notes?: string;
+    skillCategory?: SkillCategoryId;
+    flyingSubcategory?: FlyingSubcategory;
   },
 ): RepoResult<CreaturePackage> {
   try {
@@ -85,6 +92,14 @@ export function saveNewPackage(
       appearance: cloneAppearance(opts?.appearance),
       source: opts?.source ?? 'user',
       notes: opts?.notes,
+      ...(opts?.skillCategory
+        ? {
+            skillCategory: opts.skillCategory,
+            ...(opts.flyingSubcategory
+              ? { flyingSubcategory: opts.flyingSubcategory }
+              : {}),
+          }
+        : {}),
     };
     const all = readAll();
     all.push(pkg);
@@ -102,6 +117,8 @@ export function savePackageRevision(
     appearance?: AppearanceRig | null;
     displayName?: string;
     notes?: string;
+    skillCategory?: SkillCategoryId | null;
+    flyingSubcategory?: FlyingSubcategory | null;
   },
 ): RepoResult<CreaturePackage> {
   const all = readAll();
@@ -124,10 +141,53 @@ export function savePackageRevision(
           ? cloneAppearance(update.appearance)
           : prev.appearance,
     notes: update.notes ?? prev.notes,
+    skillCategory:
+      update.skillCategory === null
+        ? undefined
+        : update.skillCategory ?? prev.skillCategory,
+    flyingSubcategory:
+      update.flyingSubcategory === null
+        ? undefined
+        : update.flyingSubcategory ?? prev.flyingSubcategory,
   };
+  const override = packageSkillOverride(next);
+  if (override && !isValidSkillPlacement(next.design, override)) {
+    delete next.skillCategory;
+    delete next.flyingSubcategory;
+  }
   all[idx] = next;
   writeAll(all);
   return { ok: true, value: next };
+}
+
+export function packageSkillOverride(
+  pkg: CreaturePackage,
+): SkillPlacement | null {
+  if (!pkg.skillCategory) return null;
+  return {
+    category: pkg.skillCategory,
+    ...(pkg.flyingSubcategory ? { flyingSub: pkg.flyingSubcategory } : {}),
+  };
+}
+
+export function setPackageSkillPlacement(
+  id: string,
+  placement: SkillPlacement | null,
+): RepoResult<CreaturePackage> {
+  if (placement) {
+    const all = readAll();
+    const pkg = all.find((p) => p.id === id);
+    if (!pkg) return { ok: false, error: 'Package not found' };
+    if (!isValidSkillPlacement(pkg.design, placement)) {
+      return { ok: false, error: 'That category is not valid for this body' };
+    }
+  }
+  return savePackageRevision(id, {
+    skillCategory: placement ? placement.category : null,
+    flyingSubcategory: placement?.category === 'flying'
+      ? placement.flyingSub ?? null
+      : null,
+  });
 }
 
 export function renamePackage(id: string, displayName: string): RepoResult<CreaturePackage> {
@@ -154,6 +214,8 @@ export function duplicatePackage(id: string, name?: string): RepoResult<Creature
     appearance: pkg.appearance,
     source: 'user',
     notes: pkg.notes,
+    skillCategory: pkg.skillCategory,
+    flyingSubcategory: pkg.flyingSubcategory,
   });
 }
 
@@ -172,6 +234,8 @@ export function importCreaturePackage(raw: string): RepoResult<CreaturePackage> 
       appearance: data.appearance,
       source: 'import',
       notes: data.notes,
+      skillCategory: data.skillCategory,
+      flyingSubcategory: data.flyingSubcategory,
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-C2.4 (supports later flight / para / progressive height goals)
-
 ## Goal
 
 Spawn an authored `EnvTower` as fixed Rapier geometry: a stem + top launch deck creatures can stand on or jump from.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - Fixed rigid bodies + cuboid colliders (stem + platform deck)
 - Collision groups: ground membership bit 2 — no new bits
@@ -21,7 +17,7 @@ Spawn an authored `EnvTower` as fixed Rapier geometry: a stem + top launch deck 
 - Spawn via `spawnLaunchTower(world, tower)`; destroy on env replace
 - Gated by `featureFlags.launchTower`
 
-Composition (Fresh Start–native):
+Composition:
 
 | Part | Geometry |
 |---|---|
@@ -32,9 +28,8 @@ Composition (Fresh Start–native):
 
 ## Explicit non-goals
 
-- No parent tower / launch calibration
 - No automatic creature spawn relocation onto the deck (author places tower under play area)
-- No para deployables (G10), progressive limits (D3), or rough-terrain goal (E6.8)
+- Progressive height escalation after a clear is still open (`TASKS.md`)
 
 ## Smoke gate
 

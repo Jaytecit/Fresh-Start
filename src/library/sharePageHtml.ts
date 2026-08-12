@@ -32,6 +32,7 @@ function previewDesign(design: CreatureDesign): unknown {
       isHead: j.isHead,
       isWheel: j.isWheel,
       isGlove: j.isGlove,
+      isLance: j.isLance,
       isHitTarget: j.isHitTarget,
       hitValue: j.hitValue,
     })),

@@ -20,7 +20,7 @@ interface Props {
   defaultOpen?: boolean;
 }
 
-/** B8 — Fresh Start morphology / traits summary (not parent capability physics). */
+/** Morphology / traits summary for the current design. */
 export function CapabilityPanel({ design, defaultOpen = false }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const traits = morphologyTraits(design);
@@ -72,6 +72,11 @@ export function CapabilityPanel({ design, defaultOpen = false }: Props) {
         {isFeatureEnabled('boxingMode') && (
           <li>
             Boxing: {traits.gloveCount} gloves · {traits.hitTargetCount} targets
+          </li>
+        )}
+        {isFeatureEnabled('joustingMode') && (
+          <li>
+            Jousting: {traits.lanceCount} lances · {traits.joustTargetCount} targets
           </li>
         )}
         <li>Wheels: {traits.wheelCount}</li>

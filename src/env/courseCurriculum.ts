@@ -1,6 +1,6 @@
 /**
  * Course curriculum — progressive spawn/finish windows on a base environment.
- * Extends D13 stage training for checkpointed courses (e.g. Gauntlet + authored).
+ * Extends stage training for checkpointed courses (e.g. Gauntlet + authored).
  */
 import { COURSE_MARKER_DEFAULT_H, COURSE_MARKER_DEFAULT_W } from '../brain/constants';
 import { orderedCheckpoints } from '../brain/courseMarkers';
@@ -45,6 +45,8 @@ export interface CourseCurriculum {
 /**
  * Gauntlet: progressive finish gates along the authored course.
  * Base env has start+finish only (no mid checkpoints); stages place their own finish.
+ * Positions match `gauntletEnv()` (ENV_WORLD_SCALE geometry), not the pre-scale export.
+ * Thresholds scale with sprint distance credit so a stage still requires reaching its gate.
  */
 export const GAUNTLET_CURRICULUM: CourseCurriculum = {
   packageId: BUILTIN_GAUNTLET_ENV_ID,
@@ -56,40 +58,40 @@ export const GAUNTLET_CURRICULUM: CourseCurriculum = {
       label: 'Clear the stairs',
       goalId: 'sprint',
       spawn: { x: 0, y: 0 },
-      finishX: 40,
-      finishY: 3,
+      finishX: 200,
+      finishY: 15,
       maxCheckpointOrder: -1,
-      threshold: 6,
+      threshold: 30,
     },
     {
       id: 'tower',
       label: 'Reach the tower',
       goalId: 'sprint',
       spawn: { x: 0, y: 0 },
-      finishX: 51,
-      finishY: 8,
+      finishX: 255,
+      finishY: 40,
       maxCheckpointOrder: -1,
-      threshold: 10,
+      threshold: 50,
     },
     {
       id: 'pit',
       label: 'Cross the pit',
       goalId: 'sprint',
       spawn: { x: 0, y: 0 },
-      finishX: 85,
-      finishY: 2,
+      finishX: 425,
+      finishY: 10,
       maxCheckpointOrder: -1,
-      threshold: 14,
+      threshold: 70,
     },
     {
       id: 'full',
       label: 'Full gauntlet',
       goalId: 'sprint',
       spawn: { x: 0, y: 0 },
-      finishX: 130,
-      finishY: 1.5,
+      finishX: 650,
+      finishY: 7.5,
       maxCheckpointOrder: -1,
-      threshold: 18,
+      threshold: 90,
     },
   ],
 };

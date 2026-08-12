@@ -1,5 +1,5 @@
 /**
- * D16 stall diagnostics — Rapier foot↔world contact probe (telemetry only).
+ * Stall diagnostics — Rapier foot↔world contact probe (telemetry only).
  * Does not feed observations or fitness.
  */
 import { sampleTerrainHeight } from '../env/terrainMath';

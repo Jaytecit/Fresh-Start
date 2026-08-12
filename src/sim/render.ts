@@ -749,6 +749,18 @@ function drawAgent(
           ctx.fillText(String(joint.hitValue ?? 1), _scrA.x, _scrA.y + 3);
         }
         ctx.restore();
+      } else if (
+        isFeatureEnabled('joustingMode') &&
+        (joint.isLance || joint.isGlove || joint.isHitTarget || joint.isHead)
+      ) {
+        ctx.save();
+        ctx.lineWidth = 2.5;
+        const lance = joint.isLance || joint.isGlove;
+        ctx.strokeStyle = lance ? '#c4a35a' : '#7ec8e3';
+        ctx.beginPath();
+        ctx.arc(_scrA.x, _scrA.y, r + 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
       }
     }
   }

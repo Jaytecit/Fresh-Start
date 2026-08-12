@@ -4,15 +4,11 @@
 
 Accepted / Implemented
 
-## Checklist IDs
-
-G3, C2.3 (unlocks E6.8 rough terrain next)
-
 ## Goal
 
-Spawn authored `EnvTerrain` as a Rapier 2D heightfield so Environment Studio hills are physical, and fill D7 `terrainGrade` / terrain-relative contact observations.
+Spawn authored `EnvTerrain` as a Rapier 2D heightfield so Environment Studio hills are physical, and fill `terrainGrade` / terrain-relative contact observations.
 
-## Rapier design (Fresh Start only)
+## Rapier design
 
 - One fixed rigid body + `ColliderDesc.heightfield(heights, scale)`
 - `heights[i] = max(0, samples[i] * amplitude)` (samples are unitless; amplitude → meters)
@@ -26,8 +22,6 @@ Spawn authored `EnvTerrain` as a Rapier 2D heightfield so Environment Studio hil
 
 ## Explicit non-goals
 
-- No parent terrain collision math or feel tuning
-- No towers (C2.4), rough-terrain goal scoring (E6.8), or para (G10)
 - No new collision-group bits
 - Does not remove or hole-punch the infinite ground
 
