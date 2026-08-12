@@ -74,10 +74,10 @@ function assertAuthoredCurriculum(): void {
       {
         id: 'wall',
         kind: 'box',
-        x: 12,
-        y: 1.5,
-        w: 2,
-        h: 3,
+        x: 60,
+        y: 7.5,
+        w: 10,
+        h: 15,
       },
     ],
   };

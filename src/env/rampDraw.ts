@@ -2,7 +2,7 @@
  * Two-point ramp authoring — top-surface endpoints with magnetic edge snap.
  * Solves EnvObstacle fields for the existing thin-cuboid spawn model.
  */
-import { snapToGrid } from '../editor/grid';
+import { ENV_EDITOR_GRID, snapToGrid } from '../editor/grid';
 import {
   GROUND_Y,
   OBSTACLE_MAX_SIZE,
@@ -33,10 +33,10 @@ export interface RampSnapGeometry {
 }
 
 /** Matches defaultObstacle('ramp').h — kept below spawn thickness cap via min length. */
-export const DEFAULT_RAMP_DRAW_THICKNESS = 0.28;
+export const DEFAULT_RAMP_DRAW_THICKNESS = 1.4;
 
 /** World-unit magnet radius for corners / edges / ground. */
-export const RAMP_SNAP_RADIUS = 0.45;
+export const RAMP_SNAP_RADIUS = 2.25;
 
 /**
  * Treat points this far below the ground plane as underground.
@@ -262,7 +262,7 @@ export function snapRampEndpoint(
   if (bestPoint) return clampRampEndpointToGround(bestPoint);
 
   if (opts.gridSnap) {
-    return clampRampEndpointToGround(snapToGrid(x, y, true));
+    return clampRampEndpointToGround(snapToGrid(x, y, true, ENV_EDITOR_GRID));
   }
   return clampRampEndpointToGround(p);
 }

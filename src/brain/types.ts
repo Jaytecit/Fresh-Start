@@ -40,6 +40,8 @@ export type TaskId =
   | 'motor_hurdles'
   /** Wheeled race (markers when present). */
   | 'motor_sprint'
+  /** K6 — division-matched points boxing. */
+  | 'boxing'
   /** H6 — disco imitation / freestyle (not GA-evolved). */
   | 'dance';
 

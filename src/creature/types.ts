@@ -12,6 +12,12 @@ export interface JointDef {
   isFoot?: boolean;
   /** Marked head / designed highest point for upright scoring. */
   isHead?: boolean;
+  /** K2 — Boxing strike point; only scores against an opponent target probe. */
+  isGlove?: boolean;
+  /** K2 — Boxing body target; never acts as match health. */
+  isHitTarget?: boolean;
+  /** Base points for this target before power / accuracy bonuses. */
+  hitValue?: number;
   /** Motor/wheeled joint (E6.5) — dedicated brain/manual torque channel. */
   isWheel?: boolean;
   motorStrength?: number;

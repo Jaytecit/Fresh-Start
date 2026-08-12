@@ -8,12 +8,14 @@ import type { GaKnobSet } from '../brain/trainingRecipes';
 import type { NetworkShape } from '../brain/types';
 import type { TaskId } from '../brain/types';
 
-export const EXPERIMENT_PACK_VERSION = 1 as const;
+export const EXPERIMENT_PACK_VERSION = 2 as const;
+/** Pre–env-world-scale packs (embedded environments are dropped). */
+export const EXPERIMENT_PACK_LEGACY_VERSION = 1 as const;
 
 /** Named knob set only (how you search). */
 export interface TrainingRecipeSave {
   kind: 'training_recipe';
-  version: typeof EXPERIMENT_PACK_VERSION;
+  version: typeof EXPERIMENT_PACK_VERSION | typeof EXPERIMENT_PACK_LEGACY_VERSION;
   name: string;
   knobs: GaKnobSet;
   createdAt: number;
@@ -22,7 +24,7 @@ export interface TrainingRecipeSave {
 /** Full experiment: body + env + goal + recipe + optional brain. */
 export interface ExperimentPack {
   kind: 'experiment_pack';
-  version: typeof EXPERIMENT_PACK_VERSION;
+  version: typeof EXPERIMENT_PACK_VERSION | typeof EXPERIMENT_PACK_LEGACY_VERSION;
   name: string;
   goalId: string;
   task: TaskId;
@@ -52,7 +54,7 @@ export function loadNamedRecipes(): TrainingRecipeSave[] {
 
 export function saveNamedRecipe(recipe: TrainingRecipeSave): void {
   const list = loadNamedRecipes().filter((r) => r.name !== recipe.name);
-  list.unshift(recipe);
+  list.unshift({ ...recipe, version: EXPERIMENT_PACK_VERSION });
   try {
     localStorage.setItem(RECIPE_KEY, JSON.stringify(list.slice(0, 40)));
   } catch {
@@ -70,20 +72,42 @@ export function deleteNamedRecipe(name: string): void {
 }
 
 export function exportExperimentPackJson(pack: ExperimentPack): string {
-  return JSON.stringify(pack, null, 2);
+  const payload: ExperimentPack = {
+    ...pack,
+    version: EXPERIMENT_PACK_VERSION,
+  };
+  return JSON.stringify(payload, null, 2);
 }
 
 export function parseExperimentPack(json: string): ExperimentPack {
   const data = JSON.parse(json) as ExperimentPack;
-  if (data.kind !== 'experiment_pack' || data.version !== EXPERIMENT_PACK_VERSION) {
-    throw new Error('Not a Solemn Sandbox experiment pack v1');
+  if (data.kind !== 'experiment_pack') {
+    throw new Error('Not a Solemn Sandbox experiment pack');
+  }
+  if (
+    data.version !== EXPERIMENT_PACK_VERSION &&
+    data.version !== EXPERIMENT_PACK_LEGACY_VERSION
+  ) {
+    throw new Error('Unsupported experiment pack version');
   }
   if (!data.design || !data.knobs || !data.goalId) {
     throw new Error('Experiment pack missing design, knobs, or goal');
   }
-  return data;
+  // Pre-scale packs: drop embedded env (rebuild in Studio) to avoid spawn conflicts.
+  const { environment: _legacyEnv, ...rest } = data;
+  return {
+    ...rest,
+    version: EXPERIMENT_PACK_VERSION,
+    ...(data.version === EXPERIMENT_PACK_VERSION && data.environment
+      ? { environment: data.environment }
+      : {}),
+  };
 }
 
 export function exportRecipeJson(recipe: TrainingRecipeSave): string {
-  return JSON.stringify(recipe, null, 2);
+  return JSON.stringify(
+    { ...recipe, version: EXPERIMENT_PACK_VERSION },
+    null,
+    2,
+  );
 }

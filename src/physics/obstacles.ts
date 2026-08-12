@@ -137,11 +137,13 @@ function spawnStair(
   const ox = o.x + w / 2;
   const oy = o.y + h / 2;
   const baseRot = o.rot ?? 0;
+  const ascendRight = (o.ascend ?? 'right') !== 'left';
   for (let i = 0; i < n; i++) {
     const top = ((i + 1) / n) * h;
     const hy = top / 2;
     const hx = stepW / 2;
-    const cx = o.x + (i + 0.5) * stepW;
+    const col = ascendRight ? i : n - 1 - i;
+    const cx = o.x + (col + 0.5) * stepW;
     const cy = o.y + hy;
     const p = rotateAround(cx, cy, ox, oy, baseRot);
     addCuboid(world, handle, 'stair', p.x, p.y, hx, hy, baseRot, grip);
@@ -156,7 +158,7 @@ function spawnPit(
 ): void {
   const gap = clampSize(o.w);
   const wallH = clampSize(o.h);
-  const platformW = Math.max(2, gap);
+  const platformW = Math.max(10, gap);
   const hy = wallH / 2;
   const hx = platformW / 2;
   const cy = o.y + hy;
@@ -290,34 +292,34 @@ export function defaultObstacle(kind: ObstacleKind): EnvObstacle {
       : `obs_${Date.now().toString(36)}_${(obstacleIdSeq++).toString(36)}`;
   switch (kind) {
     case 'box':
-      return { id, kind, x: 3, y: 0.5, w: 2, h: 1 };
+      return { id, kind, x: 15, y: 2.5, w: 10, h: 5 };
     case 'ramp':
       return {
         id,
         kind,
-        x: 5,
-        y: 0.45,
-        w: 3.5,
-        h: 0.28,
+        x: 25,
+        y: 2.25,
+        w: 17.5,
+        h: 1.4,
         rot: OBSTACLE_DEFAULT_RAMP_ROT,
       };
     case 'stair':
-      return { id, kind, x: 2, y: 0, w: 6, h: 2 };
+      return { id, kind, x: 10, y: 0, w: 30, h: 10, ascend: 'right' };
     case 'pit':
-      return { id, kind, x: 6, y: 0, w: 2.2, h: 1.4 };
+      return { id, kind, x: 30, y: 0, w: 11, h: 7 };
     case 'loop':
-      return { id, kind, x: 10, y: 2.2, w: 3.6, h: 3.6 };
+      return { id, kind, x: 50, y: 11, w: 18, h: 18 };
     case 'pad':
       return {
         id,
         kind,
-        x: 4,
+        x: 20,
         y: LAUNCH_PAD_DEFAULT_H / 2,
         w: LAUNCH_PAD_DEFAULT_W,
         h: LAUNCH_PAD_DEFAULT_H,
         launchApex: LAUNCH_PAD_APEX_H,
       };
     default:
-      return { id, kind: 'box', x: 3, y: 0.5, w: 2, h: 1 };
+      return { id, kind: 'box', x: 15, y: 2.5, w: 10, h: 5 };
   }
 }

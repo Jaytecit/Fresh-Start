@@ -1,16 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BRAIN_HZ,
-  BRAIN_HZ_FAST,
+  ELITE_COUNT,
+  LIVE_BATCH_SIZE,
+  LIVE_MAX_GENERATIONS,
+  LIVE_POPULATION_SIZE,
+  MUTATION_RESET_RATE,
+  MUTATION_SIGMA,
+  TOURNAMENT_SIZE,
   clampEpisodeSeconds,
   EPISODE_SECONDS,
   EPISODE_SECONDS_MAX,
   EPISODE_SECONDS_MIN,
   formatEpisodeSeconds,
-  LIVE_BATCH_SIZE,
-  LIVE_POPULATION_SIZE,
+  BRAIN_HZ,
+  BRAIN_HZ_FAST,
   type BrainHz,
 } from "./brain/constants";
+import { breedNextGeneration, mutate } from "./brain/ga";
+import { cloneWeights, createRng, randomWeights } from "./brain/network";
+import {
+  boxingEligibility,
+  getBoxingDivision,
+  type BoxingDivisionId,
+} from "./boxing/divisions";
+import {
+  boxingTrainingFitness,
+  sparringDesignForDivision,
+} from "./brain/boxingTraining";
+import {
+  BOXING_PRIORITY_KEYS,
+  BOXING_PRIORITY_LABELS,
+  DEFAULT_BOXING_PRIORITIES,
+  type BoxingPriorities,
+} from "./boxing/rewards";
 import {
   DEFAULT_GOAL_PRIORITIES,
   DEFAULT_RUN_STAGES,
@@ -142,6 +164,7 @@ import { type DiscoSlotState } from "./components/DiscoSlotsPanel";
 import { DiscoCurriculumPanel } from "./components/DiscoCurriculumPanel";
 import { DiscoTrackLearnPanel } from "./components/DiscoTrackLearnPanel";
 import { DiscoZonePanel } from "./components/DiscoZonePanel";
+import { BoxingSkillPanel } from "./components/BoxingSkillPanel";
 import {
   HeadToHeadPanel,
   headToHeadEntriesFromModels,
@@ -173,6 +196,7 @@ import {
   saveHoverHelpEnabled,
 } from "./help/hoverHelp";
 import { PRESETS } from "./creature/presets";
+import { buildHintsForSkill } from "./creature/buildHints";
 import { cloneDesign, type CreatureDesign } from "./creature/types";
 import { EditorCanvas, type EditTool } from "./editor/EditorCanvas";
 import {
@@ -202,6 +226,7 @@ import {
 } from "./editor/editOps";
 import { isFeatureEnabled } from "./port/featureFlags";
 import { discoFloorEnv } from "./env/discoEnv";
+import { boxingRingEnv } from "./env/boxingRingEnv";
 import {
   DEFAULT_DISCO_BALL_X,
   DEFAULT_DISCO_BALL_Y,
@@ -223,7 +248,6 @@ import type { EnvSelectionList, EnvTool } from "./env/envSelection";
 import {
   deleteSelectables,
   duplicateSelection as duplicateEnvSelection,
-  mirrorDuplicateSelection as mirrorEnvSelection,
   rotateSelection as rotateEnvSelection,
 } from "./env/envSelectionOps";
 import { makeSineTerrain } from "./env/terrainMath";
@@ -243,7 +267,10 @@ import {
   type GoalId,
 } from "./goals/catalog";
 import { BUNDLED_MODELS } from "./library/bundledModels";
-import { designCandidatePool } from "./library/resolveModelDesign";
+import {
+  designCandidatePool,
+  resolveDesignForModel,
+} from "./library/resolveModelDesign";
 import {
   bodyFingerprint,
   considerBestEver,
@@ -274,6 +301,7 @@ import {
   type DiscoSetup,
 } from "./library/discoSetups";
 import {
+  EXPERIMENT_PACK_VERSION,
   exportExperimentPackJson,
   exportRecipeJson,
   loadNamedRecipes,
@@ -313,8 +341,10 @@ import {
 import { SimCanvas } from "./sim/SimCanvas";
 import {
   shapeForDanceDesign,
+  shapeForBoxingDesign,
   shapeForDesign,
   Simulation,
+  type BoxingMatchResult,
   type DriveMode,
   type EpisodeCompleteSnapshot,
   type HeadToHeadResult,
@@ -346,6 +376,17 @@ function ensureAppearance(design: CreatureDesign): CreatureDesign {
   if (design.appearance) return design;
   return { ...design, appearance: emptyAppearance() };
 }
+
+function loadEnabledSkill(): SkillId {
+  const saved = loadActiveSkill();
+  const enabled =
+    (saved !== "boxing" || isFeatureEnabled("boxingMode")) &&
+    (saved !== "disco" || isFeatureEnabled("discoMode"));
+  if (enabled) return saved;
+  saveActiveSkill("walking");
+  return "walking";
+}
+
 export default function App() {
   const simulation = useMemo(() => new Simulation(), []);
   const discoPlayer = useMemo(() => createDiscoAudioPlayer(), []);
@@ -379,14 +420,15 @@ export default function App() {
   const [snapEnabled, setSnapEnabled] = useState(true);
   /** Edit tab: drop creature idle under gravity to preview natural settle. */
   const [editPhysics, setEditPhysics] = useState(false);
-  const [skill, setSkill] = useState<SkillId>(() => loadActiveSkill());
+  const [skill, setSkill] = useState<SkillId>(() => loadEnabledSkill());
   const [goalId, setGoalId] = useState<GoalId>(() => {
-    const z = loadActiveSkill();
+    const z = loadEnabledSkill();
     const saved = loadActiveGoalId(defaultGoalForSkill(z).id);
     const allowed = goalsForSkill(z);
-    return allowed.some((g) => g.id === saved)
-      ? saved
-      : defaultGoalForSkill(z).id;
+    if (allowed.some((g) => g.id === saved)) return saved;
+    const fallback = defaultGoalForSkill(z).id;
+    saveActiveGoalId(fallback);
+    return fallback;
   });
   const [design, setDesign] = useState<CreatureDesign>(() =>
     ensureAppearance(cloneDesign(PRESETS[0])),
@@ -439,6 +481,9 @@ export default function App() {
   const [goalPriorities, setGoalPriorities] = useState<GoalPriorities>(() => ({
     ...DEFAULT_GOAL_PRIORITIES,
   }));
+  const [boxingPriorities, setBoxingPriorities] = useState<BoxingPriorities>(
+    () => ({ ...DEFAULT_BOXING_PRIORITIES }),
+  );
   const [stageTrainerOn, setStageTrainerOn] = useState(false);
   const [courseCurriculumOn, setCourseCurriculumOn] = useState(false);
   const [courseStageIndex, setCourseStageIndex] = useState(0);
@@ -519,6 +564,7 @@ export default function App() {
   );
   const [discoHideMuscles, setDiscoHideMuscles] = useState(false);
   const [discoHideBones, setDiscoHideBones] = useState(false);
+  const [hideSolidStruts, setHideSolidStruts] = useState(false);
   const [discoGreenscreen, setDiscoGreenscreen] = useState(false);
   const [discoBallPos, setDiscoBallPos] = useState({
     x: DEFAULT_DISCO_BALL_X,
@@ -572,13 +618,54 @@ export default function App() {
   const curriculumTrackIdRef = useRef<string | null>(null);
   const discoPlaylistRef = useRef<DiscoPlaylistTrack[]>([]);
   const lookBufRef = useRef(new Float32Array(6));
-  const preDiscoEnvRef = useRef<EnvironmentDesign | null>(null);
+  /** User environment retained while switching among dedicated skill arenas. */
+  const preSpecialEnvRef = useRef<EnvironmentDesign | null>(null);
   const [h2hRunning, setH2hRunning] = useState(false);
   const [h2hProgress, setH2hProgress] = useState<{
     episodeT: number;
     episodeDuration: number;
   } | null>(null);
   const [h2hResult, setH2hResult] = useState<HeadToHeadResult | null>(null);
+  const [boxingRunning, setBoxingRunning] = useState(false);
+  const [boxingProgress, setBoxingProgress] = useState<{
+    episodeT: number;
+    episodeDuration: number;
+    points: [number, number];
+  } | null>(null);
+  const [boxingResult, setBoxingResult] = useState<BoxingMatchResult | null>(
+    null,
+  );
+  const [boxingDivisionId, setBoxingDivisionId] =
+    useState<BoxingDivisionId>("upright");
+  const boxingEvolveRef = useRef<{
+    cancelled: boolean;
+    stopAfterCurrent: boolean;
+    design: CreatureDesign;
+    divisionId: BoxingDivisionId;
+    shape: NetworkShape;
+    population: Genome[];
+    popSize: number;
+    maxGenerations: number;
+    episodeSeconds: number;
+    generation: number;
+    genomeIndex: number;
+    bestOverall: Genome;
+    scoredSum: number;
+    scoredCount: number;
+    opponentDesign: CreatureDesign;
+    opponentShape: NetworkShape;
+    opponentWeights: Float32Array;
+    rng: () => number;
+    breed: {
+      eliteCount: number;
+      tournamentSize: number;
+      mutationSigma: number;
+      mutationResetRate: number;
+      crossover: boolean;
+    };
+    priorities: BoxingPriorities;
+    finishing: boolean;
+  } | null>(null);
   const [bestEverList, setBestEverList] = useState<BestEverEntry[]>([]);
   const [envDesign, setEnvDesign] = useState<EnvironmentDesign>(() =>
     flatGroundEnv(),
@@ -929,9 +1016,12 @@ export default function App() {
   const returnToEdit = useCallback(() => {
     const elite = captureLiveElite();
     if (simulation.isHeadToHead) simulation.abortHeadToHead();
+    simulation.abortBoxingMatch();
     simulation.clearDiscoDancers();
     setH2hRunning(false);
     setH2hProgress(null);
+    setBoxingRunning(false);
+    setBoxingProgress(null);
     if (!elite) {
       setEvolveProgress(idleProgress());
     } else {
@@ -1204,20 +1294,43 @@ export default function App() {
   }, [ready, skill, discoStageKey, syncMultiDisco, simulation]);
 
   const applyDiscoEnvironment = useCallback(() => {
-    if (!preDiscoEnvRef.current) {
-      preDiscoEnvRef.current = cloneEnvironment(envDesignRef.current);
+    if (!preSpecialEnvRef.current) {
+      preSpecialEnvRef.current = cloneEnvironment(envDesignRef.current);
     }
     const discoEnv = discoFloorEnv();
+    envDesignRef.current = discoEnv;
     setEnvDesign(discoEnv);
     simulation.setEnvironment(discoEnv);
   }, [simulation]);
 
   const restorePreDiscoEnvironment = useCallback(() => {
-    const prev = preDiscoEnvRef.current;
+    const prev = preSpecialEnvRef.current;
     if (!prev) return;
-    preDiscoEnvRef.current = null;
-    setEnvDesign(cloneEnvironment(prev));
+    preSpecialEnvRef.current = null;
+    const restored = cloneEnvironment(prev);
+    envDesignRef.current = restored;
+    setEnvDesign(restored);
     simulation.setEnvironment(prev);
+  }, [simulation]);
+
+  const applyBoxingEnvironment = useCallback(() => {
+    if (!preSpecialEnvRef.current) {
+      preSpecialEnvRef.current = cloneEnvironment(envDesignRef.current);
+    }
+    const ring = boxingRingEnv();
+    envDesignRef.current = ring;
+    setEnvDesign(ring);
+    simulation.setEnvironment(ring);
+  }, [simulation]);
+
+  const restorePreBoxingEnvironment = useCallback(() => {
+    const previous = preSpecialEnvRef.current;
+    if (!previous) return;
+    preSpecialEnvRef.current = null;
+    const restored = cloneEnvironment(previous);
+    envDesignRef.current = restored;
+    setEnvDesign(restored);
+    simulation.setEnvironment(previous);
   }, [simulation]);
 
   const beginDiscoDrive = useCallback(() => {
@@ -1824,7 +1937,7 @@ export default function App() {
     syncMultiDisco,
   ]);
 
-  const leaveDiscoSkill = useCallback(() => {
+  const leaveDiscoSkill = useCallback((restoreEnvironment = true) => {
     stopDiscoDrive();
     if (simulation.isMultiDisco) {
       simulation.clearDiscoDancers();
@@ -1833,8 +1946,55 @@ export default function App() {
       }
     }
     simulation.clearDiscoPuppetBodyTune();
-    restorePreDiscoEnvironment();
+    if (restoreEnvironment) restorePreDiscoEnvironment();
   }, [restorePreDiscoEnvironment, simulation, stopDiscoDrive]);
+
+  const enterBoxingSkill = useCallback(() => {
+    captureLiveElite();
+    if (simulation.isHeadToHead) simulation.abortHeadToHead();
+    setH2hRunning(false);
+    setH2hProgress(null);
+    simulation.abortBoxingMatch();
+    setBoxingRunning(false);
+    setBoxingProgress(null);
+    simulation.clearDiscoDancers();
+    applyBoxingEnvironment();
+    const body = designRef.current;
+    if (body.joints.length === 0) {
+      setError(
+        "No creature loaded — build or load a fighter that meets the selected Boxing division rules before training.",
+      );
+    } else {
+      const eligibility = boxingEligibility(body, boxingDivisionId);
+      if (!eligibility.eligible) {
+        const division = getBoxingDivision(boxingDivisionId);
+        setError(
+          `Current creature is not suitable for ${division.name} training: ${eligibility.reasons.join(" ")} Your design was kept — adjust the body or pick another division.`,
+        );
+      } else {
+        setError(null);
+      }
+      simulation.loadDesign(body);
+      simulation.setTask("boxing");
+    }
+    setDriveMode("idle");
+    driveModeRef.current = "idle";
+    simulation.driveMode = "idle";
+    setMode("sim");
+    setSandboxTab("skill");
+  }, [
+    applyBoxingEnvironment,
+    boxingDivisionId,
+    captureLiveElite,
+    simulation,
+  ]);
+
+  const leaveBoxingSkill = useCallback((restoreEnvironment = true) => {
+    simulation.abortBoxingMatch();
+    setBoxingRunning(false);
+    setBoxingProgress(null);
+    if (restoreEnvironment) restorePreBoxingEnvironment();
+  }, [restorePreBoxingEnvironment, simulation]);
 
   /** H7 — load a saved dance brain into Disco freestyle (not Free evolve). */
   const loadDanceFreestyle = useCallback(
@@ -1883,6 +2043,13 @@ export default function App() {
     if (!ready || !isFeatureEnabled("discoMode")) return;
     if (skill === "disco") enterDiscoSkill();
     // Restore disco arena once after physics init when the saved skill is Disco.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/ready only
+  }, [ready]);
+
+  useEffect(() => {
+    if (!ready || !isFeatureEnabled("boxingMode")) return;
+    if (skill === "boxing") enterBoxingSkill();
+    // Restore the ring once after physics init when Boxing was the saved skill.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/ready only
   }, [ready]);
 
@@ -2099,13 +2266,6 @@ export default function App() {
     setEnvSelection(result.items);
   }, [commitEnv, envSelection]);
 
-  const mirrorEnvSelected = useCallback(() => {
-    if (envSelection.length === 0) return;
-    const result = mirrorEnvSelection(envDesignRef.current, envSelection);
-    commitEnv(result.env);
-    setEnvSelection(result.items);
-  }, [commitEnv, envSelection]);
-
   const rotateEnvSelected = useCallback(() => {
     if (envSelection.length === 0) return;
     commitEnv(rotateEnvSelection(envDesignRef.current, envSelection, -Math.PI / 2));
@@ -2207,15 +2367,26 @@ export default function App() {
   };
   const selectSkill = (id: SkillId) => {
     if (id === "disco" && !isFeatureEnabled("discoMode")) return;
+    if (id === "boxing" && !isFeatureEnabled("boxingMode")) return;
     const prev = skill;
     if (prev === "disco" && id !== "disco") {
-      leaveDiscoSkill();
+      leaveDiscoSkill(id !== "boxing");
+    }
+    if (prev === "boxing" && id !== "boxing") {
+      leaveBoxingSkill(id !== "disco");
     }
     setSkill(id);
     saveActiveSkill(id);
     if (id === "disco") {
       // Disco uses a separate dance brain; keep the free-evolve elite for later.
       enterDiscoSkill();
+      return;
+    }
+    if (id === "boxing") {
+      const next = defaultGoalForSkill(id);
+      setGoalId(next.id);
+      saveActiveGoalId(next.id);
+      enterBoxingSkill();
       return;
     }
     const next = defaultGoalForSkill(id);
@@ -2231,9 +2402,12 @@ export default function App() {
     try {
       const elite = captureLiveElite();
       if (simulation.isHeadToHead) simulation.abortHeadToHead();
+      simulation.abortBoxingMatch();
       simulation.clearDiscoDancers();
       setH2hRunning(false);
       setH2hProgress(null);
+      setBoxingRunning(false);
+      setBoxingProgress(null);
       setLiveBrain(null);
       simulation.setTask(activeTask);
       simulation.loadDesign(next);
@@ -2300,6 +2474,7 @@ export default function App() {
   const onSandboxTabChange = (tab: SandboxTabId) => {
     if (tab === "edit") {
       if (skill === "disco") leaveDiscoSkill();
+      if (skill === "boxing") leaveBoxingSkill();
       if (editPhysics) {
         // Stay in settle preview if already watching physics on Edit.
         setSandboxTab("edit");
@@ -2310,6 +2485,7 @@ export default function App() {
     }
     if (tab === "world") {
       if (skill === "disco") leaveDiscoSkill();
+      if (skill === "boxing") leaveBoxingSkill();
       setEditPhysics(false);
       enterWorld();
       return;
@@ -2334,6 +2510,11 @@ export default function App() {
         setSandboxTab("train");
         return;
       }
+      if (skill === "boxing" && isFeatureEnabled("boxingMode")) {
+        enterBoxingSkill();
+        setSandboxTab("skill");
+        return;
+      }
       startSim();
       return;
     }
@@ -2345,6 +2526,9 @@ export default function App() {
       setSandboxTab("skill");
       if (skill === "disco" && isFeatureEnabled("discoMode")) {
         enterDiscoSkill();
+      }
+      if (skill === "boxing" && isFeatureEnabled("boxingMode")) {
+        enterBoxingSkill();
       }
       return;
     }
@@ -2407,6 +2591,7 @@ export default function App() {
       fitness: number;
       design: CreatureDesign;
       danceMeta?: import("./library/savedModels").DanceCurriculumMeta;
+      boxingMeta?: import("./library/savedModels").BoxingModelMeta;
     },
     opts: { persistToLibrary: boolean },
   ) => {
@@ -2418,6 +2603,10 @@ export default function App() {
       shape: m.shape,
       genome: { weights: m.weights, fitness: m.fitness },
     });
+    if (m.task === "boxing" && (!m.boxingMeta || !isFeatureEnabled("boxingMode"))) {
+      setError("Imported Boxing model is incompatible or Boxing is disabled.");
+      return;
+    }
     if (opts.persistToLibrary && isFeatureEnabled("savedModels")) {
       saveModel({
         name: m.name,
@@ -2426,8 +2615,20 @@ export default function App() {
         genome: { weights: m.weights, fitness: m.fitness },
         design: m.design,
         ...(m.danceMeta ? { danceMeta: m.danceMeta } : {}),
+        ...(m.boxingMeta ? { boxingMeta: m.boxingMeta } : {}),
       });
       refreshModels();
+    }
+    if (m.task === "boxing") {
+      if (skill === "disco") leaveDiscoSkill(false);
+      setSkill("boxing");
+      saveActiveSkill("boxing");
+      applyBoxingEnvironment();
+      simulation.loadDesign(m.design);
+      simulation.setTask("boxing");
+      setMode("sim");
+      setSandboxTab("skill");
+      return;
     }
     if (mode === "sim" && !simulation.isEvolving) {
       try {
@@ -2631,11 +2832,369 @@ export default function App() {
     return undefined;
   };
 
+  const finishBoxingLiveEvolve = useCallback(
+    (status: string) => {
+      const session = boxingEvolveRef.current;
+      boxingEvolveRef.current = null;
+      simulation.abortBoxingMatch();
+      setBoxingRunning(false);
+      setBoxingProgress(null);
+      setDriveMode("idle");
+      simulation.driveMode = "idle";
+      simulation.timeScale = observeSpeed;
+      if (!session || session.finishing) {
+        setEvolveProgress((prev) => ({
+          ...prev,
+          running: false,
+          status,
+        }));
+        return;
+      }
+      session.finishing = true;
+      const genome = session.bestOverall;
+      if (Number.isFinite(genome.fitness) && genome.fitness > -Infinity) {
+        setBestGenome({ shape: session.shape, genome });
+        preferBestOfRun();
+        saveModel({
+          name: trainedModelName(
+            `${session.design.name} ${session.divisionId}`,
+          ),
+          task: "boxing",
+          shape: session.shape,
+          genome,
+          design: session.design,
+          boxingMeta: {
+            divisionId: session.divisionId,
+            ruleVersion: 1,
+            obsPackVersion: 2,
+            brainHz: 30,
+          },
+        });
+        refreshModels();
+        if (isFeatureEnabled("bestEverLedger")) {
+          considerBestEver("boxing", genome.fitness, session.design);
+          setBestEverList(loadBestEver());
+        }
+      }
+      setEvolveProgress((prev) => ({
+        ...prev,
+        running: false,
+        status,
+        bestFitness:
+          genome.fitness === -Infinity ? 0 : genome.fitness,
+        meanFitness:
+          session.scoredCount > 0
+            ? session.scoredSum / session.scoredCount
+            : 0,
+      }));
+    },
+    [observeSpeed, preferBestOfRun, refreshModels, simulation],
+  );
+
+  const runBoxingLiveTry = useCallback(() => {
+    const session = boxingEvolveRef.current;
+    if (!session || session.cancelled) {
+      finishBoxingLiveEvolve(session?.cancelled ? "Stopped" : "Idle");
+      return;
+    }
+
+    if (session.genomeIndex >= session.popSize) {
+      if (session.stopAfterCurrent) {
+        finishBoxingLiveEvolve("Stopped");
+        return;
+      }
+      if (session.generation + 1 >= session.maxGenerations) {
+        finishBoxingLiveEvolve("Complete");
+        return;
+      }
+      session.population = breedNextGeneration(
+        session.population,
+        session.popSize,
+        session.rng,
+        session.breed,
+      );
+      session.generation += 1;
+      session.genomeIndex = 0;
+      session.scoredSum = 0;
+      session.scoredCount = 0;
+    }
+
+    const genome = session.population[session.genomeIndex]!;
+    const traineeName = session.design.name || "Trainee";
+    const sparName = session.opponentDesign.name || "Sparring";
+    setEvolveProgress({
+      generation: session.generation,
+      evaluated: session.genomeIndex,
+      populationSize: session.popSize,
+      bestFitness:
+        session.bestOverall.fitness === -Infinity
+          ? 0
+          : session.bestOverall.fitness,
+      meanFitness:
+        session.scoredCount > 0
+          ? session.scoredSum / session.scoredCount
+          : 0,
+      running: true,
+      status: `Boxing spar · gen ${session.generation + 1} · ${session.genomeIndex + 1}/${session.popSize}`,
+      batch: 1,
+      batchCount: 1,
+      focusIndex: 0,
+      cohortSize: 2,
+      episodeT: 0,
+      episodeDuration: session.episodeSeconds,
+    });
+
+    try {
+      applyBoxingEnvironment();
+      simulation.startBoxingMatch({
+        entries: [
+          {
+            design: cloneDesign(session.design),
+            shape: session.shape,
+            weights: cloneWeights(genome.weights),
+          },
+          {
+            design: cloneDesign(session.opponentDesign),
+            shape: session.opponentShape,
+            weights: cloneWeights(session.opponentWeights),
+          },
+        ],
+        divisionId: session.divisionId,
+        episodeSeconds: session.episodeSeconds,
+        onProgress: (snapshot) => {
+          setBoxingProgress({
+            episodeT: snapshot.episodeT,
+            episodeDuration: snapshot.episodeDuration,
+            points: snapshot.points,
+          });
+          setEvolveProgress((prev) => ({
+            ...prev,
+            episodeT: snapshot.episodeT,
+            episodeDuration: snapshot.episodeDuration,
+            status: `${traineeName} ${snapshot.points[0]}–${snapshot.points[1]} ${sparName}`,
+          }));
+        },
+        onFinished: (result) => {
+          const s = boxingEvolveRef.current;
+          if (!s || s.cancelled) {
+            finishBoxingLiveEvolve("Stopped");
+            return;
+          }
+          const fitness = boxingTrainingFitness(result, s.priorities);
+          genome.fitness = fitness;
+          s.scoredSum += fitness;
+          s.scoredCount += 1;
+          if (fitness > s.bestOverall.fitness) {
+            s.bestOverall = {
+              weights: cloneWeights(genome.weights),
+              fitness,
+            };
+          }
+          setBoxingResult(result);
+          setBoxingRunning(false);
+          s.genomeIndex += 1;
+          if (s.stopAfterCurrent && s.genomeIndex >= s.popSize) {
+            finishBoxingLiveEvolve("Stopped");
+            return;
+          }
+          if (s.stopAfterCurrent) {
+            // Finish after the current try (like live evolve stop-after-batch).
+            finishBoxingLiveEvolve("Stopped");
+            return;
+          }
+          queueMicrotask(() => runBoxingLiveTry());
+        },
+      });
+      setBoxingRunning(true);
+      setBoxingResult(null);
+      setDriveMode("brain");
+      simulation.driveMode = "brain";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      finishBoxingLiveEvolve("Error");
+    }
+  }, [
+    applyBoxingEnvironment,
+    finishBoxingLiveEvolve,
+    simulation,
+  ]);
+
+  const startBoxingLiveEvolve = useCallback(
+    (
+      seedFrom?: { shape: NetworkShape; weights: Float32Array },
+      divisionOverride?: BoxingDivisionId,
+    ) => {
+      const trainingDesign = cloneDesign(designRef.current);
+      const divisionId = divisionOverride ?? boxingDivisionId;
+      const eligibility = boxingEligibility(trainingDesign, divisionId);
+      if (!eligibility.eligible) {
+        setError(
+          `Not eligible for ${divisionId}: ${eligibility.reasons.join(" ")}`,
+        );
+        return;
+      }
+      if (!designHasActuators(trainingDesign, isFeatureEnabled("motorWheels"))) {
+        setError("Add at least one muscle before evolving a boxer.");
+        return;
+      }
+
+      const popSize = isFeatureEnabled("trainRecipes")
+        ? gaKnobs.populationSize
+        : LIVE_POPULATION_SIZE;
+      const trySeconds = isFeatureEnabled("trainRecipes")
+        ? gaKnobs.episodeSeconds
+        : episodeSeconds;
+      const maxGens = isFeatureEnabled("trainRecipes")
+        ? gaKnobs.maxGenerations
+        : LIVE_MAX_GENERATIONS;
+      const shape = shapeForBoxingDesign(trainingDesign);
+      const opponentDesign = sparringDesignForDivision(divisionId);
+      const opponentShape = shapeForBoxingDesign(opponentDesign);
+      const rng = createRng(runSeed);
+      const opponentWeights = randomWeights(
+        opponentShape,
+        createRng(runSeed + 991),
+      );
+
+      let resolvedSeed = seedFrom;
+      if (
+        resolvedSeed &&
+        (resolvedSeed.shape.inputCount !== shape.inputCount ||
+          resolvedSeed.shape.hiddenCount !== shape.hiddenCount ||
+          resolvedSeed.shape.outputCount !== shape.outputCount ||
+          resolvedSeed.weights.length !== shape.weightCount)
+      ) {
+        setError(
+          "Seed genome shape mismatch — Boxing continue training needs a matching fighter layout.",
+        );
+        return;
+      }
+
+      const population: Genome[] = [];
+      if (resolvedSeed) {
+        population.push({
+          weights: cloneWeights(resolvedSeed.weights),
+          fitness: 0,
+        });
+        while (population.length < popSize) {
+          population.push({
+            weights: mutate(resolvedSeed.weights, rng, {
+              mutationSigma: isFeatureEnabled("trainRecipes")
+                ? gaKnobs.mutationSigma
+                : MUTATION_SIGMA,
+              mutationResetRate: isFeatureEnabled("trainRecipes")
+                ? gaKnobs.mutationResetRate
+                : MUTATION_RESET_RATE,
+            }),
+            fitness: 0,
+          });
+        }
+      } else {
+        for (let i = 0; i < popSize; i++) {
+          population.push({
+            weights: randomWeights(shape, rng),
+            fitness: 0,
+          });
+        }
+      }
+
+      if (boxingEvolveRef.current) {
+        boxingEvolveRef.current.cancelled = true;
+      }
+      simulation.abortBoxingMatch();
+      applyBoxingEnvironment();
+      setBoxingDivisionId(divisionId);
+      setMode("sim");
+      setSandboxTab("train");
+      simulation.timeScale = trainSpeed;
+
+      boxingEvolveRef.current = {
+        cancelled: false,
+        stopAfterCurrent: false,
+        design: trainingDesign,
+        divisionId,
+        shape,
+        population,
+        popSize,
+        maxGenerations: Math.max(1, maxGens),
+        episodeSeconds: trySeconds,
+        generation: 0,
+        genomeIndex: 0,
+        bestOverall: {
+          weights: cloneWeights(population[0]!.weights),
+          fitness: -Infinity,
+        },
+        scoredSum: 0,
+        scoredCount: 0,
+        opponentDesign,
+        opponentShape,
+        opponentWeights,
+        rng,
+        breed: {
+          eliteCount: isFeatureEnabled("trainRecipes")
+            ? gaKnobs.eliteCount
+            : ELITE_COUNT,
+          tournamentSize: isFeatureEnabled("trainRecipes")
+            ? gaKnobs.tournamentSize
+            : TOURNAMENT_SIZE,
+          mutationSigma: isFeatureEnabled("trainRecipes")
+            ? gaKnobs.mutationSigma
+            : MUTATION_SIGMA,
+          mutationResetRate: isFeatureEnabled("trainRecipes")
+            ? gaKnobs.mutationResetRate
+            : MUTATION_RESET_RATE,
+          crossover: isFeatureEnabled("trainSchedules")
+            ? gaKnobs.crossover
+            : true,
+        },
+        priorities: isFeatureEnabled("goalPriorities")
+          ? { ...boxingPriorities }
+          : { ...DEFAULT_BOXING_PRIORITIES },
+        finishing: false,
+      };
+
+      setEvolveProgress({
+        ...idleProgress(),
+        running: true,
+        status: `Boxing spar (${divisionId})…`,
+        populationSize: popSize,
+        batch: 1,
+        batchCount: 1,
+        episodeDuration: trySeconds,
+        episodeT: 0,
+      });
+      runBoxingLiveTry();
+    },
+    [
+      applyBoxingEnvironment,
+      boxingDivisionId,
+      boxingPriorities,
+      episodeSeconds,
+      gaKnobs,
+      runSeed,
+      runBoxingLiveTry,
+      simulation,
+      trainSpeed,
+    ],
+  );
+
   const startEvolve = (seedFrom?: {
     shape: NetworkShape;
     weights: Float32Array;
     morph?: Genome["morph"];
   }) => {
+    if (activeTask === "boxing") {
+      if (!isFeatureEnabled("boxingMode")) {
+        setError("Boxing skill is disabled.");
+        return;
+      }
+      startBoxingLiveEvolve(
+        seedFrom
+          ? { shape: seedFrom.shape, weights: seedFrom.weights }
+          : undefined,
+      );
+      return;
+    }
     if (!designHasActuators(design, isFeatureEnabled("motorWheels"))) {
       setError("Add at least one muscle or wheel before evolving.");
       return;
@@ -2811,6 +3370,21 @@ export default function App() {
       setError("No elite genome to continue from — Evolve first.");
       return;
     }
+    if (activeTask === "boxing") {
+      if (
+        !shapesCompatible(bestGenome.shape, shapeForBoxingDesign(design))
+      ) {
+        setError(
+          "Brain layout mismatch — the creature changed too much to continue.",
+        );
+        return;
+      }
+      startBoxingLiveEvolve({
+        shape: bestGenome.shape,
+        weights: bestGenome.genome.weights,
+      });
+      return;
+    }
     const adapted = adaptEliteToDesign(bestGenome, design, {
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
@@ -2831,6 +3405,45 @@ export default function App() {
   const continueFromModel = (model: SavedModel) => {
     if (model.task === "dance") {
       loadDanceFreestyle(model);
+      return;
+    }
+    if (model.task === "boxing") {
+      if (
+        !model.boxingMeta ||
+        model.boxingMeta.ruleVersion !== 1 ||
+        model.boxingMeta.obsPackVersion !== 2 ||
+        model.boxingMeta.brainHz !== 30
+      ) {
+        setError("Saved Boxing model uses incompatible division or brain metadata.");
+        return;
+      }
+      const boxer = cloneDesign(model.boxingDesign ?? design);
+      const seed = modelToSeed(model);
+      if (!shapesCompatible(seed.shape, shapeForBoxingDesign(boxer))) {
+        setError("Saved Boxing model shape does not match its fighter body.");
+        return;
+      }
+      if (skill === "disco") leaveDiscoSkill(false);
+      if (boxingEvolveRef.current) {
+        boxingEvolveRef.current.cancelled = true;
+        boxingEvolveRef.current = null;
+      }
+      if (skill === "boxing") simulation.abortBoxingMatch();
+      loadPreset(boxer, "custom");
+      setSkill("boxing");
+      saveActiveSkill("boxing");
+      setGoalId("boxing");
+      saveActiveGoalId("boxing");
+      setBoxingDivisionId(model.boxingMeta.divisionId);
+      applyBoxingEnvironment();
+      simulation.loadDesign(boxer);
+      simulation.setTask("boxing");
+      setMode("sim");
+      setSandboxTab("train");
+      startBoxingLiveEvolve(
+        { shape: seed.shape, weights: seed.weights },
+        model.boxingMeta.divisionId,
+      );
       return;
     }
     const expected = shapeForDesign(design, {
@@ -2902,6 +3515,96 @@ export default function App() {
     },
     [captureLiveElite, design, episodeSeconds, packages, simulation],
   );
+
+  const stopBoxingMatch = useCallback(() => {
+    simulation.abortBoxingMatch();
+    setBoxingRunning(false);
+    setBoxingProgress(null);
+    setDriveMode("idle");
+    simulation.driveMode = "idle";
+  }, [simulation]);
+
+  const startBoxingMatch = useCallback(
+    (opts: {
+      modelA: SavedModel;
+      modelB: SavedModel;
+      divisionId: BoxingDivisionId;
+    }) => {
+      const pool = designCandidatePool(packages, BUNDLED_MODELS, design);
+      const designA =
+        opts.modelA.boxingDesign ?? resolveDesignForModel(opts.modelA, pool);
+      const designB =
+        opts.modelB.boxingDesign ?? resolveDesignForModel(opts.modelB, pool);
+      if (!designA || !designB) {
+        setError("Could not resolve both Boxing fighter designs.");
+        return;
+      }
+      const seedA = modelToSeed(opts.modelA);
+      const seedB = modelToSeed(opts.modelB);
+      const expectedA = shapeForBoxingDesign(designA);
+      const expectedB = shapeForBoxingDesign(designB);
+      if (
+        !shapesCompatible(seedA.shape, expectedA) ||
+        !shapesCompatible(seedB.shape, expectedB)
+      ) {
+        setError("A saved Boxing brain does not match its fighter body.");
+        return;
+      }
+      try {
+        captureLiveElite();
+        applyBoxingEnvironment();
+        simulation.startBoxingMatch({
+          entries: [
+            {
+              design: cloneDesign(designA),
+              shape: seedA.shape,
+              weights: seedA.weights,
+            },
+            {
+              design: cloneDesign(designB),
+              shape: seedB.shape,
+              weights: seedB.weights,
+            },
+          ],
+          divisionId: opts.divisionId,
+          episodeSeconds,
+          onProgress: (snapshot) => {
+            setBoxingProgress({
+              episodeT: snapshot.episodeT,
+              episodeDuration: snapshot.episodeDuration,
+              points: snapshot.points,
+            });
+          },
+          onFinished: (result) => {
+            setBoxingResult(result);
+            setBoxingRunning(false);
+            setBoxingProgress(null);
+          },
+        });
+        setMode("sim");
+        setSandboxTab("skill");
+        setDriveMode("brain");
+        simulation.driveMode = "brain";
+        setBoxingRunning(true);
+        setBoxingResult(null);
+        setBoxingProgress({
+          episodeT: 0,
+          episodeDuration: episodeSeconds,
+          points: [0, 0],
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [
+      applyBoxingEnvironment,
+      captureLiveElite,
+      design,
+      episodeSeconds,
+      packages,
+      simulation,
+    ],
+  );
   const saveBestModel = () => {
     if (!bestGenome) {
       setError("No elite genome to save.");
@@ -2938,6 +3641,12 @@ export default function App() {
     refreshModels();
   };
   const stopEvolve = () => {
+    if (boxingEvolveRef.current) {
+      boxingEvolveRef.current.stopAfterCurrent = true;
+      boxingEvolveRef.current.cancelled = true;
+      finishBoxingLiveEvolve("Stopped");
+      return;
+    }
     simulation.requestStopEvolve();
   };
   const playBest = () => {
@@ -3121,7 +3830,66 @@ export default function App() {
               <section>
                 <h2>Skill</h2>
                 <p className="hint muted">{SKILLS[skill].title}</p>
-                {skill === "disco" && isFeatureEnabled("discoMode") ? (
+                <p className="hint muted">{SKILLS[skill].description}</p>
+                {(() => {
+                  const hints = buildHintsForSkill(skill);
+                  return (
+                    <div className="hint" style={{ marginTop: "0.5rem" }}>
+                      <p className="subhead" style={{ marginBottom: "0.25rem" }}>
+                        Build essentials
+                      </p>
+                      <ul className="stats">
+                        {hints.essentials.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                      <p className="hint muted">{hints.tip}</p>
+                      <button
+                        type="button"
+                        className="primary"
+                        style={{ marginTop: "0.5rem" }}
+                        onClick={() => {
+                          setMode("edit");
+                          setSandboxTab("edit");
+                        }}
+                      >
+                        Open Creature builder
+                      </button>
+                    </div>
+                  );
+                })()}
+                {skill === "boxing" && isFeatureEnabled("boxingMode") ? (
+                  <BoxingSkillPanel
+                    currentDesign={design}
+                    savedModels={savedModels}
+                    packages={packages}
+                    divisionId={boxingDivisionId}
+                    onDivisionChange={(id) => {
+                      setBoxingDivisionId(id);
+                      const body = designRef.current;
+                      if (body.joints.length === 0) return;
+                      const eligibility = boxingEligibility(body, id);
+                      if (!eligibility.eligible) {
+                        const division = getBoxingDivision(id);
+                        setError(
+                          `Current creature is not suitable for ${division.name} training: ${eligibility.reasons.join(" ")} Your design was kept — adjust the body or pick another division.`,
+                        );
+                      } else {
+                        setError(null);
+                      }
+                    }}
+                    busy={evolveProgress.running || h2hRunning}
+                    running={boxingRunning}
+                    progress={boxingProgress}
+                    lastResult={boxingResult}
+                    onStartMatch={startBoxingMatch}
+                    onStopMatch={stopBoxingMatch}
+                    onOpenTrain={() => {
+                      setMode("sim");
+                      setSandboxTab("train");
+                    }}
+                  />
+                ) : skill === "disco" && isFeatureEnabled("discoMode") ? (
                   <DiscoTrackLearnPanel
                     trackName={discoTrack}
                     hasTrack={discoPlayer.hasTrack()}
@@ -3399,6 +4167,40 @@ export default function App() {
           <div className="panel-stack">
             <section>
               <h2>Creature</h2>
+              {(() => {
+                const hints = buildHintsForSkill(skill);
+                const boxingLine =
+                  skill === "boxing" && isFeatureEnabled("boxingMode")
+                    ? boxingEligibility(design, boxingDivisionId)
+                    : null;
+                return (
+                  <div
+                    className="hint"
+                    style={{
+                      marginBottom: "0.65rem",
+                      paddingBottom: "0.5rem",
+                      borderBottom: "1px solid rgba(120,140,170,0.2)",
+                    }}
+                  >
+                    <p>
+                      Building for: <strong>{SKILLS[skill].title}</strong>
+                    </p>
+                    <ul className="stats">
+                      {hints.essentials.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                    <p className="hint muted">{hints.tip}</p>
+                    {boxingLine && (
+                      <p className="hint">
+                        {boxingLine.eligible
+                          ? `Division ready · ${boxingLine.metrics.gloves} gloves · ${boxingLine.metrics.targets} targets`
+                          : `Division gaps: ${boxingLine.reasons[0] ?? "check marks"}`}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               <label className="field-row">
                 <span>Load</span>
                 <select
@@ -3945,6 +4747,61 @@ export default function App() {
                         />
                         Mark as head
                       </label>
+                      {isFeatureEnabled("boxingMode") && (
+                        <>
+                          <label className="toggle-row">
+                            <input
+                              type="checkbox"
+                              checked={!!joint.isGlove}
+                              onChange={() =>
+                                commitDesign(
+                                  updateJoint(design, joint.id, {
+                                    isGlove: !joint.isGlove,
+                                  }),
+                                )
+                              }
+                            />
+                            Boxing glove
+                          </label>
+                          <label className="toggle-row">
+                            <input
+                              type="checkbox"
+                              checked={!!joint.isHitTarget}
+                              onChange={() =>
+                                commitDesign(
+                                  updateJoint(design, joint.id, {
+                                    isHitTarget: !joint.isHitTarget,
+                                    hitValue: joint.isHitTarget
+                                      ? undefined
+                                      : (joint.hitValue ?? 1),
+                                  }),
+                                )
+                              }
+                            />
+                            Boxing hit target
+                          </label>
+                          {!!joint.isHitTarget && (
+                            <label className="slider-row">
+                              <span>Target points</span>
+                              <input
+                                type="range"
+                                min={1}
+                                max={5}
+                                step={1}
+                                value={joint.hitValue ?? 1}
+                                onChange={(e) =>
+                                  commitDesign(
+                                    updateJoint(design, joint.id, {
+                                      hitValue: Number(e.target.value),
+                                    }),
+                                  )
+                                }
+                              />
+                              <span className="val">{joint.hitValue ?? 1}</span>
+                            </label>
+                          )}
+                        </>
+                      )}
                       {isFeatureEnabled("googlyEyes") && (
                         <label className="toggle-row">
                           <input
@@ -4654,7 +5511,40 @@ export default function App() {
                   Add at least one muscle or wheel in Edit first.
                 </p>
               )}
-              {isFeatureEnabled("goalPriorities") && (
+              {isFeatureEnabled("goalPriorities") &&
+                activeTask === "boxing" && (
+                <div className="priority-sliders">
+                  <h3 className="subhead">Boxing priorities</h3>
+                  <p className="hint muted">
+                    What matters more — tilts the Boxing training score mix,
+                    not physics or match points.
+                  </p>
+                  {BOXING_PRIORITY_KEYS.map((key) => (
+                    <label key={key}>
+                      <span>{BOXING_PRIORITY_LABELS[key]}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={boxingPriorities[key]}
+                        disabled={evolveProgress.running}
+                        onChange={(e) =>
+                          setBoxingPriorities((p) => ({
+                            ...p,
+                            [key]: Number(e.target.value),
+                          }))
+                        }
+                      />
+                      <span className="val">
+                        {boxingPriorities[key].toFixed(2)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {isFeatureEnabled("goalPriorities") &&
+                activeTask !== "boxing" && (
                 <div className="priority-sliders">
                   <h3 className="subhead">Priorities</h3>
                   <p className="hint muted">
@@ -5024,7 +5914,7 @@ export default function App() {
                         if (!name?.trim()) return;
                         const recipe: TrainingRecipeSave = {
                           kind: "training_recipe",
-                          version: 1,
+                          version: EXPERIMENT_PACK_VERSION,
                           name: name.trim(),
                           knobs: { ...gaKnobs },
                           createdAt: Date.now(),
@@ -5055,7 +5945,7 @@ export default function App() {
                           `${name.trim().replace(/\s+/g, "_")}_pack.json`,
                           exportExperimentPackJson({
                             kind: "experiment_pack",
-                            version: 1,
+                            version: EXPERIMENT_PACK_VERSION,
                             name: name.trim(),
                             goalId,
                             task: activeTask,
@@ -5390,8 +6280,8 @@ export default function App() {
                 {h2hResult.fitness[1].toFixed(3)}
               </p>
             )}
-            <div className="dock-row dock-row-primary">
-              <div className="dock-col">
+            <div className="train-dock-grid">
+              <div className="train-dock-drive">
                 <h3 className="subhead">Drive</h3>
                 <div className="button-row wrap">
                   {driveButtons.map(([id, label]) => (
@@ -5422,16 +6312,18 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  disabled={evolveProgress.running}
-                  onClick={() => simulation.reset()}
-                >
-                  Reset pose
-                </button>
+                <div className="button-row wrap" style={{ marginTop: "0.25rem" }}>
+                  <button
+                    type="button"
+                    disabled={evolveProgress.running}
+                    onClick={() => simulation.reset()}
+                  >
+                    Reset pose
+                  </button>
+                </div>
                 <label
                   className="toggle-row"
-                  style={{ marginTop: "0.45rem" }}
+                  style={{ marginTop: "0.3rem" }}
                   title="Brain updates every physics step (60 Hz) instead of every other (30 Hz). Muscle forces always apply at 60 Hz; this only changes how often drives are recomputed. Disco imitation recording stays at 30 Hz."
                 >
                   <input
@@ -5477,7 +6369,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className="dock-col dock-col-grow">
+              <div className="train-dock-actions">
                 <h3 className="subhead">
                   {isFeatureEnabled("trainDockIa")
                     ? `Train · ${getGoal(goalId).title}`
@@ -5490,7 +6382,7 @@ export default function App() {
                     activeEnvPackageId,
                     courseBaseForResolve(),
                   ) && (
-                    <p className="hint muted" style={{ marginTop: "0.35rem" }}>
+                    <p className="hint muted" style={{ marginTop: "0.25rem" }}>
                       This course has train stages (Train panel) and a start-line
                       race timer. Author stages in Environment Studio → Course.
                     </p>
@@ -5498,106 +6390,153 @@ export default function App() {
               </div>
 
               {isFeatureEnabled("controlPanel") && (
-                <div className="dock-col">
+                <div className="train-dock-watch">
                   <h3 className="subhead">
                     {isFeatureEnabled("trainDockIa")
-                      ? "Watch & speed"
+                      ? "Watch & view"
                       : "Speed"}
                   </h3>
-                  <p className="hint muted">
-                    Observe
-                    {evolveProgress.running ? " (after stop)" : ""}
-                  </p>
-                  <div className="button-row wrap">
-                    {OBSERVE_SPEEDS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        className={observeSpeed === s ? "active" : ""}
-                        onClick={() => setObserveSpeed(s)}
-                        title={
-                          evolveProgress.running
-                            ? "Used when training stops — train speed stays active now"
-                            : "Playback speed when not training"
-                        }
-                      >
-                        {s}×
-                      </button>
-                    ))}
-                  </div>
-                  <p className="hint muted" style={{ marginTop: "0.25rem" }}>
-                    Train speed
-                    {evolveProgress.running ? " (active)" : ""}
-                  </p>
-                  <div className="button-row wrap">
-                    {TRAIN_SPEEDS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        className={trainSpeed === s ? "active" : ""}
-                        onClick={() => setTrainSpeed(s)}
-                      >
-                        {s === 0 ? "Max" : `${s}×`}
-                      </button>
-                    ))}
+                  <div className="train-speed-block">
+                    <div className="train-speed-row">
+                      <span className="train-speed-label">
+                        Observe
+                        {evolveProgress.running ? " · after stop" : ""}
+                      </span>
+                      <div className="button-row wrap">
+                        {OBSERVE_SPEEDS.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            className={observeSpeed === s ? "active" : ""}
+                            onClick={() => setObserveSpeed(s)}
+                            title={
+                              evolveProgress.running
+                                ? "Used when training stops — train speed stays active now"
+                                : "Playback speed when not training"
+                            }
+                          >
+                            {s}×
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="train-speed-row">
+                      <span className="train-speed-label">
+                        Train
+                        {evolveProgress.running ? " · active" : ""}
+                      </span>
+                      <div className="button-row wrap">
+                        {TRAIN_SPEEDS.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            className={trainSpeed === s ? "active" : ""}
+                            onClick={() => setTrainSpeed(s)}
+                          >
+                            {s === 0 ? "Max" : `${s}×`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                   {!isFeatureEnabled("trainRecipes") && (
-                    <>
-                      <p
-                        className="hint muted"
-                        style={{ marginTop: "0.25rem" }}
-                      >
-                        Gen length
-                      </p>
+                    <label
+                      className="slider-row train-try-slider"
+                      style={{ marginTop: "0.25rem" }}
+                      title="Simulated seconds per generation episode"
+                    >
+                      <span className="muted">{EPISODE_SECONDS_MIN}s</span>
+                      <input
+                        type="range"
+                        min={EPISODE_SECONDS_MIN}
+                        max={EPISODE_SECONDS_MAX}
+                        step={1}
+                        value={clampEpisodeSeconds(episodeSeconds)}
+                        onChange={(e) => {
+                          const s = Number(e.target.value);
+                          setEpisodeSeconds(s);
+                          setGaKnobs((k) => ({ ...k, episodeSeconds: s }));
+                          if (evolveProgress.running) {
+                            simulation.setEpisodeSeconds(s);
+                          }
+                        }}
+                      />
+                      <span className="val">
+                        {formatEpisodeSeconds(
+                          clampEpisodeSeconds(episodeSeconds),
+                        )}
+                      </span>
+                    </label>
+                  )}
+                  <div className="train-viz-toggles">
+                    <label
+                      className="toggle-row"
+                      title="Show the rest of the live batch as translucent ghosts"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showGhostPack || raceRecord}
+                        onChange={(e) => {
+                          setShowGhostPack(e.target.checked);
+                          if (!e.target.checked) setRaceRecord(false);
+                        }}
+                      />
+                      {isFeatureEnabled("trainDockIa")
+                        ? "Show others"
+                        : "Ghost pack"}
+                    </label>
+                    <label
+                      className="toggle-row"
+                      title="Hide muscle strokes in the sandbox view"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={discoHideMuscles}
+                        onChange={(e) => {
+                          const hide = e.target.checked;
+                          setDiscoHideMuscles(hide);
+                          simulation.hideMuscles = hide;
+                        }}
+                      />
+                      Hide muscles
+                    </label>
+                    <label
+                      className="toggle-row"
+                      title="Hide hinged bone capsules and joint dots"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={discoHideBones}
+                        onChange={(e) => {
+                          const hide = e.target.checked;
+                          setDiscoHideBones(hide);
+                          simulation.hideBones = hide;
+                        }}
+                      />
+                      Hide bones
+                    </label>
+                    {isFeatureEnabled("rigidStruts") && (
                       <label
-                        className="slider-row train-try-slider"
-                        title="Simulated seconds per generation episode"
+                        className="toggle-row"
+                        title="Hide solid strut lines (rigid frame members)"
                       >
-                        <span className="muted">{EPISODE_SECONDS_MIN}s</span>
                         <input
-                          type="range"
-                          min={EPISODE_SECONDS_MIN}
-                          max={EPISODE_SECONDS_MAX}
-                          step={1}
-                          value={clampEpisodeSeconds(episodeSeconds)}
+                          type="checkbox"
+                          checked={hideSolidStruts}
                           onChange={(e) => {
-                            const s = Number(e.target.value);
-                            setEpisodeSeconds(s);
-                            setGaKnobs((k) => ({ ...k, episodeSeconds: s }));
-                            if (evolveProgress.running) {
-                              simulation.setEpisodeSeconds(s);
-                            }
+                            const hide = e.target.checked;
+                            setHideSolidStruts(hide);
+                            simulation.hideSolidStruts = hide;
                           }}
                         />
-                        <span className="val">
-                          {formatEpisodeSeconds(
-                            clampEpisodeSeconds(episodeSeconds),
-                          )}
-                        </span>
+                        Hide struts
                       </label>
-                    </>
-                  )}
-                  <label
-                    className="toggle-row"
-                    style={{ marginTop: "0.45rem" }}
-                    title="Show the rest of the live batch as translucent ghosts"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={showGhostPack || raceRecord}
-                      onChange={(e) => {
-                        setShowGhostPack(e.target.checked);
-                        if (!e.target.checked) setRaceRecord(false);
-                      }}
-                    />
-                    {isFeatureEnabled("trainDockIa")
-                      ? "Show the others"
-                      : "Ghost pack"}
-                  </label>
+                    )}
+                  </div>
                 </div>
               )}
 
-              <div className="dock-col">
+              <div className="train-dock-progress">
                 <h3 className="subhead">
                   {isFeatureEnabled("trainDockIa") ? "Progress" : "Status"}
                 </h3>
@@ -5619,25 +6558,25 @@ export default function App() {
                     />
                   </div>
                 )}
-                <ul className="stats dock-stats">
+                <ul className="stats dock-stats train-progress-stats">
                   <li>
-                    {isFeatureEnabled("trainDockIa") ? "Round" : "Gen"}:{" "}
+                    {isFeatureEnabled("trainDockIa") ? "Round" : "Gen"}{" "}
                     {evolveProgress.generation}
                   </li>
                   <li>
-                    Try: {(evolveProgress.episodeT ?? 0).toFixed(1)}s /{" "}
+                    Try {(evolveProgress.episodeT ?? 0).toFixed(1)}s /{" "}
                     {formatEpisodeSeconds(
                       evolveProgress.episodeDuration ?? episodeSeconds,
                     )}
                   </li>
-                  <li>Best: {evolveProgress.bestFitness.toFixed(3)}</li>
-                  <li>Mean: {evolveProgress.meanFitness.toFixed(3)}</li>
+                  <li>Best {evolveProgress.bestFitness.toFixed(3)}</li>
+                  <li>Mean {evolveProgress.meanFitness.toFixed(3)}</li>
                   {bestGenome && !evolveProgress.running && (
-                    <li>Elite fit: {bestGenome.genome.fitness.toFixed(3)}</li>
+                    <li>Elite {bestGenome.genome.fitness.toFixed(3)}</li>
                   )}
                   {isFeatureEnabled("trainStartFrom") && (
-                    <li>
-                      Run # {runSeed}{" "}
+                    <li className="train-progress-seed">
+                      Run #{runSeed}{" "}
                       <button
                         type="button"
                         disabled={evolveProgress.running}
@@ -5649,23 +6588,21 @@ export default function App() {
                     </li>
                   )}
                 </ul>
-                <div className="train-grip-controls">
-                  <label
-                    className="slider-row train-grip-slider"
-                    title="How hard planted feet stick at low speed and resist sliding the wrong way on every surface (ground, ramps, boxes). Fast forward (right) scoot stays free; 0 = off."
-                  >
-                    <span>Anti-scoot</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={ANTI_SCOOT_MAX}
-                      step={0.05}
-                      value={antiScoot}
-                      onChange={(e) => setAntiScoot(Number(e.target.value))}
-                    />
-                    <span className="val">{antiScoot.toFixed(2)}</span>
-                  </label>
-                </div>
+                <label
+                  className="slider-row train-grip-slider"
+                  title="How hard planted feet stick at low speed and resist sliding the wrong way on every surface (ground, ramps, boxes). Fast forward (right) scoot stays free; 0 = off."
+                >
+                  <span>Anti-scoot</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={ANTI_SCOOT_MAX}
+                    step={0.05}
+                    value={antiScoot}
+                    onChange={(e) => setAntiScoot(Number(e.target.value))}
+                  />
+                  <span className="val">{antiScoot.toFixed(2)}</span>
+                </label>
                 <p className={evolveProgress.running ? "hint" : "hint muted"}>
                   {evolveProgress.status}
                 </p>
@@ -5718,22 +6655,22 @@ export default function App() {
                     </div>
                   )}
               </div>
-            </div>
 
-            {isFeatureEnabled("trainRecipes") && (
-              <div className="dock-row dock-row-setup">
-                <TrainingSetupPanel
-                  knobs={gaKnobs}
-                  disabled={evolveProgress.running}
-                  hasBestOfRun={!!bestGenome}
-                  savedBrainOptions={savedModels
-                    .filter((m) => m.task === activeTask)
-                    .map((m) => ({ id: m.id, name: m.name }))}
-                  onChange={setGaKnobs}
-                  showSchedules={isFeatureEnabled("trainSchedules")}
-                />
-              </div>
-            )}
+              {isFeatureEnabled("trainRecipes") && (
+                <div className="train-dock-setup">
+                  <TrainingSetupPanel
+                    knobs={gaKnobs}
+                    disabled={evolveProgress.running}
+                    hasBestOfRun={!!bestGenome}
+                    savedBrainOptions={savedModels
+                      .filter((m) => m.task === activeTask)
+                      .map((m) => ({ id: m.id, name: m.name }))}
+                    onChange={setGaKnobs}
+                    showSchedules={isFeatureEnabled("trainSchedules")}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         );
 
@@ -5823,7 +6760,6 @@ export default function App() {
               setEnvSelection([]);
             }}
             onDuplicateSelected={duplicateEnvSelected}
-            onMirrorSelected={mirrorEnvSelected}
             onRotateSelected={rotateEnvSelected}
             collapsed={dockCollapsed}
           />
@@ -5858,6 +6794,7 @@ export default function App() {
               snapEnabled={envSnapEnabled}
               selection={envSelection}
               onSelect={setEnvSelection}
+              referenceDesign={design}
               viewportInsetBottom={
                 isFeatureEnabled("sandboxMenuShell") ? dockInset : 0
               }
@@ -6079,6 +7016,7 @@ export default function App() {
                       onSelectSkill={selectSkill}
                       showSkillTabs={isFeatureEnabled("skillTabs")}
                       showDiscoSkill={isFeatureEnabled("discoMode")}
+                      showBoxingSkill={isFeatureEnabled("boxingMode")}
                       goals={skillGoals}
                       goalId={goalId}
                       onSelectGoal={selectGoal}
@@ -6087,7 +7025,10 @@ export default function App() {
                       selectedPackageId={activeEnvPackageId}
                       activeEnvName={envDesign.name}
                       onSelectEnv={applyTrainingEnv}
-                      showEnv={isFeatureEnabled("environmentsRepo")}
+                      showEnv={
+                        isFeatureEnabled("environmentsRepo") &&
+                        skill !== "boxing"
+                      }
                       envDisabled={evolveProgress.running}
                     />
                   )
@@ -6150,7 +7091,9 @@ export default function App() {
                   {worldPanel}
                   {(mode === "edit" || editPhysics) && editPanel}
                   {!editPhysics && mode === "sim" && skill === "disco" && discoDock}
-                  {!editPhysics && mode === "sim" && skill !== "disco" && (
+                  {!editPhysics &&
+                    mode === "sim" &&
+                    skill !== "disco" && (
                     <>
                       {dockFull}
                       {trainPanel}

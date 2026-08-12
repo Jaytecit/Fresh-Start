@@ -1,6 +1,9 @@
 /**
  * F4 — Environments repository (versioned localStorage).
  * Obstacles spawn via Simulation.setEnvironment when staticObstacles is on.
+ *
+ * Schema 2 = ENV_WORLD_SCALE authored sizes. Pre-v2 packages are wiped (not
+ * migrated) so old spawn/obstacle coords cannot conflict with the new scale.
  */
 import { BUILTIN_GAUNTLET_ENV_ID, gauntletEnv } from '../env/gauntletEnv';
 import {
@@ -9,8 +12,10 @@ import {
   type EnvironmentDesign,
 } from '../env/types';
 
-export const ENVIRONMENT_PACKAGE_SCHEMA = 1;
-const STORAGE_KEY = 'freshstart_environment_packages_v1';
+export const ENVIRONMENT_PACKAGE_SCHEMA = 2;
+const STORAGE_KEY = 'freshstart_environment_packages_v2';
+/** Pre–env-world-scale store; cleared on load. */
+const LEGACY_STORAGE_KEY = 'freshstart_environment_packages_v1';
 
 export type EnvPackageSource =
   | 'studio-draft'
@@ -44,13 +49,32 @@ function newId(): string {
   return `env_${now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function clearLegacyStores(): void {
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function readAll(): EnvironmentPackage[] {
+  clearLegacyStores();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as EnvironmentPackage[];
     if (!Array.isArray(parsed)) return [];
-    return parsed;
+    const valid = parsed.filter(
+      (pkg) =>
+        pkg &&
+        typeof pkg === 'object' &&
+        typeof pkg.schemaVersion === 'number' &&
+        pkg.schemaVersion >= ENVIRONMENT_PACKAGE_SCHEMA,
+    );
+    if (valid.length !== parsed.length) {
+      writeAll(valid);
+    }
+    return valid;
   } catch {
     return [];
   }

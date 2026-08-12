@@ -91,38 +91,38 @@ function main(): void {
   // --- Ramp two-point draw / flush snap ---
   const env: EnvironmentDesign = {
     ...flatGroundEnv(),
-    obstacles: [{ id: 'box1', kind: 'box', x: 4, y: 0.5, w: 2, h: 1 }],
+    obstacles: [{ id: 'box1', kind: 'box', x: 20, y: 2.5, w: 10, h: 5 }],
   };
   const geom = collectRampSnapGeometry(env);
-  // Box top-left / top-right at (3,1) and (5,1)
-  const snapTL = snapRampEndpoint(3.1, 0.95, { geometry: geom });
-  assert(nearly(snapTL.x, 3) && nearly(snapTL.y, 1), 'snap to box top-left');
-  const snapG = snapRampEndpoint(1.25, 0.2, { geometry: geom });
-  assert(nearly(snapG.y, 0) && nearly(snapG.x, 1.25), 'snap to ground free-X');
+  // Box top-left / top-right at (15,5) and (25,5)
+  const snapTL = snapRampEndpoint(15.5, 4.75, { geometry: geom });
+  assert(nearly(snapTL.x, 15) && nearly(snapTL.y, 5), 'snap to box top-left');
+  const snapG = snapRampEndpoint(6.25, 1, { geometry: geom });
+  assert(nearly(snapG.y, 0) && nearly(snapG.x, 6.25), 'snap to ground free-X');
 
   // LTR up: ground → box top-left
-  const up = rampFromTopEndpoints({ x: 0, y: 0 }, { x: 3, y: 1 })!;
+  const up = rampFromTopEndpoints({ x: 0, y: 0 }, { x: 15, y: 5 })!;
   assert(up != null && up.kind === 'ramp', 'LTR up ramp');
   const upEnds = rampTopEndpoints(up);
   assert(nearly(upEnds.a.x, 0) && nearly(upEnds.a.y, 0), 'LTR start top flush');
-  assert(nearly(upEnds.b.x, 3) && nearly(upEnds.b.y, 1), 'LTR end top flush');
+  assert(nearly(upEnds.b.x, 15) && nearly(upEnds.b.y, 5), 'LTR end top flush');
 
   // RTL down (draw high→low right-to-left)
-  const rtl = rampFromTopEndpoints({ x: 5, y: 1 }, { x: 8, y: 0 })!;
+  const rtl = rampFromTopEndpoints({ x: 25, y: 5 }, { x: 40, y: 0 })!;
   assert(rtl != null, 'RTL down ramp');
   const rtlEnds = rampTopEndpoints(rtl);
-  assert(nearly(rtlEnds.a.x, 5) && nearly(rtlEnds.a.y, 1), 'RTL start flush');
-  assert(nearly(rtlEnds.b.x, 8) && nearly(rtlEnds.b.y, 0), 'RTL end flush');
+  assert(nearly(rtlEnds.a.x, 25) && nearly(rtlEnds.a.y, 5), 'RTL start flush');
+  assert(nearly(rtlEnds.b.x, 40) && nearly(rtlEnds.b.y, 0), 'RTL end flush');
 
   // Reverse draw order yields same top surface
-  const rev = rampFromTopEndpoints({ x: 3, y: 1 }, { x: 0, y: 0 })!;
+  const rev = rampFromTopEndpoints({ x: 15, y: 5 }, { x: 0, y: 0 })!;
   const revEnds = rampTopEndpoints(rev);
-  assert(nearly(revEnds.a.x, 3) && nearly(revEnds.b.x, 0), 'reverse order ok');
+  assert(nearly(revEnds.a.x, 15) && nearly(revEnds.b.x, 0), 'reverse order ok');
 
-  assert(rampFromTopEndpoints({ x: 0, y: 0 }, { x: 0.1, y: 0 }) == null, 'reject short');
+  assert(rampFromTopEndpoints({ x: 0, y: 0 }, { x: 0.5, y: 0 }) == null, 'reject short');
 
   // Buried top endpoints must clamp to ground (no invisible straddling hump).
-  const buried = rampFromTopEndpoints({ x: 53, y: 1.38 }, { x: 37, y: -1.61 })!;
+  const buried = rampFromTopEndpoints({ x: 265, y: 6.9 }, { x: 185, y: -8.05 })!;
   assert(buried != null, 'buried endpoints still author after clamp');
   const buriedEnds = rampTopEndpoints(buried);
   assert(buriedEnds.a.y >= -1e-9 && buriedEnds.b.y >= -1e-9, 'top surface ≥ ground');
@@ -138,7 +138,7 @@ function main(): void {
   for (const p of seededGeom.points) {
     assert(p.y >= -1e-4, `snap point underground at (${p.x}, ${p.y})`);
   }
-  const lure = snapRampEndpoint(upEnds.a.x + 0.05, -0.15, { geometry: seededGeom });
+  const lure = snapRampEndpoint(upEnds.a.x + 0.25, -0.75, { geometry: seededGeom });
   assert(lure.y >= -1e-9, 'underground lure clamps to ground');
 
   console.log('smoke-editor-selection OK');

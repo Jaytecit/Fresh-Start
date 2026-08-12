@@ -2,14 +2,14 @@
 
 Derived from [`FEATURE_PORT_CHECKLIST.md`](./FEATURE_PORT_CHECKLIST.md) after prune + clarifications.
 
-**Last refreshed:** 2026-08-09  
+**Last refreshed:** 2026-08-12
 **Legend:** `[x]` want/done · `[ ]` later · `[O]` pruned (gone)
 
 ---
 
 ## Already done
 
-A1.2/A4 googly · A2 body parts · B1–B3 shell · Wave 4 Section B UI (B4–B14, B16, B18) · E6.2/3/5/6/8 tasks · F1/F3 library · H1–H3 disco · J1 smokes · G6/G9 minimal · G10 structural aero · climb course · Wave 1 (A5–A7, C5, D4) · Wave 2 (C1.1/1.2/1.8/1.9, D1/D5/D7, E1/E2) · Wave 3a (E5/H4 secrets+confetti scaffold, F4/C2.7/C2.8 env scaffold) · Wave 3b (G1/C2.1 static obstacles) · Wave 3c (G3/C2.3 terrain heightfield) · Wave 3d (C2.4 launch tower) · Wave 3e (E6.8 rough terrain) · Wave 3f (G10 aero parts) · Wave 3g (C2.9 score regions + landing) · E6.6 flight specialists · **Wave 5** (B19 Solemn Sandbox · C2.10 markers · E6 sprint/speed/stay/hang/longjump · E5×100 · H2/H5 multi-disco · B20/I6 Head-to-Head) · **H6/H7** dance imitation + multi-track curriculum · **H8** disco setups · **H9** cosmetic cloth garments · **D17/D18** soft + structural morph
+A1.2/A4 googly · A2 body parts · B1–B3 shell · Wave 4 Section B UI (B4–B14, B16, B18) · E6.2/3/5/6/8 tasks · F1/F3 library · H1–H3 disco · J1 smokes · G6/G9 minimal · G10 structural aero · climb course · Wave 1 (A5–A7, C5, D4) · Wave 2 (C1.1/1.2/1.8/1.9, D1/D5/D7, E1/E2) · Wave 3a (E5/H4 secrets+confetti scaffold, F4/C2.7/C2.8 env scaffold) · Wave 3b (G1/C2.1 static obstacles) · Wave 3c (G3/C2.3 terrain heightfield) · Wave 3d (C2.4 launch tower) · Wave 3e (E6.8 rough terrain) · Wave 3f (G10 aero parts) · Wave 3g (C2.9 score regions + landing) · E6.6 flight specialists · **Wave 5** (B19 Solemn Sandbox · C2.10 markers · E6 sprint/speed/stay/hang/longjump · E5×100 · H2/H5 multi-disco · B20/I6 Head-to-Head) · **H6/H7** dance imitation + multi-track curriculum · **H8** disco setups · **H9** cosmetic cloth garments · **D17/D18** soft + structural morph · **K1–K7** Boxing Skill
 
 ---
 
@@ -69,6 +69,18 @@ Plan: [`docs/TRAINING_EXPERIMENTATION_PLAN.md`](./docs/TRAINING_EXPERIMENTATION_
 2. Serious search → batch &lt; pop by default
 3. Mix goals → temporary reward recipe on active goal (not a new goal ID)
 4. Experiment packs → Train / Saved brains area
+
+### Wave 7 — Boxing Skill — **Done**
+
+| ID | Feature | Status |
+|---|---|---|
+| K1 | Boxing skill shell and static ring | **Done** |
+| K2 | Fighter glove / target authoring marks | **Done** |
+| K3 | Versioned design-derived divisions | **Done** |
+| K4 | Opponent-only non-solving hit probes | **Done** |
+| K5 | Timed points matches and hit metrics | **Done** |
+| K6 | Boxing observations, training, and telemetry | **Done** |
+| K7 | Deterministic Boxing smoke and firewall gate | **Done** |
 
 ### Deferred
 

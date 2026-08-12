@@ -69,6 +69,11 @@ export function CapabilityPanel({ design, defaultOpen = false }: Props) {
         <li>Total mass: {flight.totalMass.toFixed(2)}</li>
         <li>Feet: {traits.footCount}</li>
         <li>Heads: {traits.headCount}</li>
+        {isFeatureEnabled('boxingMode') && (
+          <li>
+            Boxing: {traits.gloveCount} gloves · {traits.hitTargetCount} targets
+          </li>
+        )}
         <li>Wheels: {traits.wheelCount}</li>
         <li>
           <HelpTip tip="Aero parts on bones: wing (flap lift), glider (sail), or parachute (drag). Specialist Fly goals match each type.">

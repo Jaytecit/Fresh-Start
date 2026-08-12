@@ -44,6 +44,9 @@ export interface RuntimeJoint {
   radius: number;
   isFoot?: boolean;
   isHead?: boolean;
+  isGlove?: boolean;
+  isHitTarget?: boolean;
+  hitValue?: number;
   isWheel?: boolean;
   motorStrength?: number;
 }
@@ -184,6 +187,9 @@ export function spawnCreature(
       radius: JOINT_RADIUS,
       isFoot: j.isFoot,
       isHead: j.isHead,
+      isGlove: j.isGlove,
+      isHitTarget: j.isHitTarget,
+      hitValue: j.hitValue,
       isWheel: j.isWheel,
       motorStrength: j.motorStrength,
     });
@@ -331,7 +337,7 @@ export function spawnCreature(
 }
 
 /** Rapier packs membership in low 16 bits, filter in high 16 bits. */
-function encodeGroups(membership: number, filter: number): number {
+export function encodeGroups(membership: number, filter: number): number {
   return (membership & 0xffff) | ((filter & 0xffff) << 16);
 }
 

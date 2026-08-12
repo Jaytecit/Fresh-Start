@@ -31,6 +31,9 @@ function previewDesign(design: CreatureDesign): unknown {
       isFoot: j.isFoot,
       isHead: j.isHead,
       isWheel: j.isWheel,
+      isGlove: j.isGlove,
+      isHitTarget: j.isHitTarget,
+      hitValue: j.hitValue,
     })),
     bones: design.bones.map((b) => ({
       id: b.id,

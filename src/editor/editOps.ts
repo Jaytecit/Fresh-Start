@@ -32,6 +32,11 @@ export function updateJoint(
       const next = { ...j, ...patch };
       if (patch.isFoot === false) delete next.isFoot;
       if (patch.isHead === false) delete next.isHead;
+      if (patch.isGlove === false) delete next.isGlove;
+      if (patch.isHitTarget === false) {
+        delete next.isHitTarget;
+        delete next.hitValue;
+      }
       if (patch.isWheel === false) {
         delete next.isWheel;
         delete next.motorStrength;

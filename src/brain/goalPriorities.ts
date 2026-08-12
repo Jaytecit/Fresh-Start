@@ -45,7 +45,7 @@ const DISTANCE_TASKS: ReadonlySet<TaskId> = new Set<TaskId>([
  * - `dance` is imitation-trained, so no slider applies.
  */
 export function relevantPriorityKeys(task: TaskId): GoalPriorityKey[] {
-  if (task === 'dance') return [];
+  if (task === 'dance' || task === 'boxing') return [];
   const keys: GoalPriorityKey[] = [];
   if (DISTANCE_TASKS.has(task)) keys.push('distance');
   if (!isFlightTask(task) && task !== 'hang') keys.push('upright');

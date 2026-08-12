@@ -8,6 +8,8 @@ export interface MorphologyTraits {
   footCount: number;
   wheelCount: number;
   headCount: number;
+  gloveCount: number;
+  hitTargetCount: number;
   hasAero: boolean;
   totalAeroArea: number;
 }
@@ -16,10 +18,14 @@ export function morphologyTraits(design: CreatureDesign): MorphologyTraits {
   let footCount = 0;
   let wheelCount = 0;
   let headCount = 0;
+  let gloveCount = 0;
+  let hitTargetCount = 0;
   for (const j of design.joints) {
     if (j.isFoot) footCount++;
     if (j.isWheel) wheelCount++;
     if (j.isHead) headCount++;
+    if (j.isGlove) gloveCount++;
+    if (j.isHitTarget) hitTargetCount++;
   }
   let totalAeroArea = 0;
   for (const b of design.bones) {
@@ -29,6 +35,8 @@ export function morphologyTraits(design: CreatureDesign): MorphologyTraits {
     footCount,
     wheelCount,
     headCount,
+    gloveCount,
+    hitTargetCount,
     hasAero: totalAeroArea > 0.05,
     totalAeroArea,
   };

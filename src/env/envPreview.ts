@@ -90,11 +90,13 @@ function previewOne(o: EnvObstacle): ObstacleVisual[] {
       const ox = o.x + w / 2;
       const oy = o.y + h / 2;
       const baseRot = o.rot ?? 0;
+      const ascendRight = (o.ascend ?? 'right') !== 'left';
       for (let i = 0; i < n; i++) {
         const top = ((i + 1) / n) * h;
         const hy = top / 2;
         const hx = stepW / 2;
-        const cx = o.x + (i + 0.5) * stepW;
+        const col = ascendRight ? i : n - 1 - i;
+        const cx = o.x + (col + 0.5) * stepW;
         const cy = o.y + hy;
         const p = rotateAround(cx, cy, ox, oy, baseRot);
         pushCuboid(visuals, 'stair', p.x, p.y, hx, hy, baseRot);
@@ -104,7 +106,7 @@ function previewOne(o: EnvObstacle): ObstacleVisual[] {
     case 'pit': {
       const gap = clampSize(o.w);
       const wallH = clampSize(o.h);
-      const platformW = Math.max(2, gap);
+      const platformW = Math.max(10, gap);
       const hy = wallH / 2;
       const hx = platformW / 2;
       const cy = o.y + hy;

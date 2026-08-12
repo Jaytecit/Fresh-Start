@@ -181,6 +181,14 @@ export const GOAL_CATALOG: GoalDef[] = [
     skills: ['flying', 'free'],
   },
   {
+    id: 'boxing',
+    task: 'boxing',
+    title: 'Boxing Points',
+    blurb:
+      'Land accurate, controlled glove hits on division-matched opponent targets.',
+    skills: ['boxing'],
+  },
+  {
     id: 'dance',
     task: 'dance',
     title: 'Dance',
@@ -200,7 +208,7 @@ export function getGoal(id: GoalId): GoalDef {
 export function goalsForSkill(skill: SkillId): GoalDef[] {
   // H6 dance is imitation-trained in Disco, not GA-evolved.
   if (skill === 'free') {
-    return GOAL_CATALOG.filter((g) => g.id !== 'dance');
+    return GOAL_CATALOG.filter((g) => g.id !== 'dance' && g.id !== 'boxing');
   }
   if (skill === 'disco') return [];
   return GOAL_CATALOG.filter((g) => g.skills.includes(skill));

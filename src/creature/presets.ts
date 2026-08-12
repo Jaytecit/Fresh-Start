@@ -1,3 +1,9 @@
+import {
+  GROUNDED_FIGHTER,
+  OPEN_FRAME_FIGHTER,
+  UPRIGHT_FIGHTER,
+} from '../boxing/referenceFighters';
+import { BOXOBOT } from './boxoBot';
 import type { CreatureDesign } from './types';
 
 /** Under-braced serial chain — collapses / pancakes without cross-bracing. */
@@ -270,4 +276,8 @@ export const PRESETS: CreatureDesign[] = [
   SIMPLE_GLIDER,
   SIMPLE_FLAPPER,
   CHUTE_DROPPER,
+  BOXOBOT,
+  UPRIGHT_FIGHTER,
+  GROUNDED_FIGHTER,
+  OPEN_FRAME_FIGHTER,
 ];

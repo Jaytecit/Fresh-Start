@@ -5,7 +5,8 @@
  */
 import type { EnvTheme } from '../env/types';
 import { THEME_SKY } from '../env/types';
-import type { Camera } from './Camera';
+import { GROUND_Y } from '../physics/constants';
+import { worldToScreen, type Camera } from './Camera';
 
 function hash01(i: number, salt: number): number {
   const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453123;
@@ -15,6 +16,19 @@ function hash01(i: number, salt: number): number {
 function wrap(v: number, period: number): number {
   const m = ((v % period) + period) % period;
   return m;
+}
+
+/** Inclusive tile indices so wrapped sprites cover [min, max] screen range. */
+function tileRange(
+  origin: number,
+  period: number,
+  min: number,
+  max: number,
+): { k0: number; k1: number } {
+  return {
+    k0: Math.floor((min - origin) / period),
+    k1: Math.ceil((max - origin) / period),
+  };
 }
 
 function drawCloudBlob(
@@ -60,6 +74,8 @@ export function drawParallaxSky(
   const sky = THEME_SKY[theme] ?? THEME_SKY.plain;
   const inset = Math.max(0, cam.insetBottom ?? 0);
   const fh = Math.max(1, h - inset);
+  // Horizon in screen space — ridges sit on this line so drawGround cannot bury them.
+  const groundY = worldToScreen(cam, w, h, 0, GROUND_Y).y;
 
   // Keep travel cues zoom-stable: scroll in screen-px of world motion, not zoomed world.
   const scrollX = cam.x * 18;
@@ -75,15 +91,15 @@ export function drawParallaxSky(
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
 
-  // Far ridges — slow X + slight Y so climbing reveals more sky above them.
+  // Far ridges — anchored to the ground horizon; peaks rise into the sky band.
   const ridgeParallaxX = 0.1;
-  const ridgeParallaxY = 0.04;
   const ridgePeriod = 420;
   const ridgeShift = wrap(-scrollX * ridgeParallaxX, ridgePeriod);
-  const ridgeY = fh * 0.7 + scrollY * ridgeParallaxY;
+  const ridgeY = groundY;
+  const ridgeCloseY = Math.min(h, Math.max(groundY, 0));
   ctx.fillStyle = sky.ridge;
   ctx.beginPath();
-  ctx.moveTo(0, Math.min(fh * 0.95, ridgeY + 40));
+  ctx.moveTo(0, ridgeCloseY);
   for (let x = -ridgePeriod; x <= w + ridgePeriod; x += 36) {
     const wx = x + ridgeShift;
     const n =
@@ -92,25 +108,25 @@ export function drawParallaxSky(
       Math.sin(wx * 0.011) * 28;
     ctx.lineTo(x, ridgeY - n);
   }
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
+  ctx.lineTo(w, ridgeCloseY);
+  ctx.lineTo(0, ridgeCloseY);
   ctx.closePath();
   ctx.fill();
 
-  // Mid ridges (stronger X cue).
+  // Mid ridges (stronger X cue), also clipped to the horizon.
   const midPeriod = 320;
   const midShift = wrap(-scrollX * 0.22, midPeriod);
-  const midY = fh * 0.78 + scrollY * 0.08;
+  const midY = groundY;
   ctx.fillStyle = sky.ridge.replace(/[\d.]+\)$/, '0.35)');
   ctx.beginPath();
-  ctx.moveTo(0, midY + 30);
+  ctx.moveTo(0, ridgeCloseY);
   for (let x = -midPeriod; x <= w + midPeriod; x += 28) {
     const wx = x + midShift;
     const n = Math.sin(wx * 0.035) * 12 + Math.sin(wx * 0.09 + 0.8) * 6;
     ctx.lineTo(x, midY - n);
   }
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
+  ctx.lineTo(w, ridgeCloseY);
+  ctx.lineTo(0, ridgeCloseY);
   ctx.closePath();
   ctx.fill();
 
@@ -194,10 +210,15 @@ export function drawParallaxSky(
       const baseY = v * layer.periodY;
       const x0 = wrap(baseX + shiftX, layer.periodX);
       const y0 = wrap(baseY + shiftY, layer.periodY);
-      for (let kx = -1; kx <= 1; kx++) {
-        for (let ky = -1; ky <= 1; ky++) {
-          const sx = x0 + kx * layer.periodX - 60;
-          const sy = y0 + ky * layer.periodY - 40;
+      const ox = x0 - 60;
+      const oy = y0 - 40;
+      // Tile across the full viewport (wide monitors used to only cover ~center).
+      const { k0: kx0, k1: kx1 } = tileRange(ox, layer.periodX, -140, w + 140);
+      const { k0: ky0, k1: ky1 } = tileRange(oy, layer.periodY, -100, fh + 100);
+      for (let kx = kx0; kx <= kx1; kx++) {
+        for (let ky = ky0; ky <= ky1; ky++) {
+          const sx = ox + kx * layer.periodX;
+          const sy = oy + ky * layer.periodY;
           if (sx < -140 || sx > w + 140 || sy < -100 || sy > fh + 100) continue;
           if (layer.kind === 'cloud') {
             const sc = layer.scale * (0.7 + hash01(i, layer.salt + 3) * 0.6);
@@ -214,16 +235,17 @@ export function drawParallaxSky(
   // Near haze streaks — strongest horizontal motion cue near the horizon band.
   const streakPeriod = 280;
   const streakShift = wrap(-scrollX * 0.65, streakPeriod);
-  const streakYBase = fh * 0.62 + scrollY * 0.12;
+  const streakYBase = Math.min(fh * 0.62, groundY - 40) + scrollY * 0.02;
   ctx.strokeStyle = sky.haze;
   ctx.lineWidth = 1;
   ctx.globalAlpha = 0.35;
   for (let i = 0; i < 14; i++) {
     const u = hash01(i, 77);
     const y = streakYBase + (u - 0.5) * fh * 0.2;
-    if (y < 0 || y > fh) continue;
+    if (y < 0 || y > Math.min(fh, groundY)) continue;
     const x = wrap(u * streakPeriod + streakShift, streakPeriod) - 40;
-    for (let k = -1; k <= 2; k++) {
+    const { k0, k1 } = tileRange(x, streakPeriod, -80, w + 80);
+    for (let k = k0; k <= k1; k++) {
       const sx = x + k * streakPeriod;
       ctx.beginPath();
       ctx.moveTo(sx, y);

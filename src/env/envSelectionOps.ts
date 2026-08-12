@@ -1,7 +1,7 @@
 /**
- * Environment Studio multi-select transforms — marquee, duplicate, mirror, rotate.
+ * Environment Studio multi-select transforms — marquee, duplicate, rotate.
  */
-import { EDITOR_GRID } from '../editor/grid';
+import { ENV_EDITOR_GRID } from '../editor/grid';
 import { clampCourseMarker } from '../brain/courseMarkers';
 import { clampScoreRegion } from '../brain/scoreRegions';
 import {
@@ -19,7 +19,7 @@ import type {
   EnvScoreRegion,
 } from './types';
 
-export const ENV_DUPLICATE_OFFSET = EDITOR_GRID * 2;
+export const ENV_DUPLICATE_OFFSET = ENV_EDITOR_GRID * 2;
 
 export type EnvSelectable = NonNullable<EnvSelection>;
 
@@ -382,21 +382,6 @@ export function duplicateSelection(
     false,
     ENV_DUPLICATE_OFFSET,
     ENV_DUPLICATE_OFFSET,
-    true,
-  );
-}
-
-export function mirrorDuplicateSelection(
-  env: EnvironmentDesign,
-  items: readonly EnvSelectable[],
-): { env: EnvironmentDesign; items: EnvSelectable[] } {
-  return applyTransform(
-    env,
-    items,
-    0,
-    true,
-    ENV_DUPLICATE_OFFSET,
-    0,
     true,
   );
 }

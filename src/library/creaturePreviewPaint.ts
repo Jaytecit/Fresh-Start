@@ -85,10 +85,93 @@ export function paintCreaturePreview(
     const r = j.isWheel ? 5.5 : j.isFoot ? 5 : 4;
     ctx.beginPath();
     ctx.arc(mapX(j.x), mapY(j.y), r, 0, Math.PI * 2);
-    if (j.isFoot) ctx.fillStyle = 'rgba(90, 200, 140, 0.95)';
+    if (j.isGlove) ctx.fillStyle = 'rgba(211, 95, 85, 0.95)';
+    else if (j.isHitTarget) ctx.fillStyle = 'rgba(224, 184, 90, 0.95)';
+    else if (j.isFoot) ctx.fillStyle = 'rgba(90, 200, 140, 0.95)';
     else if (j.isHead) ctx.fillStyle = 'rgba(230, 200, 90, 0.95)';
     else if (j.isWheel) ctx.fillStyle = 'rgba(210, 160, 80, 0.95)';
     else ctx.fillStyle = 'rgba(210, 220, 235, 0.95)';
     ctx.fill();
   }
+}
+
+/**
+ * World-space ghost silhouette at spawn (Environment Studio scale reference).
+ * Design coords map 1:1 into world, offset by spawn.
+ */
+export function paintCreatureWorldGhost(
+  ctx: CanvasRenderingContext2D,
+  design: CreatureDesign,
+  spawnX: number,
+  spawnY: number,
+  toScreen: (wx: number, wy: number) => { x: number; y: number },
+  zoom: number,
+): void {
+  if (design.joints.length === 0) return;
+
+  const jointAt = (id: number) => design.joints.find((j) => j.id === id);
+  const map = (x: number, y: number) => toScreen(x + spawnX, y + spawnY);
+
+  ctx.save();
+  ctx.globalAlpha = 0.38;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (const m of design.muscles) {
+    const a = design.bones.find((b) => b.id === m.startBoneId);
+    const b = design.bones.find((bone) => bone.id === m.endBoneId);
+    if (!a || !b) continue;
+    const aj0 = jointAt(a.startJointId);
+    const aj1 = jointAt(a.endJointId);
+    const bj0 = jointAt(b.startJointId);
+    const bj1 = jointAt(b.endJointId);
+    if (!aj0 || !aj1 || !bj0 || !bj1) continue;
+    const p0 = map((aj0.x + aj1.x) / 2, (aj0.y + aj1.y) / 2);
+    const p1 = map((bj0.x + bj1.x) / 2, (bj0.y + bj1.y) / 2);
+    ctx.strokeStyle = 'rgba(200, 110, 130, 0.9)';
+    ctx.lineWidth = Math.max(1.2, 2 * zoom);
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
+
+  for (const bone of design.bones) {
+    const a = jointAt(bone.startJointId);
+    const b = jointAt(bone.endJointId);
+    if (!a || !b) continue;
+    const p0 = map(a.x, a.y);
+    const p1 = map(b.x, b.y);
+    ctx.strokeStyle = 'rgba(170, 200, 230, 0.95)';
+    ctx.lineWidth = Math.max(1.4, (bone.rigid ? 3 : 2.2) * zoom);
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
+
+  for (const j of design.joints) {
+    const p = map(j.x, j.y);
+    const r = Math.max(2.5, (j.isWheel || j.isFoot ? 4.5 : 3.5) * zoom);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(200, 220, 240, 0.95)';
+    ctx.fill();
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const j of design.joints) {
+    minX = Math.min(minX, j.x);
+    maxX = Math.max(maxX, j.x);
+    maxY = Math.max(maxY, j.y);
+  }
+  const label = map((minX + maxX) / 2, maxY + 0.6);
+  ctx.globalAlpha = 0.55;
+  ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(180, 200, 220, 0.95)';
+  ctx.textAlign = 'center';
+  ctx.fillText('Scale ref', label.x, label.y);
+  ctx.restore();
 }

@@ -274,8 +274,8 @@ export function scoreTaskPerformance(
   ): TaskEpisodeMetrics =>
     withCourseMetrics(base, courseAccum, episodeSimTime);
 
-  // H6 — dance is imitation-trained; no GA episode scoring.
-  if (task === 'dance') {
+  // Dance / Boxing use dedicated multi-agent evaluators, not this solo scorer.
+  if (task === 'dance' || task === 'boxing') {
     return finish(
       withRegionScore(
         {
@@ -1290,6 +1290,8 @@ export function scoringLegendForTask(task: TaskId): string {
       );
     case 'dance':
       return 'Disco imitation fitness (1 / (1 + MSE)); not GA-evolved.';
+    case 'boxing':
+      return 'Points for opponent-only glove hits; training also rewards accuracy and controlled power while subtracting points conceded.';
     default:
       return 'Task fitness from episode metrics.' + zoneNote;
   }

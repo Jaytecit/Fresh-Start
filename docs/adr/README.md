@@ -18,4 +18,5 @@ Accepted ADRs (unlocked by marked E6.* goals):
 - [`20260803-disco-puppet-modes.md`](./20260803-disco-puppet-modes.md) — H2 disco puppet feel variants (gravityScale + muscle scales)
 - [`20260809-rigid-struts.md`](./20260809-rigid-struts.md) — G8 rigid struts / solid connectors
 - [`20260809-cosmetic-cloth.md`](./20260809-cosmetic-cloth.md) — H9 cosmetic cloth garments (render-only Verlet)
+- [`20260812-boxing-hit-probes.md`](./20260812-boxing-hit-probes.md) — K2/K4/K5 Boxing opponent-only sensor probes
 

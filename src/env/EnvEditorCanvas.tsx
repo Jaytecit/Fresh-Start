@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { EDITOR_GRID, snapToGrid } from '../editor/grid';
+import type { CreatureDesign } from '../creature/types';
+import { PRESETS } from '../creature/presets';
+import { ENV_EDITOR_GRID, snapToGrid } from '../editor/grid';
+import { paintCreatureWorldGhost } from '../library/creaturePreviewPaint';
 import { isFeatureEnabled } from '../port/featureFlags';
 import { drawParallaxSky } from '../sim/parallaxSky';
 import {
@@ -49,6 +52,7 @@ import {
   rotateRegion,
   selectionFootprint,
   setTerrainEndpoint,
+  stairFromDrag,
   terrainEndpointWorld,
   towerHandles,
   worldToLocal,
@@ -73,7 +77,6 @@ import {
 import {
   deleteSelectables,
   duplicateSelection,
-  mirrorDuplicateSelection,
   moveSelection,
   multiSelectionFootprint,
   primarySelection,
@@ -99,6 +102,8 @@ interface Props {
   snapEnabled: boolean;
   selection: EnvSelectionList;
   onSelect: (sel: EnvSelectionList) => void;
+  /** Current creature (or empty → Simple Hopper) drawn ghosted at spawn for scale. */
+  referenceDesign?: CreatureDesign;
   /** Bottom chrome height in CSS px for camera framing. */
   viewportInsetBottom?: number;
 }
@@ -204,6 +209,12 @@ type DragState =
       a: Vec2;
       b: Vec2;
       moved: boolean;
+    }
+  | {
+      kind: 'drawStair';
+      a: Vec2;
+      b: Vec2;
+      moved: boolean;
     };
 
 const HANDLE_HIT_R = 0.28;
@@ -216,6 +227,7 @@ export function EnvEditorCanvas({
   snapEnabled,
   selection,
   onSelect,
+  referenceDesign,
   viewportInsetBottom = 0,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -231,13 +243,18 @@ export function EnvEditorCanvas({
   const onSelectRef = useRef(onSelect);
   const onToolChangeRef = useRef(onToolChange);
   const insetRef = useRef(viewportInsetBottom);
+  const referenceDesignRef = useRef(referenceDesign);
   /** Hover snap while ramp tool is armed (before / during draw). */
   const rampHoverRef = useRef<Vec2 | null>(null);
 
   if (!dragRef.current) {
     envRef.current = environment;
   }
-  if (toolRef.current !== tool && dragRef.current?.kind === 'drawRamp') {
+  if (
+    toolRef.current !== tool &&
+    (dragRef.current?.kind === 'drawRamp' ||
+      dragRef.current?.kind === 'drawStair')
+  ) {
     dragRef.current = null;
     rampHoverRef.current = null;
   }
@@ -248,6 +265,7 @@ export function EnvEditorCanvas({
   onSelectRef.current = onSelect;
   onToolChangeRef.current = onToolChange;
   insetRef.current = viewportInsetBottom;
+  referenceDesignRef.current = referenceDesign;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -275,7 +293,7 @@ export function EnvEditorCanvas({
         clearCanvas(ctx, w, h);
       }
       if (snapRef.current) {
-        drawGrid(ctx, cam, w, h, EDITOR_GRID);
+        drawGrid(ctx, cam, w, h, ENV_EDITOR_GRID);
       }
       drawGround(ctx, cam, w, h);
       drawTerrain(ctx, cam, w, h, previewTerrainVisual(env.terrain));
@@ -308,6 +326,21 @@ export function EnvEditorCanvas({
         h,
         resolveSpawn(env),
         primary?.kind === 'spawn',
+      );
+
+      const ghostDesign =
+        referenceDesignRef.current &&
+        referenceDesignRef.current.joints.length > 0
+          ? referenceDesignRef.current
+          : PRESETS[0];
+      const spawn = resolveSpawn(env);
+      paintCreatureWorldGhost(
+        ctx,
+        ghostDesign,
+        spawn.x,
+        spawn.y,
+        (wx, wy) => worldToScreen(cam, w, h, wx, wy),
+        cam.zoom,
       );
 
       // Multi-select outlines (non-primary).
@@ -344,6 +377,12 @@ export function EnvEditorCanvas({
         drawRampSnapCursor(ctx, cam, w, h, rampHoverRef.current);
       }
 
+      const drawStair =
+        dragRef.current?.kind === 'drawStair' ? dragRef.current : null;
+      if (drawStair) {
+        drawStairRubberBand(ctx, cam, w, h, drawStair.a, drawStair.b);
+      }
+
       if (isFeatureEnabled('simAxisRulers')) {
         drawSimAxisRulers(ctx, cam, w, h);
       }
@@ -377,7 +416,10 @@ export function EnvEditorCanvas({
         onChangeRef.current(next);
       }
       if (e.key === 'Escape') {
-        if (dragRef.current?.kind === 'drawRamp') {
+        if (
+          dragRef.current?.kind === 'drawRamp' ||
+          dragRef.current?.kind === 'drawStair'
+        ) {
           dragRef.current = null;
           rampHoverRef.current = null;
           e.preventDefault();
@@ -387,7 +429,12 @@ export function EnvEditorCanvas({
         onToolChangeRef.current?.('select');
       }
       if (e.key === 'v' || e.key === 'V') {
-        if (dragRef.current?.kind === 'drawRamp') dragRef.current = null;
+        if (
+          dragRef.current?.kind === 'drawRamp' ||
+          dragRef.current?.kind === 'drawStair'
+        ) {
+          dragRef.current = null;
+        }
         rampHoverRef.current = null;
         onToolChangeRef.current?.('select');
       }
@@ -396,15 +443,6 @@ export function EnvEditorCanvas({
         if (sel.length === 0) return;
         e.preventDefault();
         const result = duplicateSelection(envRef.current, sel);
-        envRef.current = result.env;
-        onSelectRef.current(result.items);
-        onChangeRef.current(result.env);
-      }
-      if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey) {
-        const sel = selectionRef.current;
-        if (sel.length === 0) return;
-        e.preventDefault();
-        const result = mirrorDuplicateSelection(envRef.current, sel);
         envRef.current = result.env;
         onSelectRef.current(result.items);
         onChangeRef.current(result.env);
@@ -457,8 +495,21 @@ export function EnvEditorCanvas({
         envRef.current = next;
         onSelectRef.current([{ kind: 'obstacle', id: ramp.id }]);
         onChangeRef.current(next);
-        onToolChangeRef.current?.('select');
         rampHoverRef.current = null;
+      }
+      return;
+    }
+    if (drag.kind === 'drawStair') {
+      dragRef.current = null;
+      const stair = stairFromDrag(drag.a, drag.b);
+      if (stair) {
+        const next = {
+          ...envRef.current,
+          obstacles: [...envRef.current.obstacles, stair],
+        };
+        envRef.current = next;
+        onSelectRef.current([{ kind: 'obstacle', id: stair.id }]);
+        onChangeRef.current(next);
       }
       return;
     }
@@ -506,7 +557,10 @@ export function EnvEditorCanvas({
     }
 
     if (e.button === 2) {
-      if (dragRef.current?.kind === 'drawRamp') {
+      if (
+        dragRef.current?.kind === 'drawRamp' ||
+        dragRef.current?.kind === 'drawStair'
+      ) {
         dragRef.current = null;
         return;
       }
@@ -526,7 +580,7 @@ export function EnvEditorCanvas({
 
     const { x, y, w, h } = clientToLocal(e);
     const world = screenToWorld(camRef.current, w, h, x, y);
-    const snapped = snapToGrid(world.x, world.y, snapRef.current);
+    const snapped = snapToGrid(world.x, world.y, snapRef.current, ENV_EDITOR_GRID);
     const currentTool = toolRef.current;
     const env = envRef.current;
 
@@ -537,13 +591,22 @@ export function EnvEditorCanvas({
       return;
     }
 
+    if (currentTool === 'stair') {
+      dragRef.current = {
+        kind: 'drawStair',
+        a: snapped,
+        b: snapped,
+        moved: false,
+      };
+      return;
+    }
+
     if (isPlaceObstacleTool(currentTool)) {
       const obs = placeObstacleAt(currentTool, snapped.x, snapped.y);
       const next = { ...env, obstacles: [...env.obstacles, obs] };
       envRef.current = next;
       onSelectRef.current([{ kind: 'obstacle', id: obs.id }]);
       onChangeRef.current(next);
-      onToolChangeRef.current?.('select');
       return;
     }
 
@@ -556,7 +619,6 @@ export function EnvEditorCanvas({
       envRef.current = next;
       onSelectRef.current([{ kind: 'region', id: region.id }]);
       onChangeRef.current(next);
-      onToolChangeRef.current?.('select');
       return;
     }
 
@@ -574,7 +636,6 @@ export function EnvEditorCanvas({
       envRef.current = next;
       onSelectRef.current([{ kind: 'marker', id: marker.id }]);
       onChangeRef.current(next);
-      onToolChangeRef.current?.('select');
       return;
     }
 
@@ -585,10 +646,8 @@ export function EnvEditorCanvas({
         envRef.current = next;
         onSelectRef.current([{ kind: 'tower' }]);
         onChangeRef.current(next);
-        onToolChangeRef.current?.('select');
       } else {
         onSelectRef.current([{ kind: 'tower' }]);
-        onToolChangeRef.current?.('select');
       }
       return;
     }
@@ -599,7 +658,6 @@ export function EnvEditorCanvas({
       envRef.current = next;
       onSelectRef.current([{ kind: 'spawn' }]);
       onChangeRef.current(next);
-      onToolChangeRef.current?.('select');
       return;
     }
 
@@ -862,6 +920,20 @@ export function EnvEditorCanvas({
     const drag = dragRef.current;
     if (!drag || drag.kind === 'drawRamp') return;
 
+    if (drag.kind === 'drawStair') {
+      const snapped = snapToGrid(
+        world.x,
+        world.y,
+        snapRef.current,
+        ENV_EDITOR_GRID,
+      );
+      drag.b = snapped;
+      if (Math.hypot(snapped.x - drag.a.x, snapped.y - drag.a.y) > 1e-4) {
+        drag.moved = true;
+      }
+      return;
+    }
+
     if (drag.kind === 'marquee') {
       drag.endX = world.x;
       drag.endY = world.y;
@@ -876,7 +948,7 @@ export function EnvEditorCanvas({
       if (snapRef.current) {
         const fp = multiSelectionFootprint(env, selectionRef.current);
         if (fp) {
-          const snapped = snapToGrid(fp.cx + dx, fp.cy + dy, true);
+          const snapped = snapToGrid(fp.cx + dx, fp.cy + dy, true, ENV_EDITOR_GRID);
           dx = snapped.x - fp.cx;
           dy = snapped.y - fp.cy;
         }
@@ -907,7 +979,7 @@ export function EnvEditorCanvas({
       if (snapRef.current) {
         const o = env.obstacles.find((ob) => ob.id === drag.id);
         if (o) {
-          const snapped = snapToGrid(o.x + dx, o.y + dy, true);
+          const snapped = snapToGrid(o.x + dx, o.y + dy, true, ENV_EDITOR_GRID);
           dx = snapped.x - o.x;
           dy = snapped.y - o.y;
         }
@@ -933,7 +1005,7 @@ export function EnvEditorCanvas({
       if (snapRef.current) {
         const r = regions.find((reg) => reg.id === drag.id);
         if (r) {
-          const snapped = snapToGrid(r.x + dx, r.y + dy, true);
+          const snapped = snapToGrid(r.x + dx, r.y + dy, true, ENV_EDITOR_GRID);
           dx = snapped.x - r.x;
           dy = snapped.y - r.y;
         }
@@ -959,7 +1031,7 @@ export function EnvEditorCanvas({
       if (snapRef.current) {
         const m = markers.find((mark) => mark.id === drag.id);
         if (m) {
-          const snapped = snapToGrid(m.x + dx, m.y + dy, true);
+          const snapped = snapToGrid(m.x + dx, m.y + dy, true, ENV_EDITOR_GRID);
           dx = snapped.x - m.x;
           dy = snapped.y - m.y;
         }
@@ -981,7 +1053,7 @@ export function EnvEditorCanvas({
     if (drag.kind === 'moveTower' && env.tower) {
       let dx = world.x - drag.lastX;
       if (snapRef.current) {
-        const snapped = snapToGrid(env.tower.x + dx, 0, true);
+        const snapped = snapToGrid(env.tower.x + dx, 0, true, ENV_EDITOR_GRID);
         dx = snapped.x - env.tower.x;
       }
       if (Math.abs(dx) < 1e-9) return;
@@ -997,7 +1069,7 @@ export function EnvEditorCanvas({
       let dx = world.x - drag.lastX;
       let dy = world.y - drag.lastY;
       if (snapRef.current) {
-        const snapped = snapToGrid(cur.x + dx, cur.y + dy, true);
+        const snapped = snapToGrid(cur.x + dx, cur.y + dy, true, ENV_EDITOR_GRID);
         dx = snapped.x - cur.x;
         dy = snapped.y - cur.y;
       }
@@ -1011,7 +1083,7 @@ export function EnvEditorCanvas({
     }
 
     if (drag.kind === 'resizeObstacle') {
-      const snapped = snapToGrid(world.x, world.y, snapRef.current);
+      const snapped = snapToGrid(world.x, world.y, snapRef.current, ENV_EDITOR_GRID);
       env = {
         ...env,
         obstacles: env.obstacles.map((o) =>
@@ -1026,7 +1098,7 @@ export function EnvEditorCanvas({
     }
 
     if (drag.kind === 'resizeRegion') {
-      const snapped = snapToGrid(world.x, world.y, snapRef.current);
+      const snapped = snapToGrid(world.x, world.y, snapRef.current, ENV_EDITOR_GRID);
       const regions = env.regions ?? [];
       env = {
         ...env,
@@ -1042,7 +1114,7 @@ export function EnvEditorCanvas({
     }
 
     if (drag.kind === 'resizeMarker') {
-      const snapped = snapToGrid(world.x, world.y, snapRef.current);
+      const snapped = snapToGrid(world.x, world.y, snapRef.current, ENV_EDITOR_GRID);
       const markers = env.markers ?? [];
       env = {
         ...env,
@@ -1094,7 +1166,7 @@ export function EnvEditorCanvas({
     }
 
     if (drag.kind === 'resizeTower' && env.tower) {
-      const snapped = snapToGrid(world.x, world.y, snapRef.current);
+      const snapped = snapToGrid(world.x, world.y, snapRef.current, ENV_EDITOR_GRID);
       env = {
         ...env,
         tower: resizeTowerByHandle(
@@ -1110,7 +1182,7 @@ export function EnvEditorCanvas({
     }
 
     if (drag.kind === 'resizeTerrain' && env.terrain) {
-      const snapped = snapToGrid(world.x, world.y, snapRef.current);
+      const snapped = snapToGrid(world.x, world.y, snapRef.current, ENV_EDITOR_GRID);
       env = {
         ...env,
         terrain: setTerrainEndpoint(env.terrain, drag.endpoint, snapped.x),
@@ -1370,6 +1442,32 @@ function drawRampRubberBand(
     ctx.fill();
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+function drawStairRubberBand(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera,
+  w: number,
+  h: number,
+  a: Vec2,
+  b: Vec2,
+): void {
+  const draft = stairFromDrag(a, b);
+  if (draft) {
+    drawObstacles(ctx, cam, w, h, previewObstacleVisuals([draft]));
+  }
+  const sa = worldToScreen(cam, w, h, a.x, a.y);
+  const sb = worldToScreen(cam, w, h, b.x, b.y);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(180, 210, 255, 0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(sa.x, sa.y);
+  ctx.lineTo(sb.x, sb.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
   ctx.restore();
 }
 

@@ -33,6 +33,7 @@ import {
   type EnvTower,
   type ObstacleKind,
   type ScoreRegionKind,
+  type StairAscend,
 } from './types';
 import type { EnvSelection } from './envSelection';
 
@@ -77,7 +78,7 @@ export function obstacleFootprint(o: EnvObstacle): Footprint {
     case 'pit': {
       const gap = clampSize(o.w);
       const wallH = clampSize(o.h);
-      const platformW = Math.max(2, gap);
+      const platformW = Math.max(10, gap);
       const totalW = gap + 2 * platformW;
       return {
         cx: o.x,
@@ -463,7 +464,7 @@ export function resizeObstacleByCorner(
         h,
       };
     case 'pit': {
-      // Footprint width = gap + 2*max(2, gap). Invert for gap ≈ w/3 when gap≥2.
+      // Footprint width = gap + 2*max(10, gap). Invert for gap ≈ w/3 when gap≥10.
       const gap = clampSize(w / 3);
       return {
         ...o,
@@ -530,7 +531,12 @@ export function placeObstacleAt(
       return { ...base, x: wx, y: Math.max(h / 2, wy) };
     }
     case 'stair':
-      return { ...base, x: wx - base.w / 2, y: Math.max(0, wy - base.h / 2) };
+      return {
+        ...base,
+        x: wx - base.w / 2,
+        y: Math.max(0, wy - base.h / 2),
+        ascend: base.ascend ?? 'right',
+      };
     case 'pit':
       return { ...base, x: wx, y: Math.max(0, wy) };
     case 'loop': {
@@ -540,6 +546,33 @@ export function placeObstacleAt(
     default:
       return { ...base, x: wx, y: wy };
   }
+}
+
+/**
+ * Drag-create a stair from two corners of the footprint AABB.
+ * Ascend follows drag X: end ≥ start → low on left (ascend right); else ascend left.
+ */
+export function stairFromDrag(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): EnvObstacle | null {
+  const minX = Math.min(a.x, b.x);
+  const maxX = Math.max(a.x, b.x);
+  const minY = Math.min(a.y, b.y);
+  const maxY = Math.max(a.y, b.y);
+  const w = clampSize(maxX - minX);
+  const h = clampSize(maxY - minY);
+  if (w < OBSTACLE_MIN_SIZE || h < OBSTACLE_MIN_SIZE) return null;
+  const ascend: StairAscend = b.x >= a.x ? 'right' : 'left';
+  const base = defaultObstacle('stair');
+  return {
+    ...base,
+    x: minX,
+    y: Math.max(0, minY),
+    w,
+    h,
+    ascend,
+  };
 }
 
 export function placeTowerAt(wx: number): EnvTower {

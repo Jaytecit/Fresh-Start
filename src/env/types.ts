@@ -26,6 +26,9 @@ export const OBSTACLE_KINDS: ObstacleKind[] = [
   'pad',
 ];
 
+/** Stair rise direction within the footprint (default right = low→high along +X). */
+export type StairAscend = 'right' | 'left';
+
 export interface EnvObstacle {
   id: string;
   kind: ObstacleKind;
@@ -35,7 +38,12 @@ export interface EnvObstacle {
   h: number;
   rot?: number;
   /**
-   * Pad only — approximate launch apex in ruler units (100…1000).
+   * Stair only — which side is the lowest step.
+   * Omitted → `'right'` (ascends left→right). Drag create sets from drag direction.
+   */
+  ascend?: StairAscend;
+  /**
+   * Pad only — approximate launch apex in ruler units (500…5000).
    * Omitted → default `LAUNCH_PAD_APEX_H`.
    */
   launchApex?: number;

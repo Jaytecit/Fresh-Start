@@ -6,6 +6,7 @@ export type SkillId =
   | 'walking'
   | 'jumping'
   | 'free'
+  | 'boxing'
   | 'disco';
 
 export interface SkillDef {
@@ -24,6 +25,7 @@ export const SKILL_ORDER: SkillId[] = [
   'flying',
   'motor',
   'free',
+  'boxing',
   'disco',
 ];
 
@@ -67,6 +69,14 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     description: 'Sandbox — pick any task; no equipment gates yet.',
     accent: '#9a7ad4',
     defaultTask: 'run',
+  },
+  boxing: {
+    id: 'boxing',
+    title: 'Boxing',
+    shortLabel: 'Box',
+    description: 'Division-matched points fights using marked gloves and body targets.',
+    accent: '#b85a4f',
+    defaultTask: 'boxing',
   },
   disco: {
     id: 'disco',

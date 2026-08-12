@@ -35,7 +35,6 @@ interface Props {
   onPatchObstacle: (id: string, patch: Partial<EnvObstacle>) => void;
   onDeleteSelected: () => void;
   onDuplicateSelected?: () => void;
-  onMirrorSelected?: () => void;
   onRotateSelected?: () => void;
   onUndo: () => void;
   undoDisabled: boolean;
@@ -89,7 +88,6 @@ export function WorldDock({
   onPatchObstacle,
   onDeleteSelected,
   onDuplicateSelected,
-  onMirrorSelected,
   onRotateSelected,
   onUndo,
   undoDisabled,
@@ -575,7 +573,8 @@ export function WorldDock({
           Snap to grid
         </label>
         <p className="hint muted" style={{ marginTop: '0.2rem' }}>
-          Drag a box to multi-select. D duplicate · M mirror · R rotate 90°.
+          Drag a box to multi-select. D duplicate · R rotate 90°. Stairs: drag
+          left or right so the lowest step sits on that side.
         </p>
         <div className="button-row wrap" style={{ marginTop: '0.35rem' }}>
           <button type="button" onClick={onUndo} disabled={undoDisabled}>
@@ -588,14 +587,6 @@ export function WorldDock({
             title="Duplicate selection (D)"
           >
             Duplicate
-          </button>
-          <button
-            type="button"
-            disabled={selection.length === 0 || !onMirrorSelected}
-            onClick={onMirrorSelected}
-            title="Mirror-duplicate selection (M)"
-          >
-            Mirror
           </button>
           <button
             type="button"

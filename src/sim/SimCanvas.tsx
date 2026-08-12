@@ -25,6 +25,8 @@ import { drawSimAxisRulers } from './simRulers';
 import type { Simulation, SimulationSnapshot } from './simulation';
 
 const DEFAULT_CAM_ZOOM_MIN = 20;
+/** World-Y added to follow target so standing creatures sit in the lower frame. */
+const FOLLOW_Y_BIAS = 2.8;
 
 export interface FramePerf {
   fps: number;
@@ -192,9 +194,10 @@ export function SimCanvas({
       const dragging = dragRef.current !== null;
       if (snap.cameraFollow && !dragging && !discoFx) {
         // Soft follow focused creature (Keiwan-style locked camera).
+        // Bias look-target upward so the ground band stays short above the dock.
         const k = 1 - Math.exp(-6 * Math.min(dt, 0.05));
         cam.x += (snap.focusX - cam.x) * k;
-        cam.y += (snap.focusY - cam.y) * k;
+        cam.y += (snap.focusY + FOLLOW_Y_BIAS - cam.y) * k;
       }
 
       const rect = canvas.getBoundingClientRect();
@@ -250,6 +253,9 @@ export function SimCanvas({
       // Generation / focus HUD overlay during live evolve
       if (snap.evolve?.running) {
         drawEvolveHud(ctx, w, snap);
+      }
+      if (snap.boxing) {
+        drawBoxingHud(ctx, w, snap);
       }
 
       // Edge rulers last so height/distance stay visible over scenery / creatures.
@@ -486,5 +492,50 @@ function drawEvolveHud(
   ctx.font = '12px "Segoe UI", system-ui, sans-serif';
   ctx.fillStyle = '#8a96a8';
   ctx.fillText(line2, 22, 52);
+  ctx.restore();
+}
+
+function drawBoxingHud(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  snap: SimulationSnapshot,
+): void {
+  const boxing = snap.boxing;
+  if (!boxing) return;
+  const remaining = Math.max(0, boxing.episodeDuration - boxing.episodeT);
+  const result = boxing.finished
+    ? boxing.winner === null
+      ? 'Draw'
+      : `${boxing.names[boxing.winner]} wins`
+    : `${remaining.toFixed(1)}s`;
+  const hitLine = `Hits ${boxing.hits[0]}–${boxing.hits[1]}${
+    boxing.lastHit
+      ? ` · last ${boxing.lastHit.power.toFixed(2)}pwr ${(boxing.lastHit.accuracy * 100).toFixed(0)}%`
+      : ''
+  }`;
+
+  const panelW = Math.min(w - 24, 460);
+  const panelX = Math.max(12, w / 2 - panelW / 2);
+  const panelY = 10;
+  const panelH = 72;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 14, 22, 0.82)';
+  ctx.strokeStyle = 'rgba(180, 200, 230, 0.28)';
+  ctx.lineWidth = 1;
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+
+  ctx.textAlign = 'center';
+  ctx.font = '700 18px "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#eef3fa';
+  ctx.fillText(
+    `${boxing.names[0]}  ${boxing.points[0]}   —   ${boxing.points[1]}  ${boxing.names[1]}`,
+    w / 2,
+    panelY + 28,
+  );
+  ctx.font = '12px "Segoe UI", system-ui, sans-serif';
+  ctx.fillStyle = '#aab6c8';
+  ctx.fillText(`${result} · ${hitLine}`, w / 2, panelY + 52);
   ctx.restore();
 }

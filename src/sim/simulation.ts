@@ -81,6 +81,10 @@ import {
   DANCE_OBS_COUNT,
 } from '../brain/danceObs';
 import {
+  BOXING_OBS_COUNT,
+  buildBoxingObservations,
+} from '../brain/boxingObs';
+import {
   buildRaycastObservations,
   raycastObsEnabled,
 } from '../brain/raycastObs';
@@ -95,6 +99,29 @@ import { CLEAR_BAR_HEIGHT } from '../brain/constants';
 import type { AudioBands } from '../audio/audioAnalysis';
 import type { AeroType, CreatureDesign } from '../creature/types';
 import { cloneDesign } from '../creature/types';
+import {
+  boxingEligibility,
+  type BoxingDivisionId,
+} from '../boxing/divisions';
+import {
+  createBoxingHitTracker,
+  createBoxingProbes,
+  detectBoxingHits,
+  type BoxingHitTracker,
+  type BoxingProbeSet,
+} from '../boxing/hitProbes';
+import {
+  createBoxingBehaviorMetrics,
+  updateBoxingBehaviorMetrics,
+  type BoxingBehaviorMetrics,
+} from '../boxing/rewards';
+import {
+  createBoxingMatchScore,
+  recordBoxingHit,
+  type BoxingHitEvent,
+  type BoxingMatchScore,
+  type BoxingOwner,
+} from '../boxing/scoring';
 import {
   applyMuscleForces,
   type MuscleForceOptions,
@@ -119,6 +146,8 @@ import {
 import {
   ANGULAR_DAMPING,
   ANTI_SCOOT,
+  BOXING_MATCH_SECONDS,
+  BOXING_SPAWN_X,
   DEFAULT_DISCO_PUPPET_MODE,
   DEFAULT_JOINT_MASS,
   FOOT_MASS_DEFAULT,
@@ -222,6 +251,9 @@ export interface AgentSnapshot {
     radius: number;
     vx: number;
     vy: number;
+    isGlove?: boolean;
+    isHitTarget?: boolean;
+    hitValue?: number;
   }[];
   bones: {
     id: number;
@@ -297,10 +329,12 @@ export interface SimulationSnapshot {
   evolve: EvolutionProgress | null;
   /** Cosmetic rig from current design (render-only). */
   appearance?: import('../appearance/types').AppearanceRig;
-  /** Disco session — skip muscle strokes when drawing. */
+  /** Skip muscle strokes when drawing. */
   hideMuscles?: boolean;
-  /** Disco session — skip bone capsules + joint dots when drawing. */
+  /** Skip bone capsules + joint dots when drawing. */
   hideBones?: boolean;
+  /** Skip solid strut lines when drawing (G8). */
+  hideSolidStruts?: boolean;
   task: TaskId;
   /** Leftover fixed-dt accumulator — used for A5 visual pose smoothing. */
   extrapolateDt: number;
@@ -324,6 +358,8 @@ export interface SimulationSnapshot {
   lastEpisodeMetrics: TaskEpisodeMetrics | null;
   /** I6 — dual-model gauntlet HUD when active. */
   headToHead: HeadToHeadSnapshot | null;
+  /** K5 — active or just-finished Boxing points match. */
+  boxing?: BoxingMatchSnapshot | null;
 }
 
 interface CohortMember {
@@ -400,6 +436,38 @@ export interface HeadToHeadSnapshot {
   episodeDuration: number;
   fitness: [number, number];
   names: [string, string];
+}
+
+export type BoxingMatchEntry = HeadToHeadEntry;
+
+export interface BoxingMatchResult {
+  score: BoxingMatchScore;
+  winner: BoxingOwner | null;
+  reason: 'points' | 'draw';
+  episodeDuration: number;
+  upright: [number, number];
+  behavior: BoxingBehaviorMetrics;
+}
+
+export interface BoxingMatchOptions {
+  entries: [BoxingMatchEntry, BoxingMatchEntry];
+  divisionId: BoxingDivisionId;
+  episodeSeconds?: number;
+  onProgress?: (snapshot: BoxingMatchSnapshot) => void;
+  onFinished?: (result: BoxingMatchResult) => void;
+}
+
+export interface BoxingMatchSnapshot {
+  episodeT: number;
+  episodeDuration: number;
+  divisionId: BoxingDivisionId;
+  ruleVersion: 1;
+  names: [string, string];
+  points: [number, number];
+  hits: [number, number];
+  lastHit: BoxingHitEvent | null;
+  finished: boolean;
+  winner: BoxingOwner | null;
 }
 
 /** E5 — champion / replay metrics snapshot for secret evaluation. */
@@ -576,10 +644,25 @@ export function shapeForDanceDesign(design: CreatureDesign): NetworkShape {
   return makeShape(Math.max(channels, 1), DANCE_OBS_COUNT);
 }
 
+/** K6 — Boxing brains use an opponent-relative observation pack. */
+export function shapeForBoxingDesign(design: CreatureDesign): NetworkShape {
+  const channels = countDesignActuatorChannels(
+    design,
+    includeWheelActuators(),
+  );
+  return makeShape(Math.max(channels, 1), BOXING_OBS_COUNT);
+}
+
 function zeroActuatorDrives(design: CreatureDesign): number[] {
   return new Array(
     countDesignActuatorChannels(design, includeWheelActuators()),
   ).fill(0);
+}
+
+function mirrorBoxingDesign(design: CreatureDesign): CreatureDesign {
+  const mirrored = cloneDesign(design);
+  mirrored.joints = mirrored.joints.map((joint) => ({ ...joint, x: -joint.x }));
+  return mirrored;
 }
 
 /** Pad per-muscle disco frames into full channel layout (wheel tail = 0). */
@@ -616,7 +699,17 @@ function agentFromCreature(
     const t = j.body.translation();
     const v = j.body.linvel();
     jointPose.set(j.id, { x: t.x, y: t.y });
-    return { id: j.id, x: t.x, y: t.y, radius: j.radius, vx: v.x, vy: v.y };
+    return {
+      id: j.id,
+      x: t.x,
+      y: t.y,
+      radius: j.radius,
+      vx: v.x,
+      vy: v.y,
+      isGlove: j.isGlove,
+      isHitTarget: j.isHitTarget,
+      hitValue: j.hitValue,
+    };
   });
   return {
     joints,
@@ -822,10 +915,12 @@ export class Simulation {
   set discoFootMass(v: number) {
     this.footMass = clampFootMass(v);
   }
-  /** Disco session — hide muscle strokes in render. */
+  /** Hide muscle strokes in render. */
   hideMuscles = false;
-  /** Disco session — hide bone capsules + joint dots in render. */
+  /** Hide bone capsules + joint dots in render. */
   hideBones = false;
+  /** Hide solid strut lines in render (G8). */
+  hideSolidStruts = false;
   time = 0;
   /**
    * Brain / control update rate. Default Keiwan 30 Hz; 60 Hz = one eval per
@@ -858,6 +953,19 @@ export class Simulation {
     onFinished?: (result: HeadToHeadResult) => void;
   } | null = null;
   private h2hFinished: HeadToHeadResult | null = null;
+  private boxing: {
+    divisionId: BoxingDivisionId;
+    episodeT: number;
+    episodeDuration: number;
+    score: BoxingMatchScore;
+    probes: [BoxingProbeSet, BoxingProbeSet];
+    hitTracker: BoxingHitTracker;
+    behavior: BoxingBehaviorMetrics;
+    onProgress?: (snapshot: BoxingMatchSnapshot) => void;
+    onFinished?: (result: BoxingMatchResult) => void;
+  } | null = null;
+  private boxingFinished: BoxingMatchResult | null = null;
+  private boxingPreviousBrainHz: BrainHz | null = null;
   private live: LiveEvolveState | null = null;
   private course: CourseHandle | null = null;
   private roughCourse: RoughCourseHandle | null = null;
@@ -895,6 +1003,23 @@ export class Simulation {
     return this.h2h !== null;
   }
 
+  get isBoxing(): boolean {
+    return this.boxing !== null;
+  }
+
+  private pinBoxingControllerRate(): void {
+    if (this.boxingPreviousBrainHz === null) {
+      this.boxingPreviousBrainHz = this.brainHz;
+    }
+    this.brainHz = BRAIN_HZ;
+  }
+
+  private restoreControllerRateAfterBoxing(): void {
+    if (this.boxingPreviousBrainHz === null) return;
+    this.brainHz = this.boxingPreviousBrainHz;
+    this.boxingPreviousBrainHz = null;
+  }
+
   get isMultiDisco(): boolean {
     return this.discoDancers.length > 0;
   }
@@ -903,6 +1028,9 @@ export class Simulation {
     if (!this.world) throw new Error('Simulation not initialized');
     this.clearDiscoDancers();
     this.abortHeadToHead();
+    this.restoreControllerRateAfterBoxing();
+    this.boxing = null;
+    this.boxingFinished = null;
     this.clearCohort();
     this.live = null;
     this.soloWatch = null;
@@ -1328,6 +1456,9 @@ export class Simulation {
     this.live = null;
     this.h2h = null;
     this.h2hFinished = null;
+    this.restoreControllerRateAfterBoxing();
+    this.boxing = null;
+    this.boxingFinished = null;
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1463,6 +1594,9 @@ export class Simulation {
     this.clearDiscoDancers();
     this.clearCohort();
     this.live = null;
+    this.restoreControllerRateAfterBoxing();
+    this.boxing = null;
+    this.boxingFinished = null;
     this.soloWatch = null;
     this.clearBrain();
     if (this.creature) {
@@ -1550,6 +1684,136 @@ export class Simulation {
     this.manualDrives = zeroActuatorDrives(design);
     this.brainDrives = zeroActuatorDrives(design);
     this.driveMode = 'idle';
+    this.time = 0;
+    this.accumulator = 0;
+  }
+
+  /** K5 — start a deterministic, division-matched two-fighter points match. */
+  startBoxingMatch(options: BoxingMatchOptions): void {
+    if (!this.world) throw new Error('Simulation not initialized');
+    if (!isFeatureEnabled('boxingMode')) {
+      throw new Error('Boxing skill is disabled');
+    }
+    const [a, b] = options.entries;
+    if (
+      !designHasActuators(a.design, includeWheelActuators()) ||
+      !designHasActuators(b.design, includeWheelActuators())
+    ) {
+      throw new Error('Both fighters need muscles to box');
+    }
+    for (const entry of [a, b]) {
+      const eligibility = boxingEligibility(entry.design, options.divisionId);
+      if (!eligibility.eligible) {
+        throw new Error(
+          `${entry.design.name} is not eligible for ${options.divisionId}: ${eligibility.reasons.join(' ')}`,
+        );
+      }
+    }
+
+    this.clearDiscoDancers();
+    this.clearCohort();
+    this.live = null;
+    this.h2h = null;
+    this.h2hFinished = null;
+    this.boxing = null;
+    this.boxingFinished = null;
+    this.soloWatch = null;
+    this.clearBrain();
+    if (this.creature) {
+      destroyCreature(this.world, this.creature);
+      this.creature = null;
+    }
+
+    this.task = 'boxing';
+    this.syncCourseForTask('boxing');
+    this.syncEnvironmentGeometry();
+    const spawn = resolveSpawn(this.environment);
+    const entries: [BoxingMatchEntry, BoxingMatchEntry] = [a, b];
+    const matchDesigns: [CreatureDesign, CreatureDesign] = [
+      cloneDesign(a.design),
+      mirrorBoxingDesign(b.design),
+    ];
+    const probes: BoxingProbeSet[] = [];
+    for (let i = 0; i < 2; i++) {
+      const entry = entries[i];
+      const memberDesign = matchDesigns[i];
+      const creature = this.spawnCreatureWithGrip(memberDesign, {
+        x: i === 0 ? -BOXING_SPAWN_X : BOXING_SPAWN_X,
+        y: spawn.y,
+      });
+      this.cohort.push({
+        creature,
+        genomeIndex: i,
+        weights: entry.weights,
+        brainDrives: new Array(entry.shape.outputCount).fill(0),
+        brainAccumulator: 0,
+        lastObs: new Float32Array(entry.shape.inputCount),
+        lastHidden: new Float32Array(entry.shape.hiddenCount),
+        startX: avgJointX(creature),
+        fallTime: 0,
+        fell: false,
+        landed: false,
+        footLifts: 0,
+        planted: createFootLiftState(creature.joints.length),
+        muscleVisual: [],
+        peakHeight: 0,
+        airTime: 0,
+        airHeightIntegral: 0,
+        impactSpeed: 0,
+        airborneTravel: 0,
+        prevAvgX: avgJointX(creature),
+        uprightSum: 0,
+        uprightSteps: 0,
+        peakSpeed: 0,
+        peakDistance: 0,
+        regionAccum: emptyScoreRegionAccum(),
+        courseAccum: emptyCourseMarkerAccum([]),
+        stall: createStallTracker(),
+        memberDesign,
+        memberShape: entry.shape,
+      });
+      probes.push(
+        createBoxingProbes(this.world, creature, i as BoxingOwner),
+      );
+    }
+
+    this.design = a.design;
+    this.driveMode = 'brain';
+    this.discoDriveProvider = null;
+    this.time = 0;
+    this.accumulator = 0;
+    this.running = true;
+    this.pinBoxingControllerRate();
+    this.boxing = {
+      divisionId: options.divisionId,
+      episodeT: 0,
+      episodeDuration: options.episodeSeconds ?? BOXING_MATCH_SECONDS,
+      score: createBoxingMatchScore(options.divisionId),
+      probes: probes as [BoxingProbeSet, BoxingProbeSet],
+      hitTracker: createBoxingHitTracker(),
+      behavior: createBoxingBehaviorMetrics(),
+      onProgress: options.onProgress,
+      onFinished: options.onFinished,
+    };
+  }
+
+  abortBoxingMatch(): void {
+    if (!this.boxing && !this.boxingFinished) return;
+    const design = this.cohort[0]?.memberDesign ?? this.design ?? null;
+    this.clearCohort();
+    this.boxing = null;
+    this.boxingFinished = null;
+    this.restoreControllerRateAfterBoxing();
+    if (!this.world || !design) return;
+    this.creature = this.spawnCreatureWithGrip(
+      design,
+      resolveSpawn(this.environment),
+    );
+    this.design = design;
+    this.manualDrives = zeroActuatorDrives(design);
+    this.brainDrives = zeroActuatorDrives(design);
+    this.driveMode = 'idle';
+    this.task = 'boxing';
     this.time = 0;
     this.accumulator = 0;
   }
@@ -1711,6 +1975,9 @@ export class Simulation {
     this.clearDiscoDancers();
     this.h2h = null;
     this.h2hFinished = null;
+    this.restoreControllerRateAfterBoxing();
+    this.boxing = null;
+    this.boxingFinished = null;
     this.soloWatch = null;
     if (this.creature) {
       destroyCreature(this.world, this.creature);
@@ -1858,7 +2125,15 @@ export class Simulation {
     if (!this.world || !this.running) {
       return this.snapshot();
     }
-    if (!this.live && !this.creature && this.discoDancers.length === 0 && !this.h2h && !this.h2hFinished) {
+    if (
+      !this.live &&
+      !this.creature &&
+      this.discoDancers.length === 0 &&
+      !this.h2h &&
+      !this.h2hFinished &&
+      !this.boxing &&
+      !this.boxingFinished
+    ) {
       return this.snapshot();
     }
 
@@ -1891,6 +2166,15 @@ export class Simulation {
 
     if (this.live) {
       this.physicsStepCohort(dt);
+      return;
+    }
+
+    if (this.boxing) {
+      this.physicsStepBoxing(dt);
+      return;
+    }
+
+    if (this.isBoxingView() && this.boxingFinished) {
       return;
     }
 
@@ -2190,6 +2474,103 @@ export class Simulation {
     for (const dancer of this.discoDancers) {
       this.maybeApplyLaunchPads(dancer.creature);
     }
+  }
+
+  private physicsStepBoxing(dt: number): void {
+    if (!this.world || !this.boxing || this.cohort.length < 2) return;
+
+    for (let memberIndex = 0; memberIndex < 2; memberIndex++) {
+      const member = this.cohort[memberIndex];
+      const shape = member.memberShape;
+      const memberDesign = member.memberDesign;
+      if (!shape || !memberDesign) continue;
+      this.tickBoxingBrainMember(memberIndex, shape, dt);
+      const muscleDrives = expandChannelDrives(
+        memberDesign.muscles,
+        member.brainDrives,
+      );
+      resetCreatureForces(member.creature);
+      applyMuscleForces(
+        member.creature.muscles,
+        muscleDrives,
+        member.muscleVisual,
+      );
+      applyExtraForces(member.creature, memberDesign, member.brainDrives, {
+        skipAero: true,
+      });
+    }
+
+    for (const member of this.cohort.slice(0, 2)) {
+      syncCreatureSoftCcd(member.creature);
+    }
+    this.world.timestep = dt;
+    this.world.step();
+    this.time += dt;
+    this.boxing.episodeT += dt;
+
+    const events = detectBoxingHits(
+      this.world,
+      this.boxing.probes,
+      this.boxing.hitTracker,
+      this.boxing.episodeT,
+    );
+    this.boxing.score.fighters[0].attempts =
+      this.boxing.hitTracker.attempts[0];
+    this.boxing.score.fighters[1].attempts =
+      this.boxing.hitTracker.attempts[1];
+    for (const event of events) recordBoxingHit(this.boxing.score, event);
+
+    updateBoxingBehaviorMetrics(
+      this.boxing.behavior,
+      this.cohort[0].creature,
+      this.cohort[1].creature,
+      this.boxing.hitTracker.attempts,
+      dt,
+    );
+
+    const terrain = this.activeTerrain();
+    for (const member of this.cohort.slice(0, 2)) {
+      applyPlantSlideBrake(
+        member.creature,
+        terrain,
+        this.world,
+        this.envObstacles,
+        this.antiScoot,
+      );
+      member.uprightSum += instantUprightQuality(member.creature);
+      member.uprightSteps++;
+    }
+
+    const progress = this.boxingSnapshot();
+    if (progress) this.boxing.onProgress?.(progress);
+    if (this.boxing.episodeT < this.boxing.episodeDuration) return;
+
+    const points = this.boxing.score.fighters.map((fighter) => fighter.points) as [
+      number,
+      number,
+    ];
+    const winner: BoxingOwner | null =
+      points[0] === points[1] ? null : points[0] > points[1] ? 0 : 1;
+    const result: BoxingMatchResult = {
+      score: this.boxing.score,
+      winner,
+      reason: winner === null ? 'draw' : 'points',
+      episodeDuration: this.boxing.episodeDuration,
+      upright: [
+        this.cohort[0].uprightSteps > 0
+          ? this.cohort[0].uprightSum / this.cohort[0].uprightSteps
+          : 0,
+        this.cohort[1].uprightSteps > 0
+          ? this.cohort[1].uprightSum / this.cohort[1].uprightSteps
+          : 0,
+      ],
+      behavior: this.boxing.behavior,
+    };
+    const onFinished = this.boxing.onFinished;
+    this.boxing = null;
+    this.boxingFinished = result;
+    this.driveMode = 'idle';
+    onFinished?.(result);
   }
 
   private physicsStepHeadToHead(dt: number): void {
@@ -2871,6 +3252,62 @@ export class Simulation {
     }
   }
 
+  private tickBoxingBrainMember(
+    memberIndex: number,
+    shape: NetworkShape,
+    dt: number,
+  ): void {
+    const member = this.cohort[memberIndex];
+    const opponent = this.cohort[memberIndex === 0 ? 1 : 0];
+    if (
+      !member ||
+      !opponent ||
+      !this.boxing ||
+      shape.inputCount !== BOXING_OBS_COUNT
+    ) {
+      if (member) this.tickBrainMember(member, shape, dt);
+      return;
+    }
+    const brainDt = this.brainDt;
+    member.brainAccumulator += dt;
+    while (member.brainAccumulator >= brainDt) {
+      member.brainAccumulator -= brainDt;
+      if (this.obsBuf.length < BOXING_OBS_COUNT) {
+        this.obsBuf = new Float32Array(BOXING_OBS_COUNT);
+      }
+      if (this.outBuf.length < shape.outputCount) {
+        this.outBuf = new Float32Array(shape.outputCount);
+      }
+      if (this.hidBuf.length < shape.hiddenCount) {
+        this.hidBuf = new Float32Array(shape.hiddenCount);
+      }
+      const ownPoints = this.boxing.score.fighters[memberIndex].points;
+      const opponentPoints =
+        this.boxing.score.fighters[memberIndex === 0 ? 1 : 0].points;
+      buildBoxingObservations(
+        member.creature,
+        opponent.creature,
+        ownPoints,
+        opponentPoints,
+        1 - this.boxing.episodeT / this.boxing.episodeDuration,
+        this.boxing.episodeT,
+        this.obsBuf,
+      );
+      const outs = evaluateNetwork(
+        shape,
+        member.weights,
+        this.obsBuf,
+        this.outBuf,
+        this.hidBuf,
+      );
+      member.lastObs.set(this.obsBuf.subarray(0, shape.inputCount));
+      member.lastHidden.set(this.hidBuf.subarray(0, shape.hiddenCount));
+      for (let i = 0; i < member.brainDrives.length; i++) {
+        member.brainDrives[i] = outs[i] ?? 0;
+      }
+    }
+  }
+
   private tickBrainMember(
     member: CohortMember,
     shape: NetworkShape,
@@ -3171,11 +3608,66 @@ export class Simulation {
     };
   }
 
+  private boxingSnapshot(): BoxingMatchSnapshot | null {
+    if (this.cohort.length < 2) return null;
+    const names: [string, string] = [
+      this.cohort[0]?.memberDesign?.name ?? 'A',
+      this.cohort[1]?.memberDesign?.name ?? 'B',
+    ];
+    if (this.boxing) {
+      return {
+        episodeT: this.boxing.episodeT,
+        episodeDuration: this.boxing.episodeDuration,
+        divisionId: this.boxing.divisionId,
+        ruleVersion: 1,
+        names,
+        points: [
+          this.boxing.score.fighters[0].points,
+          this.boxing.score.fighters[1].points,
+        ],
+        hits: [
+          this.boxing.score.fighters[0].hits,
+          this.boxing.score.fighters[1].hits,
+        ],
+        lastHit: this.boxing.score.hits.at(-1) ?? null,
+        finished: false,
+        winner: null,
+      };
+    }
+    if (!this.boxingFinished) return null;
+    return {
+      episodeT: this.boxingFinished.episodeDuration,
+      episodeDuration: this.boxingFinished.episodeDuration,
+      divisionId: this.boxingFinished.score.divisionId,
+      ruleVersion: this.boxingFinished.score.ruleVersion,
+      names,
+      points: [
+        this.boxingFinished.score.fighters[0].points,
+        this.boxingFinished.score.fighters[1].points,
+      ],
+      hits: [
+        this.boxingFinished.score.fighters[0].hits,
+        this.boxingFinished.score.fighters[1].hits,
+      ],
+      lastHit: this.boxingFinished.score.hits.at(-1) ?? null,
+      finished: true,
+      winner: this.boxingFinished.winner,
+    };
+  }
+
   private isHeadToHeadView(): boolean {
     return (
       this.cohort.length >= 2 &&
       this.cohort[0].memberDesign !== undefined &&
       (this.h2h !== null || this.h2hFinished !== null)
+    );
+  }
+
+  private isBoxingView(): boolean {
+    return (
+      this.cohort.length >= 2 &&
+      this.cohort[0].memberDesign !== undefined &&
+      (this.boxing !== null || this.boxingFinished !== null)
     );
   }
 
@@ -3271,11 +3763,13 @@ export class Simulation {
         headToHead: null,
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
+        hideSolidStruts: this.hideSolidStruts,
       };
     }
 
-    if (this.isHeadToHeadView()) {
-      const task = this.h2h?.task ?? this.task;
+    if (this.isHeadToHeadView() || this.isBoxingView()) {
+      const boxing = this.boxingSnapshot();
+      const task: TaskId = boxing ? 'boxing' : (this.h2h?.task ?? this.task);
       const allAgents = this.cohort.slice(0, 2).map((m, i) =>
         agentFromCreature(
           m.creature,
@@ -3316,9 +3810,11 @@ export class Simulation {
         ),
         lastEpisodeMetrics: this.lastEpisodeMetrics,
         evolve: null,
-        headToHead: this.headToHeadSnapshot(),
+        headToHead: boxing ? null : this.headToHeadSnapshot(),
+        boxing,
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
+        hideSolidStruts: this.hideSolidStruts,
       };
     }
 
@@ -3374,6 +3870,7 @@ export class Simulation {
         headToHead: null,
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
+        hideSolidStruts: this.hideSolidStruts,
       };
     }
 
@@ -3431,6 +3928,7 @@ export class Simulation {
       headToHead: null,
       hideMuscles: this.hideMuscles,
       hideBones: this.hideBones,
+      hideSolidStruts: this.hideSolidStruts,
     };
   }
 }

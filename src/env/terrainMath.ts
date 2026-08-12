@@ -108,12 +108,12 @@ export function makeSineTerrain(opts?: {
   waves?: number;
 }): EnvTerrain {
   const startX = opts?.startX ?? 0;
-  const endX = opts?.endX ?? 40;
+  const endX = opts?.endX ?? 200;
   const n = Math.min(
     TERRAIN_MAX_SAMPLES,
     Math.max(TERRAIN_MIN_SAMPLES, opts?.sampleCount ?? 41),
   );
-  const amplitude = opts?.amplitude ?? 1.2;
+  const amplitude = opts?.amplitude ?? 6;
   const waves = opts?.waves ?? 2.5;
   const samples: number[] = [];
   for (let i = 0; i < n; i++) {

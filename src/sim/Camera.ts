@@ -19,15 +19,16 @@ export const CREATURE_CAM_ZOOM_DEFAULT = 48;
 export const ENV_CAM_ZOOM_DEFAULT = CREATURE_CAM_ZOOM_DEFAULT / 5;
 export const ENV_CAM_ZOOM_MIN = 2;
 export const ENV_CAM_ZOOM_MAX = 140;
-export const ENV_CAM_Y_DEFAULT = 8;
+export const ENV_CAM_Y_DEFAULT = 40;
 
 export function createCamera(): Camera {
-  return { x: 0, y: 2.2, zoom: CREATURE_CAM_ZOOM_DEFAULT, insetBottom: 0 };
+  // Bias upward so the ground horizon sits near the bottom of the frame (more sky).
+  return { x: 0, y: 4.2, zoom: CREATURE_CAM_ZOOM_DEFAULT, insetBottom: 0 };
 }
 
 export function createEnvCamera(): Camera {
   return {
-    x: 20,
+    x: 100,
     y: ENV_CAM_Y_DEFAULT,
     zoom: ENV_CAM_ZOOM_DEFAULT,
     insetBottom: 0,

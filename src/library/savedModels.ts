@@ -4,7 +4,8 @@
 import type { Genome, NetworkShape, TaskId } from '../brain/types';
 import type { MorphGenes } from '../creature/morphGenes';
 import { morphFingerprint } from '../creature/morphGenes';
-import type { CreatureDesign } from '../creature/types';
+import { cloneDesign, type CreatureDesign } from '../creature/types';
+import type { BoxingDivisionId } from '../boxing/divisions';
 import { recipeFingerprint } from './bestEver';
 
 const STORAGE_KEY = 'freshstart_saved_models_v1';
@@ -15,6 +16,13 @@ export interface DanceCurriculumMeta {
   stage: 'imitate' | 'refine';
   playlistFingerprint?: string;
   holdoutLoss?: number;
+}
+
+export interface BoxingModelMeta {
+  divisionId: BoxingDivisionId;
+  ruleVersion: 1;
+  obsPackVersion: 2;
+  brainHz: 30;
 }
 
 export interface SavedModel {
@@ -33,6 +41,10 @@ export interface SavedModel {
   morphFingerprint?: string;
   /** Present on dance curriculum saves (Phase 4). */
   danceMeta?: DanceCurriculumMeta;
+  /** K6 — division and observation compatibility for Boxing brains. */
+  boxingMeta?: BoxingModelMeta;
+  /** Boxing keeps its marked fighter body beside the brain for exact resolution. */
+  boxingDesign?: CreatureDesign;
 }
 
 export function encodeWeights(weights: Float32Array): string {
@@ -81,6 +93,7 @@ export function saveModel(opts: {
   genome: Genome;
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
+  boxingMeta?: BoxingModelMeta;
 }): SavedModel {
   const model: SavedModel = {
     id: `m_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
@@ -99,6 +112,8 @@ export function saveModel(opts: {
         }
       : {}),
     ...(opts.danceMeta ? { danceMeta: { ...opts.danceMeta } } : {}),
+    ...(opts.boxingMeta ? { boxingMeta: { ...opts.boxingMeta } } : {}),
+    ...(opts.task === 'boxing' ? { boxingDesign: cloneDesign(opts.design) } : {}),
   };
   const all = readAll();
   all.push(model);

@@ -153,23 +153,106 @@ export function drawGrid(
   ctx.restore();
 }
 
-/** Ground halfspace fill + horizon line (distance ticks live on the A6 edge ruler). */
+/** Pick a world step that stays ~40–70 px apart for readable optical flow. */
+function groundTextureStep(cam: Camera): { minor: number; major: number } {
+  const worldPerPx = 1 / Math.max(1e-6, cam.zoom);
+  const target = worldPerPx * 55;
+  const candidates = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+  let minor = 100;
+  for (const c of candidates) {
+    if (c >= target * 0.55) {
+      minor = c;
+      break;
+    }
+  }
+  return { minor, major: minor * 5 };
+}
+
+/**
+ * Ground halfspace fill + world-locked texture so camera travel reads as speed.
+ * Labeled distance ticks remain on the A6 edge ruler.
+ */
 export function drawGround(
   ctx: CanvasRenderingContext2D,
   cam: Camera,
   w: number,
   h: number,
 ): void {
-  const left = worldToScreen(cam, w, h, 0, GROUND_Y);
+  const horizon = worldToScreen(cam, w, h, 0, GROUND_Y);
+  const gy = horizon.y;
+  const groundH = h - gy;
+  if (groundH <= 0) return;
+
+  ctx.fillStyle = '#152028';
+  ctx.fillRect(0, gy, w, groundH);
+
+  const leftWorld = screenToWorld(cam, w, h, 0, gy).x;
+  const rightWorld = screenToWorld(cam, w, h, w, gy).x;
+  const minX = Math.min(leftWorld, rightWorld);
+  const maxX = Math.max(leftWorld, rightWorld);
+  const { minor, major } = groundTextureStep(cam);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, gy, w, groundH);
+  ctx.clip();
+
+  // Alternating world-X bands — primary optical-flow cue while scrolling.
+  const bandW = minor;
+  const x0 = Math.floor(minX / bandW) * bandW;
+  for (let x = x0; x <= maxX + bandW; x += bandW) {
+    const i = Math.round(x / bandW);
+    if ((i & 1) !== 0) continue;
+    const a = worldToScreen(cam, w, h, x, GROUND_Y);
+    const b = worldToScreen(cam, w, h, x + bandW, GROUND_Y);
+    const xScreen = Math.min(a.x, b.x);
+    const wScreen = Math.abs(b.x - a.x);
+    ctx.fillStyle = 'rgba(28, 42, 54, 0.85)';
+    ctx.fillRect(xScreen, gy, wScreen + 0.5, groundH);
+  }
+
+  // Vertical ticks into the halfspace (majors stronger / longer).
+  const xStart = Math.floor(minX / minor) * minor;
+  for (let x = xStart; x <= maxX + minor; x += minor) {
+    if (Math.abs(x) < 1e-9) x = 0;
+    const p = worldToScreen(cam, w, h, x, GROUND_Y);
+    if (p.x < -2 || p.x > w + 2) continue;
+    const r = Math.abs(x / major);
+    const isMajor = Math.abs(r - Math.round(r)) < 1e-6;
+    const depth = isMajor
+      ? Math.min(groundH, Math.max(28, cam.zoom * 0.55))
+      : Math.min(groundH, Math.max(14, cam.zoom * 0.28));
+    ctx.strokeStyle = isMajor
+      ? 'rgba(90, 115, 140, 0.42)'
+      : 'rgba(70, 90, 110, 0.22)';
+    ctx.lineWidth = isMajor ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x, gy);
+    ctx.lineTo(p.x, gy + depth);
+    ctx.stroke();
+  }
+
+  // Soft foreshortening hatch — faint horizontals denser near the horizon.
+  const hatchCount = Math.min(8, Math.max(3, Math.floor(groundH / 28)));
+  for (let i = 1; i <= hatchCount; i++) {
+    const t = i / (hatchCount + 1);
+    const y = gy + t * t * groundH;
+    ctx.strokeStyle = `rgba(60, 80, 100, ${0.1 + (1 - t) * 0.08})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
   ctx.strokeStyle = '#5a6a7a';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, left.y);
-  ctx.lineTo(w, left.y);
+  ctx.moveTo(0, gy);
+  ctx.lineTo(w, gy);
   ctx.stroke();
-
-  ctx.fillStyle = '#152028';
-  ctx.fillRect(0, left.y, w, h - left.y);
 }
 
 export function drawObstacles(
@@ -430,6 +513,7 @@ export function drawSnapshot(
       `a${agentIndex}`,
       snap.hideMuscles === true,
       snap.hideBones === true,
+      snap.hideSolidStruts === true,
     );
     ctx.restore();
   }
@@ -559,6 +643,7 @@ function drawAgent(
   creatureKey = 'agent',
   hideMuscles = false,
   hideBones = false,
+  hideSolidStruts = false,
 ): void {
   if (!hideMuscles && agent.muscles.length > 0) {
     // Batch by (action color, quantized width) — one beginPath/stroke per bucket.
@@ -626,6 +711,9 @@ function drawAgent(
         );
       }
     }
+  }
+
+  if (!hideSolidStruts) {
     const struts = agent.struts ?? [];
     for (const s of struts) {
       drawStrut(ctx, cam, w, h, s.ax, s.ay, s.bx, s.by);
@@ -644,6 +732,24 @@ function drawAgent(
       ctx.arc(_scrA.x, _scrA.y, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      if (
+        isFeatureEnabled('boxingMode') &&
+        (joint.isGlove || joint.isHitTarget)
+      ) {
+        ctx.save();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = joint.isGlove ? '#d35f55' : '#e0b85a';
+        ctx.beginPath();
+        ctx.arc(_scrA.x, _scrA.y, r + 4, 0, Math.PI * 2);
+        ctx.stroke();
+        if (joint.isHitTarget) {
+          ctx.fillStyle = '#e0b85a';
+          ctx.font = '600 10px "Segoe UI", system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(String(joint.hitValue ?? 1), _scrA.x, _scrA.y + 3);
+        }
+        ctx.restore();
+      }
     }
   }
 

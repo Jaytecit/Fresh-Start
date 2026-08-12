@@ -26,6 +26,8 @@ export interface CreatureMorphologySummary {
   feet: number;
   heads: number;
   wheels: number;
+  gloves: number;
+  hitTargets: number;
   aeroBones: number;
   totalMass: number;
 }
@@ -73,11 +75,15 @@ export function summarizeMorphology(
   let feet = 0;
   let heads = 0;
   let wheels = 0;
+  let gloves = 0;
+  let hitTargets = 0;
   for (const j of design.joints) {
     totalMass += j.mass ?? 1;
     if (j.isFoot) feet += 1;
     if (j.isHead) heads += 1;
     if (j.isWheel) wheels += 1;
+    if (j.isGlove) gloves += 1;
+    if (j.isHitTarget) hitTargets += 1;
   }
   let aeroBones = 0;
   for (const b of design.bones) {
@@ -93,6 +99,8 @@ export function summarizeMorphology(
     feet,
     heads,
     wheels,
+    gloves,
+    hitTargets,
     aeroBones,
     totalMass: Math.round(totalMass * 100) / 100,
   };

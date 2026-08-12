@@ -107,11 +107,11 @@ export const SCORE_REGION_DEFAULT_LANDING_RATE = 12;
 export const SCORE_REGION_MIN_RATE = 0;
 export const SCORE_REGION_MAX_RATE = 40;
 /** Default full size for newly placed regions (world units). */
-export const SCORE_REGION_DEFAULT_W = 3;
-export const SCORE_REGION_DEFAULT_H = 2;
+export const SCORE_REGION_DEFAULT_W = 15;
+export const SCORE_REGION_DEFAULT_H = 10;
 /** Default landing zone size (wider target). */
-export const SCORE_REGION_DEFAULT_LANDING_W = 5;
-export const SCORE_REGION_DEFAULT_LANDING_H = 2.5;
+export const SCORE_REGION_DEFAULT_LANDING_W = 25;
+export const SCORE_REGION_DEFAULT_LANDING_H = 12.5;
 /** Seconds of airtime required before a landing zone can credit. */
 export const LANDING_MIN_AIR_TIME = 0.25;
 /** Extra weight on landing rewards for specialist flight goals. */
@@ -121,8 +121,8 @@ export const FLIGHT_LANDING_REWARD_MULT = 1.75;
  * C2.10 course markers (score-only trigger volumes).
  * Default size is a tall thin gate.
  */
-export const COURSE_MARKER_DEFAULT_W = 0.6;
-export const COURSE_MARKER_DEFAULT_H = 3;
+export const COURSE_MARKER_DEFAULT_W = 3;
+export const COURSE_MARKER_DEFAULT_H = 15;
 /** Sprint finish: base bonus for crossing finish (armed + checkpoints). */
 export const SPRINT_FINISH_BONUS = 8;
 /** Sprint finish: bonus scale / finishTimeSeconds (faster → higher). */

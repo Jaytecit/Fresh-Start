@@ -2,6 +2,13 @@
 
 export const FIXED_DT = 1 / 60;
 
+/**
+ * Environment world units vs creature authoring units.
+ * Env Studio grid / obstacle / course sizes are this many times larger than
+ * creature-editor joints so courses read at creature scale in the shared world.
+ */
+export const ENV_WORLD_SCALE = 5;
+
 /** Evolution default gravity is -50 Unity units; retuned for Rapier meter-ish scale. */
 export const GRAVITY_Y = -38;
 
@@ -21,6 +28,18 @@ export const SOFT_CCD_SPEED_GATE = 24;
 
 export const DEFAULT_JOINT_MASS = 1.0;
 export const DEFAULT_BONE_MASS = 1.0;
+
+/** K4/K5 — non-solving Boxing probe and ring constants. */
+export const BOXING_GLOVE_PROBE_RADIUS = JOINT_RADIUS * 1.35;
+export const BOXING_TARGET_PROBE_RADIUS = JOINT_RADIUS * 1.65;
+export const BOXING_MIN_CLOSING_SPEED = 0.35;
+export const BOXING_MAX_POWER = 80;
+export const BOXING_HIT_COOLDOWN = 0.16;
+export const BOXING_SPAWN_X = 12;
+export const BOXING_RING_HALF_WIDTH = 27.5;
+export const BOXING_RING_WALL_WIDTH = 1.75;
+export const BOXING_RING_WALL_HEIGHT = 17.5;
+export const BOXING_MATCH_SECONDS = 45;
 
 /** SpringJoint-like restore toward rest length (Evolution: spring=1000, damper=50). */
 export const MUSCLE_SPRING = 360;
@@ -156,13 +175,13 @@ export const PARA_DEFLATE_RATE = 2.2;
 export const PARA_STREAM_DRAG_SCALE = 0.08;
 
 /** G1 static obstacle size clamps (full widths before half-extents). */
-export const OBSTACLE_MIN_SIZE = 0.12;
+export const OBSTACLE_MIN_SIZE = 0.6;
 /**
- * Authored env geometry max — large enough for Environment Studio’s 5× framing
- * (creature editor default zoom 48 → env default ~9.6). Soft cap only; not “infinite”
- * so Rapier/JSON stay sane.
+ * Authored env geometry max — large enough for Environment Studio’s 5× world
+ * scale plus wide course framing. Soft cap only; not “infinite” so Rapier/JSON
+ * stay sane.
  */
-export const OBSTACLE_MAX_SIZE = 2000;
+export const OBSTACLE_MAX_SIZE = 10000;
 /** Default ramp tilt (rad) when EnvObstacle.rot omitted. */
 export const OBSTACLE_DEFAULT_RAMP_ROT = -0.4;
 /** Stair step count for authored stair obstacles. */
@@ -173,9 +192,9 @@ export const OBSTACLE_LOOP_SEGMENTS = 10;
 /** G3 terrain heightfield clamps. */
 export const TERRAIN_MIN_SAMPLES = 2;
 export const TERRAIN_MAX_SAMPLES = 512;
-export const TERRAIN_MIN_WIDTH = 1;
-export const TERRAIN_MAX_WIDTH = 2000;
-export const TERRAIN_MAX_AMPLITUDE = 200;
+export const TERRAIN_MIN_WIDTH = 5;
+export const TERRAIN_MAX_WIDTH = 10000;
+export const TERRAIN_MAX_AMPLITUDE = 1000;
 /** Obs[8] divisor — grade ≈ dy/dx / TERRAIN_GRADE_SCALE. */
 export const TERRAIN_GRADE_SCALE = 2;
 
@@ -183,36 +202,36 @@ export const TERRAIN_GRADE_SCALE = 2;
  * E6.8 rough-terrain course (task-owned sine heightfield).
  * Starts ahead of typical spawn so the creature enters hills on flat ground.
  */
-export const ROUGH_COURSE_START_X = 3;
-export const ROUGH_COURSE_END_X = 43;
-export const ROUGH_COURSE_AMPLITUDE = 1.2;
+export const ROUGH_COURSE_START_X = 15;
+export const ROUGH_COURSE_END_X = 215;
+export const ROUGH_COURSE_AMPLITUDE = 6;
 export const ROUGH_COURSE_SAMPLES = 41;
 export const ROUGH_COURSE_WAVES = 2.5;
 
 /** Environment Studio creature spawn marker clamps (world units). */
-export const SPAWN_MIN_X = -2000;
-export const SPAWN_MAX_X = 2000;
+export const SPAWN_MIN_X = -10000;
+export const SPAWN_MAX_X = 10000;
 export const SPAWN_MIN_Y = 0;
-export const SPAWN_MAX_Y = 800;
+export const SPAWN_MAX_Y = 4000;
 
 /**
  * H2 disco arena walls — inner faces near ±DISCO_WALL_X (ruler units).
  * Pair with DISCO_CAM_ZOOM_* so the full floor fits at default zoom-out.
  */
-export const DISCO_WALL_X = 50;
-export const DISCO_WALL_W = 0.7;
-export const DISCO_WALL_H = 24;
+export const DISCO_WALL_X = 250;
+export const DISCO_WALL_W = 3.5;
+export const DISCO_WALL_H = 120;
 /** SimCanvas zoom floor / default overview for the disco arena. */
-export const DISCO_CAM_ZOOM_MIN = 8;
-export const DISCO_CAM_ZOOM_DEFAULT = 8;
-export const DISCO_CAM_Y = 6;
+export const DISCO_CAM_ZOOM_MIN = 1.6;
+export const DISCO_CAM_ZOOM_DEFAULT = 1.6;
+export const DISCO_CAM_Y = 30;
 
 /** Default disco-ball world position (render FX; drag to reposition). */
 export const DEFAULT_DISCO_BALL_X = 0;
-export const DEFAULT_DISCO_BALL_Y = 17;
+export const DEFAULT_DISCO_BALL_Y = 85;
 /** Soft clamp for dragging the ball inside the arena. */
 export const DISCO_BALL_X_MAX = DISCO_WALL_X * 0.92;
-export const DISCO_BALL_Y_MIN = 2;
+export const DISCO_BALL_Y_MIN = 10;
 export const DISCO_BALL_Y_MAX = DISCO_WALL_H * 0.95;
 
 /**
@@ -329,12 +348,12 @@ export function clampWheelMass(value: number): number {
 }
 
 /** C2.4 launch tower clamps / proportions. */
-export const TOWER_MIN_BASE_W = 0.6;
-export const TOWER_MAX_BASE_W = 400;
-export const TOWER_MIN_HEIGHT = 0.8;
-export const TOWER_MAX_HEIGHT = 800;
+export const TOWER_MIN_BASE_W = 3;
+export const TOWER_MAX_BASE_W = 2000;
+export const TOWER_MIN_HEIGHT = 4;
+export const TOWER_MAX_HEIGHT = 4000;
 /** Deck slab thickness (world units). */
-export const TOWER_DECK_THICKNESS = 0.22;
+export const TOWER_DECK_THICKNESS = 1.1;
 /** Stem width as a fraction of baseW. */
 export const TOWER_STEM_WIDTH_RATIO = 0.42;
 
@@ -343,9 +362,9 @@ export const TOWER_STEM_WIDTH_RATIO = 0.42;
  * Per-pad authored apex (ruler units) → VY = √(2|g|h) × damping compensation.
  * Builder slider clamps to [APEX_MIN, APEX_MAX]; default APEX_H.
  */
-export const LAUNCH_PAD_APEX_MIN = 100;
-export const LAUNCH_PAD_APEX_MAX = 1000;
-export const LAUNCH_PAD_APEX_H = 180;
+export const LAUNCH_PAD_APEX_MIN = 500;
+export const LAUNCH_PAD_APEX_MAX = 5000;
+export const LAUNCH_PAD_APEX_H = 900;
 /** Multiplier on ideal √(2gh) so measured peak ≈ authored apex under drag/scrub. */
 export const LAUNCH_PAD_DAMPING_COMP = 1.12;
 
@@ -364,7 +383,7 @@ export function launchPadVyForApex(apex: number): number {
 /** @deprecated Prefer launchPadVyForApex(pad.launchApex) — default-pad VY. */
 export const LAUNCH_PAD_VY = launchPadVyForApex(LAUNCH_PAD_APEX_H);
 /** Lift off the deck on fire so contact solve cannot scrub the boost. */
-export const LAUNCH_PAD_CLEARANCE = 1.2;
+export const LAUNCH_PAD_CLEARANCE = 6;
 /**
  * Top-face proximity for foot centers when Rapier contact pairs miss a thin slab.
  * Kept close to the drawn deck (≈ foot radius), not a large halo.
@@ -373,5 +392,5 @@ export const LAUNCH_PAD_PROXIMITY = JOINT_RADIUS * 0.55;
 /** Re-assert upward speed for this many steps after contact fire. */
 export const LAUNCH_PAD_BOOST_STEPS = 8;
 /** Default authored pad size (thin deck). */
-export const LAUNCH_PAD_DEFAULT_W = 3.2;
-export const LAUNCH_PAD_DEFAULT_H = 0.28;
+export const LAUNCH_PAD_DEFAULT_W = 16;
+export const LAUNCH_PAD_DEFAULT_H = 1.4;

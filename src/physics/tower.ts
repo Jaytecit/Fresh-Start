@@ -49,7 +49,7 @@ export function clampTower(tower: EnvTower): EnvTower {
 }
 
 export function defaultTower(): EnvTower {
-  return clampTower({ x: 0, baseW: 3.5, height: 4 });
+  return clampTower({ x: 0, baseW: 17.5, height: 20 });
 }
 
 function addCuboid(

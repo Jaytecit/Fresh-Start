@@ -10,7 +10,6 @@ import { clampAuthoredCurriculum } from '../env/courseCurriculum';
 import { clampScoreRegion } from '../brain/scoreRegions';
 import { clampCourseMarker } from '../brain/courseMarkers';
 import {
-  clampSpawn,
   cloneEnvironment,
   defaultSpawn,
   isCourseMarkerKind,
@@ -34,6 +33,7 @@ import { clampTower } from '../physics/tower';
 import {
   decodeWeights,
   encodeWeights,
+  type BoxingModelMeta,
   type DanceCurriculumMeta,
 } from './savedModels';
 
@@ -57,11 +57,12 @@ export interface ModelExport {
   fitness: number;
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
+  boxingMeta?: BoxingModelMeta;
 }
 
 export interface EnvironmentExport {
   kind: 'freshstart-environment';
-  version: 1;
+  version: 2;
   environment: EnvironmentDesign;
 }
 
@@ -88,11 +89,25 @@ const TASK_IDS: ReadonlySet<string> = new Set([
   'motor_gap',
   'motor_hurdles',
   'motor_sprint',
+  'boxing',
   'dance',
 ]);
 
 function isTaskId(v: unknown): v is TaskId {
   return typeof v === 'string' && TASK_IDS.has(v);
+}
+
+function isBoxingModelMeta(v: unknown): v is BoxingModelMeta {
+  if (!v || typeof v !== 'object') return false;
+  const meta = v as Partial<BoxingModelMeta>;
+  return (
+    (meta.divisionId === 'upright' ||
+      meta.divisionId === 'grounded' ||
+      meta.divisionId === 'open-frame') &&
+    meta.ruleVersion === 1 &&
+    meta.obsPackVersion === 2 &&
+    meta.brainHz === 30
+  );
 }
 
 function isNetworkShape(v: unknown): v is NetworkShape {
@@ -123,6 +138,7 @@ export function exportModelJson(opts: {
   fitness: number;
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
+  boxingMeta?: BoxingModelMeta;
 }): string {
   const payload: ModelExport = {
     kind: 'freshstart-model',
@@ -134,6 +150,7 @@ export function exportModelJson(opts: {
     fitness: opts.fitness,
     design: cloneDesign(opts.design),
     ...(opts.danceMeta ? { danceMeta: { ...opts.danceMeta } } : {}),
+    ...(opts.boxingMeta ? { boxingMeta: { ...opts.boxingMeta } } : {}),
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -146,6 +163,7 @@ export function importModelJson(raw: string): JsonResult<{
   fitness: number;
   design: CreatureDesign;
   danceMeta?: DanceCurriculumMeta;
+  boxingMeta?: BoxingModelMeta;
 }> {
   try {
     const data = JSON.parse(raw) as Partial<ModelExport>;
@@ -160,6 +178,12 @@ export function importModelJson(raw: string): JsonResult<{
     }
     if (!isTaskId(data.task) || !isNetworkShape(data.shape)) {
       return { ok: false, error: 'Invalid model JSON: bad task/shape' };
+    }
+    if (data.task === 'boxing' && !isBoxingModelMeta(data.boxingMeta)) {
+      return {
+        ok: false,
+        error: 'Invalid Boxing model JSON: incompatible division/brain metadata',
+      };
     }
     if (
       typeof data.shape.inputCount !== 'number' ||
@@ -207,6 +231,7 @@ export function importModelJson(raw: string): JsonResult<{
         fitness: typeof data.fitness === 'number' ? data.fitness : 0,
         design: designResult.value,
         ...(data.danceMeta ? { danceMeta: { ...data.danceMeta } } : {}),
+        ...(data.boxingMeta ? { boxingMeta: { ...data.boxingMeta } } : {}),
       },
     };
   } catch (err) {
@@ -281,7 +306,7 @@ export function importCreatureJson(raw: string): JsonResult<CreatureDesign> {
 export function exportEnvironmentJson(environment: EnvironmentDesign): string {
   const payload: EnvironmentExport = {
     kind: 'freshstart-environment',
-    version: 1,
+    version: 2,
     environment: cloneEnvironment(environment),
   };
   return JSON.stringify(payload, null, 2);
@@ -291,6 +316,17 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
   try {
     const data = JSON.parse(raw) as Partial<EnvironmentExport> &
       Partial<EnvironmentDesign>;
+    const fileVersion =
+      data.kind === 'freshstart-environment' && typeof data.version === 'number'
+        ? data.version
+        : 1;
+    if (fileVersion < 2) {
+      return {
+        ok: false,
+        error:
+          'Environment JSON is from before the 5× world scale — rebuild in Environment Studio (v1 imports were cleared)',
+      };
+    }
     const environment =
       data.kind === 'freshstart-environment' && data.environment
         ? data.environment
@@ -327,8 +363,11 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
         w: o.w,
         h: o.h,
         ...(typeof o.rot === 'number' ? { rot: o.rot } : {}),
+        ...(o.kind === 'stair' && (o.ascend === 'left' || o.ascend === 'right')
+          ? { ascend: o.ascend }
+          : {}),
         ...(o.kind === 'pad' && typeof o.launchApex === 'number'
-          ? { launchApex: clampLaunchPadApex(o.launchApex) }
+          ? { launchApex: o.launchApex }
           : {}),
       });
     }
@@ -418,12 +457,12 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
       ) {
         return { ok: false, error: 'Invalid environment JSON: bad terrain' };
       }
-      terrain = clampTerrain({
+      terrain = {
         startX: rawT.startX,
         endX: rawT.endX,
         amplitude: rawT.amplitude,
         samples: rawT.samples.slice(),
-      });
+      };
     }
     let tower: EnvTower | undefined;
     if (environment.tower !== undefined && environment.tower !== null) {
@@ -435,11 +474,11 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
       ) {
         return { ok: false, error: 'Invalid environment JSON: bad tower' };
       }
-      tower = clampTower({
+      tower = {
         x: rawTower.x,
         baseW: rawTower.baseW,
         height: rawTower.height,
-      });
+      };
     }
     let spawn: EnvSpawn = defaultSpawn();
     if (environment.spawn !== undefined && environment.spawn !== null) {
@@ -447,24 +486,32 @@ export function importEnvironmentJson(raw: string): JsonResult<EnvironmentDesign
       if (typeof rawSpawn.x !== 'number' || typeof rawSpawn.y !== 'number') {
         return { ok: false, error: 'Invalid environment JSON: bad spawn' };
       }
-      spawn = clampSpawn({ x: rawSpawn.x, y: rawSpawn.y });
+      spawn = { x: rawSpawn.x, y: rawSpawn.y };
     }
     const curriculum = clampAuthoredCurriculum(
       environment.curriculum as Parameters<typeof clampAuthoredCurriculum>[0],
     );
-    return {
-      ok: true,
-      value: cloneEnvironment({
-        ...(environment as EnvironmentDesign),
-        obstacles,
-        regions,
-        markers,
-        curriculum,
-        terrain,
-        tower,
-        spawn,
-      }),
-    };
+    let value = cloneEnvironment({
+      ...(environment as EnvironmentDesign),
+      obstacles,
+      regions,
+      markers,
+      curriculum,
+      terrain,
+      tower,
+      spawn,
+    });
+    value = cloneEnvironment({
+      ...value,
+      obstacles: value.obstacles.map((o) =>
+        o.kind === 'pad'
+          ? { ...o, launchApex: clampLaunchPadApex(o.launchApex) }
+          : o,
+      ),
+      terrain: value.terrain ? clampTerrain(value.terrain) : undefined,
+      tower: value.tower ? clampTower(value.tower) : undefined,
+    });
+    return { ok: true, value };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

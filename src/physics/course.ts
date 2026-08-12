@@ -61,10 +61,10 @@ export function spawnClimbCourse(
   worldGrip: number = WORLD_GRIP,
 ): CourseHandle {
   return spawnFixedCuboids(world, worldGrip, [
-    { x: 2.5, y: 0.35, hx: 1.2, hy: 0.35 },
-    { x: 4.5, y: 0.85, hx: 1.2, hy: 0.35 },
-    { x: 6.5, y: 1.35, hx: 1.2, hy: 0.35 },
-    { x: 8.5, y: 1.85, hx: 1.2, hy: 0.35 },
+    { x: 12.5, y: 1.75, hx: 6, hy: 1.75 },
+    { x: 22.5, y: 4.25, hx: 6, hy: 1.75 },
+    { x: 32.5, y: 6.75, hx: 6, hy: 1.75 },
+    { x: 42.5, y: 9.25, hx: 6, hy: 1.75 },
   ]);
 }
 
@@ -74,8 +74,8 @@ export function spawnMotorRampCourse(
   worldGrip: number = WORLD_GRIP,
 ): CourseHandle {
   return spawnFixedCuboids(world, worldGrip, [
-    { x: 4.5, y: 0.55, hx: 2.2, hy: 0.16, rot: 0.35 },
-    { x: 8.2, y: 1.35, hx: 1.4, hy: 0.16 },
+    { x: 22.5, y: 2.75, hx: 11, hy: 0.8, rot: 0.35 },
+    { x: 41, y: 6.75, hx: 7, hy: 0.8 },
   ]);
 }
 
@@ -85,8 +85,8 @@ export function spawnMotorGapCourse(
   worldGrip: number = WORLD_GRIP,
 ): CourseHandle {
   return spawnFixedCuboids(world, worldGrip, [
-    { x: 3.2, y: 0.2, hx: 1.6, hy: 0.2 },
-    { x: 8.8, y: 0.2, hx: 1.6, hy: 0.2 },
+    { x: 16, y: 1, hx: 8, hy: 1 },
+    { x: 44, y: 1, hx: 8, hy: 1 },
   ]);
 }
 
@@ -96,10 +96,10 @@ export function spawnMotorHurdlesCourse(
   worldGrip: number = WORLD_GRIP,
 ): CourseHandle {
   return spawnFixedCuboids(world, worldGrip, [
-    { x: 3.5, y: 0.22, hx: 0.35, hy: 0.22 },
-    { x: 5.5, y: 0.28, hx: 0.35, hy: 0.28 },
-    { x: 7.5, y: 0.22, hx: 0.35, hy: 0.22 },
-    { x: 9.5, y: 0.3, hx: 0.35, hy: 0.3 },
+    { x: 17.5, y: 1.1, hx: 1.75, hy: 1.1 },
+    { x: 27.5, y: 1.4, hx: 1.75, hy: 1.4 },
+    { x: 37.5, y: 1.1, hx: 1.75, hy: 1.1 },
+    { x: 47.5, y: 1.5, hx: 1.75, hy: 1.5 },
   ]);
 }
 
@@ -107,10 +107,10 @@ export function spawnMotorHurdlesCourse(
 export function spawnClearBarCourse(
   world: RAPIER.World,
   worldGrip: number = WORLD_GRIP,
-  barY = 2,
+  barY = 10,
 ): CourseHandle {
   return spawnFixedCuboids(world, worldGrip, [
-    { x: 3.5, y: barY, hx: 1.2, hy: 0.06 },
+    { x: 17.5, y: barY, hx: 6, hy: 0.3 },
   ]);
 }
 

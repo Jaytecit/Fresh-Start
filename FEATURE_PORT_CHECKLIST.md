@@ -185,6 +185,18 @@ Implementation is Fresh Start–native (rewrite). Parent physics code, tuning, n
 
 
 
+## K. Boxing Skill (Fresh Start-native, not parent Arena)
+
+- [x] **K1 Boxing skill shell** — dedicated Skill area and static ring
+- [x] **K2 Fighter authoring marks** — glove and scored target joints
+- [x] **K3 Boxing divisions** — versioned, design-derived eligibility rules
+- [x] **K4 Opponent-only hit probes** — non-solving Rapier sensors with owner filtering
+- [x] **K5 Timed points matches** — score, power, accuracy, clock, result
+- [x] **K6 Boxing brain training** — dedicated observations, fixed sparring curriculum, telemetry
+- [x] **K7 Boxing verification** — deterministic smoke coverage and full firewall gate
+
+
+
 ## J. Dev tooling
 
 - [x] **J1 Broader headless smoke suite** — done (`smoke:tasks`); extend as features land

@@ -158,6 +158,8 @@ export const featureFlags = {
   arenaChampionship: false,
   /** I6 / B20 — Head-to-Head gauntlet (two models) */
   headToHead: true,
+  /** K1–K7 — dedicated Boxing skill. */
+  boxingMode: true,
 } as const;
 
 export type FeatureFlag = keyof typeof featureFlags;

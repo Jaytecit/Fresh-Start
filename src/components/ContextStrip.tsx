@@ -11,6 +11,7 @@ interface Props {
   onSelectSkill: (id: SkillId) => void;
   showSkillTabs: boolean;
   showDiscoSkill: boolean;
+  showBoxingSkill: boolean;
   goals: GoalDef[];
   goalId: GoalId;
   onSelectGoal: (id: GoalId) => void;
@@ -29,6 +30,7 @@ export function ContextStrip({
   onSelectSkill,
   showSkillTabs,
   showDiscoSkill,
+  showBoxingSkill,
   goals,
   goalId,
   onSelectGoal,
@@ -43,7 +45,9 @@ export function ContextStrip({
   if (!showSkillTabs && !showGoals && !showEnv) return null;
 
   const skillIds = SKILL_ORDER.filter(
-    (id) => id !== 'disco' || showDiscoSkill,
+    (id) =>
+      (id !== 'disco' || showDiscoSkill) &&
+      (id !== 'boxing' || showBoxingSkill),
   );
 
   return (
@@ -51,7 +55,7 @@ export function ContextStrip({
       {showSkillTabs && (
         <div className="context-strip-skills">
           <HelpTip
-            tip="Skill picks the family of challenges — walk, jump, fly, motor, free play, or disco. Goals below change to match."
+            tip="Skill picks the family of challenges — walk, jump, fly, motor, boxing, free play, or disco. Goals below change to match."
           >
             <span className="context-strip-label">Skill</span>
           </HelpTip>

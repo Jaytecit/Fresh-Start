@@ -242,17 +242,17 @@ async function assertStaticObstacles(): Promise<void> {
   const samples: EnvObstacle[] = OBSTACLE_KINDS.map((kind, i) => ({
     id: `smoke_${kind}`,
     kind,
-    x: 2 + i * 4,
+    x: 10 + i * 20,
     y:
       kind === 'loop'
-        ? 2.2
+        ? 11
         : kind === 'stair' || kind === 'pit'
           ? 0
           : kind === 'pad'
-            ? 0.14
-            : 0.5,
-    w: kind === 'ramp' || kind === 'pad' ? 3 : kind === 'loop' ? 3.2 : 2,
-    h: kind === 'ramp' || kind === 'pad' ? 0.28 : kind === 'loop' ? 3.2 : 1.2,
+            ? 0.7
+            : 2.5,
+    w: kind === 'ramp' || kind === 'pad' ? 15 : kind === 'loop' ? 16 : 10,
+    h: kind === 'ramp' || kind === 'pad' ? 1.4 : kind === 'loop' ? 16 : 6,
     ...(kind === 'ramp' ? { rot: -0.35 } : {}),
   }));
 
@@ -266,8 +266,9 @@ async function assertStaticObstacles(): Promise<void> {
 
   const env = flatGroundEnv('Smoke Obstacles');
   env.obstacles = [
-    { id: 'box_pad', kind: 'box', x: 0, y: 0.6, w: 3, h: 1.2 },
+    { id: 'box_pad', kind: 'box', x: 0, y: 3, w: 15, h: 6 },
   ];
+  env.spawn = { x: 0, y: 6 };
   sim.setEnvironment(env);
   const spawnFootGrip = 7.3;
   sim.setFootGrip(spawnFootGrip);
@@ -296,7 +297,7 @@ async function assertStaticObstacles(): Promise<void> {
   }
   const avgY =
     snap.joints.reduce((s, j) => s + j.y, 0) / Math.max(1, snap.joints.length);
-  assert(avgY > 0.3, `hopper should rest above box pad, avgY=${avgY}`);
+  assert(avgY > 5.5, `hopper should rest above box pad, avgY=${avgY}`);
 
   // Soft CCD: high-speed impact into a tall box must not bury joints.
   {
@@ -306,7 +307,7 @@ async function assertStaticObstacles(): Promise<void> {
     assert(SOFT_CCD_SPEED_GATE > 0, 'soft CCD speed gate configured');
     const wallEnv = flatGroundEnv('Smoke Wall');
     wallEnv.obstacles = [
-      { id: 'wall', kind: 'box', x: 4, y: 2.25, w: 2.5, h: 4.5 },
+      { id: 'wall', kind: 'box', x: 20, y: 11.25, w: 12.5, h: 22.5 },
     ];
     sim.setEnvironment(wallEnv);
     sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
@@ -317,10 +318,10 @@ async function assertStaticObstacles(): Promise<void> {
     for (const b of creature.bones) {
       b.body.setLinvel({ x: 28, y: 6 }, true);
     }
-    const left = 4 - 2.5 / 2;
-    const right = 4 + 2.5 / 2;
-    const bottom = 2.25 - 4.5 / 2;
-    const top = 2.25 + 4.5 / 2;
+    const left = 20 - 12.5 / 2;
+    const right = 20 + 12.5 / 2;
+    const bottom = 11.25 - 22.5 / 2;
+    const top = 11.25 + 22.5 / 2;
     let maxPen = 0;
     for (let i = 0; i < 180; i++) {
       sim.step(FIXED_DT);
@@ -601,12 +602,12 @@ async function assertRampGrip(): Promise<void> {
 
   const flatHandle = spawnStaticObstacles(
     world,
-    [{ id: 'grip_box', kind: 'box', x: 10, y: 0.5, w: 2, h: 1 }],
+    [{ id: 'grip_box', kind: 'box', x: 50, y: 2.5, w: 10, h: 5 }],
     RAMP_FRICTION_MAX,
   );
   const obstacleFoot = spawnCreature(world, {
     name: 'ObstacleFoot',
-    joints: [{ id: 1, x: 10, y: 1 + JOINT_RADIUS + 0.02, isFoot: true }],
+    joints: [{ id: 1, x: 50, y: 5 + JOINT_RADIUS + 0.02, isFoot: true }],
     bones: [],
     muscles: [],
   });
@@ -764,22 +765,22 @@ async function assertLaunchPad(): Promise<void> {
       id: 'pad0',
       kind: 'pad',
       x: 0,
-      y: 0.14,
-      w: 4,
-      h: 0.28,
+      y: 0.7,
+      w: 20,
+      h: 1.4,
       launchApex: apex,
     },
     {
       id: 'pad1',
       kind: 'pad',
-      x: 8,
-      y: 0.14,
-      w: 4,
-      h: 0.28,
+      x: 40,
+      y: 0.7,
+      w: 20,
+      h: 1.4,
       launchApex: apex,
     },
   ];
-  env.spawn = { x: 0, y: 0.55 };
+  env.spawn = { x: 0, y: 2.75 };
   sim.setEnvironment(env);
   sim.loadDesign(cloneDesign(SIMPLE_HOPPER));
   sim.driveMode = 'idle';
@@ -830,7 +831,7 @@ async function assertLaunchPad(): Promise<void> {
       creature.joints.reduce((s, j) => s + j.body.translation().y, 0) /
       creature.joints.length;
     const dx = padX - cx;
-    const dy = padY + 0.55 - cy;
+    const dy = padY + 2.75 - cy;
     for (const b of bodies) {
       const t = b.translation();
       b.setTranslation({ x: t.x + dx, y: t.y + dy }, true);
@@ -840,7 +841,7 @@ async function assertLaunchPad(): Promise<void> {
     }
   };
 
-  placeOnPad(8, 0.14);
+  placeOnPad(40, 0.7);
   let launched2 = false;
   let peak2 = -Infinity;
   for (let i = 0; i < 320; i++) {
@@ -860,7 +861,7 @@ async function assertLaunchPad(): Promise<void> {
   );
 
   // Returning to pad0 must not re-fire.
-  placeOnPad(0, 0.14);
+  placeOnPad(0, 0.7);
   for (let i = 0; i < 120; i++) sim.step(FIXED_DT);
   assert(
     sim.launchPadSpentCount() === 2,
@@ -884,22 +885,22 @@ async function assertLaunchPad(): Promise<void> {
       id: 'pad0',
       kind: 'pad',
       x: 0,
-      y: 0.14,
-      w: 6,
-      h: 0.28,
+      y: 0.7,
+      w: 30,
+      h: 1.4,
       launchApex: LAUNCH_PAD_APEX_MAX,
     },
     {
       id: 'pad1',
       kind: 'pad',
-      x: 8,
-      y: 0.14,
-      w: 6,
-      h: 0.28,
+      x: 40,
+      y: 0.7,
+      w: 30,
+      h: 1.4,
       launchApex: LAUNCH_PAD_APEX_MAX,
     },
   ];
-  aeroEnv.spawn = { x: 0, y: 0.8 };
+  aeroEnv.spawn = { x: 0, y: 4 };
   aeroSim.setEnvironment(aeroEnv);
   aeroSim.loadDesign(cloneDesign(SIMPLE_FLAPPER));
   aeroSim.driveMode = 'idle';
@@ -919,8 +920,8 @@ async function assertLaunchPad(): Promise<void> {
     for (const j of creature.joints) {
       minY = Math.min(minY, j.body.translation().y);
     }
-    const dx = 8 - cx;
-    const dy = 0.14 + 0.28 / 2 + JOINT_RADIUS + 0.05 - minY;
+    const dx = 40 - cx;
+    const dy = 0.7 + 1.4 / 2 + JOINT_RADIUS + 0.05 - minY;
     for (const b of bodies) {
       const t = b.translation();
       b.setTranslation({ x: t.x + dx, y: t.y + dy }, true);
@@ -1271,10 +1272,11 @@ function assertCatalogAndZones(): void {
   );
   const pngCount = countPngs(assets);
   assert(pngCount > 50, `expected body-part PNGs, got ${pngCount}`);
-  assert(ZONE_ORDER.length === 6, 'six skills');
+  assert(ZONE_ORDER.length === 7, 'seven skills');
   assert(ZONES.walking.defaultTask === 'run', 'walking → run');
   assert(ZONES.jumping.defaultTask === 'jump', 'jumping → jump');
   assert(ZONES.disco.shortLabel === 'Disco', 'disco skill present');
+  assert(ZONES.boxing.defaultTask === 'boxing', 'boxing skill present');
   assert(BUNDLED_MODELS.length >= 3, 'bundled models present');
   assert(GOAL_CATALOG.length >= 6, 'goal catalog has task families');
   assert(goalsForZone('walking').some((g) => g.id === 'run'), 'walking lists run');
@@ -1297,10 +1299,14 @@ function assertCatalogAndZones(): void {
   );
   assert(
     goalsForZone('free').length ===
-      GOAL_CATALOG.filter((g) => g.id !== 'dance').length,
-    'free lists evolve goals (excludes dance)',
+      GOAL_CATALOG.filter((g) => g.id !== 'dance' && g.id !== 'boxing').length,
+    'free lists solo evolve goals (excludes dance and boxing)',
   );
   assert(goalsForZone('disco').length === 0, 'disco has no evolve goals');
+  assert(
+    goalsForZone('boxing').some((g) => g.id === 'boxing'),
+    'boxing lists points goal',
+  );
   assert(
     GOAL_CATALOG.some((g) => g.id === 'dance'),
     'dance goal present for saved-model labeling',
@@ -1410,8 +1416,8 @@ function assertEnvironmentPackages(): void {
   assert(round.ok && round.value.obstacles.length === 0, 'empty obstacles');
 
   env.obstacles = [
-    { id: 'o1', kind: 'box', x: 1, y: 0.5, w: 2, h: 1 },
-    { id: 'o2', kind: 'stair', x: 4, y: 0, w: 5, h: 2 },
+    { id: 'o1', kind: 'box', x: 5, y: 2.5, w: 10, h: 5 },
+    { id: 'o2', kind: 'stair', x: 20, y: 0, w: 25, h: 10 },
   ];
   const withObs = exportEnvironmentJson(env);
   const roundObs = importEnvironmentJson(withObs);
