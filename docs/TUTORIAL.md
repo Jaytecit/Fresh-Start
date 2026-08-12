@@ -22,12 +22,11 @@ You design a creature, pick a challenge, and let many “brains” try the cours
 
 ## Your first win (about 5 minutes)
 
-1. Open **Creature builder**.
-2. Load a preset — **Simple Hopper** is a good starter.
-3. On the strip, set **Skill → Walk**, **Goal → Run**, **Env → Flat Ground** (or similar).
-4. Open **Train** and press **Evolve**.
-5. Let a few rounds finish. Press **Play best** to watch the winner alone.
-6. Press **Save model** if you like it.
+1. The sandbox already has **Walk**, **Run**, **Flat Ground**, and a **Floppy Chain** loaded.
+2. Open **Creature builder** if you want to tweak that body, or pick another preset.
+3. Open **Train** and press **Evolve**.
+4. Let a few rounds finish. Press **Play best** to watch the winner alone.
+5. Press **Save model** if you like it.
 
 That’s a full loop: body → goal → train → enjoy.
 

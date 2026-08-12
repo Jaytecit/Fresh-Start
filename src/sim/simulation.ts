@@ -467,6 +467,8 @@ export interface BoxingLiveEvolveOptions {
   design: CreatureDesign;
   divisionId: BoxingDivisionId;
   opponentDesign: CreatureDesign;
+  /** Omit to use a seeded random dummy brain for the sparring body. */
+  opponentWeights?: Float32Array;
   populationSize?: number;
   batchSize?: number;
   maxGenerations?: number;
@@ -1938,10 +1940,18 @@ export class Simulation {
     const rng = createRng(options.seed ?? 1);
     const shape = shapeForBoxingDesign(design);
     const opponentShape = shapeForBoxingDesign(opponentDesign);
-    const opponentWeights = randomWeights(
-      opponentShape,
-      createRng((options.seed ?? 1) + 991),
-    );
+    if (
+      options.opponentWeights &&
+      options.opponentWeights.length !== opponentShape.weightCount
+    ) {
+      throw new Error('Sparring brain does not match the sparring body');
+    }
+    const opponentWeights = options.opponentWeights
+      ? cloneWeights(options.opponentWeights)
+      : randomWeights(
+          opponentShape,
+          createRng((options.seed ?? 1) + 991),
+        );
 
     let resolvedSeed = options.seedGenome;
     if (resolvedSeed) {
@@ -3236,13 +3246,6 @@ export class Simulation {
   private emitBoxingLiveProgress(evaluatedOverride?: number): void {
     const live = this.boxingLive;
     if (!live) return;
-    const evaluated =
-      evaluatedOverride ??
-      Math.min(
-        live.batchIndex * live.batchSize +
-          Math.max(0, live.pairs.length),
-        live.popSize,
-      );
     // During an active episode, count completed genomes only (prior batches).
     const scored =
       evaluatedOverride !== undefined

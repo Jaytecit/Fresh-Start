@@ -3,6 +3,7 @@ import {
   OPEN_FRAME_FIGHTER,
   UPRIGHT_FIGHTER,
 } from '../boxing/referenceFighters';
+import { BOXOBOT_V2 } from '../boxing/sparringOpponents';
 import { BOXOBOT } from './boxoBot';
 import type { CreatureDesign } from './types';
 
@@ -277,6 +278,7 @@ export const PRESETS: CreatureDesign[] = [
   SIMPLE_FLAPPER,
   CHUTE_DROPPER,
   BOXOBOT,
+  BOXOBOT_V2,
   UPRIGHT_FIGHTER,
   GROUNDED_FIGHTER,
   OPEN_FRAME_FIGHTER,

@@ -33,6 +33,12 @@ import {
 } from '../src/boxing/rewards.ts';
 import { sparringDesignForDivision } from '../src/brain/boxingTraining.ts';
 import {
+  BOXOBOT_V2,
+  BOXOBOT_V2T_NAME,
+  normalizeSparringOpponentId,
+  resolveSparringOpponent,
+} from '../src/boxing/sparringOpponents.ts';
+import {
   BOXING_OBS_COUNT,
   BOXING_OBS_PACK_VERSION,
   buildBoxingObservations,
@@ -90,6 +96,34 @@ function assertDivisions(): void {
     'eligibility explains missing gloves',
   );
   ok(BOXING_DIVISIONS.every((division) => division.ruleVersion === 1), 'v1 rules');
+
+  ok(
+    boxingEligibility(BOXOBOT_V2, 'upright').eligible,
+    'BoxoBot V2 upright eligible',
+  );
+  ok(
+    boxingEligibility(BOXOBOT_V2, 'open-frame').eligible,
+    'BoxoBot V2 open-frame eligible',
+  );
+  const dummy = resolveSparringOpponent('upright', 'dummy', 1);
+  assert.equal(dummy.design.name, BOXOBOT.name);
+  assert.equal(dummy.trained, false);
+  const v2t = resolveSparringOpponent('upright', 'boxobot-v2t', 1);
+  assert.equal(v2t.name, BOXOBOT_V2T_NAME);
+  assert.equal(v2t.trained, true);
+  assert.equal(v2t.design.name, BOXOBOT_V2.name);
+  const expectedV2T = shapeForBoxingDesign(v2t.design);
+  assert.equal(v2t.weights.length, expectedV2T.weightCount);
+  assert.equal(v2t.shape.inputCount, expectedV2T.inputCount);
+  assert.equal(v2t.shape.outputCount, expectedV2T.outputCount);
+  assert.equal(
+    normalizeSparringOpponentId('grounded', 'boxobot-v2t'),
+    'dummy',
+    'V2T is not a grounded sparring option',
+  );
+  const groundedFallback = resolveSparringOpponent('grounded', 'boxobot-v2t', 1);
+  assert.equal(groundedFallback.id, 'dummy');
+  assert.equal(groundedFallback.design.name, GROUNDED_FIGHTER.name);
 
   const movedGlove = cloneDesign(UPRIGHT_FIGHTER);
   movedGlove.joints.find((joint) => joint.isGlove)!.y += 100;
@@ -655,6 +689,32 @@ async function assertBoxingLiveBatch(): Promise<void> {
   }
 }
 
+async function assertBoxingV2TSparringLoads(): Promise<void> {
+  const opponent = resolveSparringOpponent('upright', 'boxobot-v2t', 1);
+  const simulation = new Simulation();
+  await simulation.init();
+  try {
+    simulation.startBoxingLiveEvolve({
+      design: cloneDesign(UPRIGHT_FIGHTER),
+      divisionId: 'upright',
+      opponentDesign: opponent.design,
+      opponentWeights: opponent.weights,
+      populationSize: 4,
+      batchSize: 4,
+      maxGenerations: 1,
+      episodeSeconds: 1,
+      seed: 3,
+    });
+    for (let i = 0; i < 4; i++) simulation.step(FIXED_DT);
+    const snap = simulation.snapshot();
+    ok(snap.evolve?.running === true, 'V2T sparring live evolve runs');
+    assert.equal(snap.agents.length, 8, 'V2T sparring still uses trainee+partner pairs');
+  } finally {
+    simulation.world?.free();
+    simulation.world = null;
+  }
+}
+
 async function main(): Promise<void> {
   await initRapier();
   assertDivisions();
@@ -666,6 +726,7 @@ async function main(): Promise<void> {
   await assertPinnedControllerRate();
   await assertBoxingBrainProbeAndTrainingProgress();
   await assertBoxingLiveBatch();
+  await assertBoxingV2TSparringLoads();
   await assertBoxingTrainingFitnessMoves();
   const first = await scriptedHit();
   const second = await scriptedHit();

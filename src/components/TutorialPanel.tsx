@@ -386,17 +386,17 @@ function buildChapters(
           <ol className="tutorial-steps">
             <li>
               <div>
-                <strong>Pick a skill.</strong> On the strip above the canvas (or
-                the Skill tab), choose Walk, Jump, Fly, Motor, Boxing, and so on
-                — tips in the Creature builder follow that choice.
+                <strong>Confirm the starter setup.</strong> Walk, Run, Flat
+                Ground, and a Floppy Chain are already loaded. Change skill on
+                the strip or Skill tab if you want a different challenge.
               </div>
               {jump('Skill strip', 'skill', 'first-loop', 'first-loop-skill')}
             </li>
             <li>
               <div>
-                <strong>Load or build a body.</strong> Open the Creature builder
-                and pick a preset — Simple Hopper is a friendly starter — or
-                draw your own with the skill tips in mind.
+                <strong>Tweak or rebuild the body.</strong> Open the Creature
+                builder — Floppy Chain is a friendly starter — or draw your own
+                with the skill tips in mind.
               </div>
               {jump(
                 'Creature builder',

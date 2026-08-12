@@ -4,6 +4,7 @@
  * Appearance starts empty — googly eyes are an opt-in joint add-on.
  */
 import { emptyAppearance, type AppearanceRig } from '../appearance/types';
+import { BOXOBOT_V2 } from '../boxing/sparringOpponents';
 import { BOXOBOT } from '../creature/boxoBot';
 import { PRESETS } from '../creature/presets';
 import { ULTI_GROOVE_BOT_II } from '../creature/ultiGrooveBotII';
@@ -24,7 +25,7 @@ export const BUNDLED_MODELS: BundledModel[] = [
     design: cloneDesign(p),
     appearance: emptyAppearance(),
     tags:
-      p.name === BOXOBOT.name
+      p.name === BOXOBOT.name || p.name === BOXOBOT_V2.name
         ? (['boxing', 'preset'] as string[])
         : (['preset'] as string[]),
   })),

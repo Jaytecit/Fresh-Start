@@ -51,7 +51,7 @@ export const SKILL_BUILD_HINTS: Record<SkillId, SkillBuildHints> = {
       'Mark feet as required by the division; no wheels or aero.',
       'Build facing right (+X). The far corner is mirrored automatically.',
     ],
-    tip: 'Train from the Train tab once the fighter meets the selected division rules — the ring and sparring partner load automatically.',
+    tip: 'Train from the Train tab once the fighter meets the selected division rules. Start against the Dummy, then switch to BoxoBot V2T when you want a live sparring partner.',
   },
   disco: {
     essentials: [

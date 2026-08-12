@@ -4,6 +4,15 @@ import {
   boxingEligibility,
   type BoxingDivisionId,
 } from '../boxing/divisions';
+import {
+  BOXOBOT_V2T_FITNESS,
+  DEFAULT_SPARRING_OPPONENT_ID,
+  parseSparringSelectValue,
+  sparringOpponentLabel,
+  sparringOpponentsForDivision,
+  sparringSelectValue,
+  type SparringOpponentId,
+} from '../boxing/sparringOpponents';
 import type { CreatureDesign } from '../creature/types';
 import { BUNDLED_MODELS } from '../library/bundledModels';
 import type { CreaturePackage } from '../library/creaturePackages';
@@ -13,6 +22,10 @@ import {
 } from '../library/resolveModelDesign';
 import type { SavedModel } from '../library/savedModels';
 import { shapeForBoxingDesign, type BoxingMatchResult } from '../sim/simulation';
+
+export type BoxingMatchOpponent =
+  | { kind: 'saved'; model: SavedModel }
+  | { kind: 'sparring'; id: SparringOpponentId };
 
 interface Props {
   currentDesign: CreatureDesign;
@@ -30,11 +43,19 @@ interface Props {
   lastResult: BoxingMatchResult | null;
   onStartMatch: (options: {
     modelA: SavedModel;
-    modelB: SavedModel;
+    opponent: BoxingMatchOpponent;
     divisionId: BoxingDivisionId;
   }) => void;
   onStopMatch: () => void;
   onOpenTrain: () => void;
+}
+
+function defaultFighterBValue(divisionId: BoxingDivisionId): string {
+  const available = sparringOpponentsForDivision(divisionId);
+  if (available.some((item) => item.id === 'boxobot-v2t')) {
+    return sparringSelectValue('boxobot-v2t');
+  }
+  return sparringSelectValue(DEFAULT_SPARRING_OPPONENT_ID);
 }
 
 export function BoxingSkillPanel({
@@ -52,7 +73,9 @@ export function BoxingSkillPanel({
   onOpenTrain,
 }: Props) {
   const [modelAId, setModelAId] = useState('');
-  const [modelBId, setModelBId] = useState('');
+  const [fighterBValue, setFighterBValue] = useState(() =>
+    defaultFighterBValue(divisionId),
+  );
   const division = BOXING_DIVISIONS.find((item) => item.id === divisionId)!;
   const currentEligibility = boxingEligibility(currentDesign, divisionId);
   const pool = useMemo(
@@ -78,17 +101,26 @@ export function BoxingSkillPanel({
       expected.weightCount === model.shape.weightCount
     );
   });
+  const sparringOptions = sparringOpponentsForDivision(divisionId);
   const modelA = eligibleModels.find((model) => model.id === modelAId);
-  const modelB = eligibleModels.find((model) => model.id === modelBId);
+  const sparringB = parseSparringSelectValue(fighterBValue);
+  const modelB = eligibleModels.find((model) => model.id === fighterBValue);
+  const opponent: BoxingMatchOpponent | null = sparringB
+    ? { kind: 'sparring', id: sparringB }
+    : modelB
+      ? { kind: 'saved', model: modelB }
+      : null;
+  const sameSavedFighters =
+    opponent?.kind === 'saved' && modelA?.id === opponent.model.id;
 
   return (
     <div className="h2h-panel">
       <h2>Boxing</h2>
       <p className="hint muted">
         Timed points fights. Only marked gloves can score on an opponent&apos;s
-        marked targets; ordinary body contacts remain non-solving. Train brains
-        from the Train tab against BoxoBot (or the grounded sparring body) in
-        the ring.
+        marked targets; ordinary body contacts remain non-solving. Train against
+        Dummy (Level 1) or BoxoBot V2T (Level 2), then match a saved fighter
+        against either bundled opponent without a second save.
       </p>
 
       <label className="field-row">
@@ -97,9 +129,10 @@ export function BoxingSkillPanel({
           value={divisionId}
           disabled={busy || running}
           onChange={(event) => {
-            onDivisionChange(event.target.value as BoxingDivisionId);
+            const next = event.target.value as BoxingDivisionId;
+            onDivisionChange(next);
             setModelAId('');
-            setModelBId('');
+            setFighterBValue(defaultFighterBValue(next));
           }}
         >
           {BOXING_DIVISIONS.map((item) => (
@@ -135,9 +168,10 @@ export function BoxingSkillPanel({
       </button>
 
       <h3 className="subhead">Points match</h3>
-      {eligibleModels.length < 2 ? (
+      {eligibleModels.length < 1 ? (
         <p className="hint muted">
-          Train and save at least two {division.name} fighters to start a match.
+          Train and save a {division.name} fighter, then match it against Dummy
+          or BoxoBot V2T.
         </p>
       ) : (
         <>
@@ -159,11 +193,18 @@ export function BoxingSkillPanel({
           <label className="field-row">
             <span>Fighter B</span>
             <select
-              value={modelBId}
+              value={fighterBValue}
               disabled={busy || running}
-              onChange={(event) => setModelBId(event.target.value)}
+              onChange={(event) => setFighterBValue(event.target.value)}
             >
-              <option value="">Choose model</option>
+              {sparringOptions.map((item) => (
+                <option key={item.id} value={sparringSelectValue(item.id)}>
+                  Level {item.level} · {sparringOpponentLabel(item.id, divisionId)}
+                  {item.id === 'boxobot-v2t'
+                    ? ` · ${BOXOBOT_V2T_FITNESS.toFixed(0)}`
+                    : ''}
+                </option>
+              ))}
               {eligibleModels.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name} · {model.fitness.toFixed(2)}
@@ -175,16 +216,10 @@ export function BoxingSkillPanel({
             <button
               type="button"
               className="primary"
-              disabled={
-                busy ||
-                running ||
-                !modelA ||
-                !modelB ||
-                modelA.id === modelB.id
-              }
+              disabled={busy || running || !modelA || !opponent || sameSavedFighters}
               onClick={() => {
-                if (modelA && modelB) {
-                  onStartMatch({ modelA, modelB, divisionId });
+                if (modelA && opponent) {
+                  onStartMatch({ modelA, opponent, divisionId });
                 }
               }}
             >

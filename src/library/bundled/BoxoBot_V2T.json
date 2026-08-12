@@ -1,0 +1,280 @@
+{
+  "kind": "freshstart-model",
+  "version": 1,
+  "name": "BoxoBot V2T",
+  "task": "boxing",
+  "shape": {
+    "inputCount": 24,
+    "hiddenCount": 32,
+    "outputCount": 11,
+    "weightCount": 1163
+  },
+  "weightsB64": "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",
+  "fitness": 813.6791406135148,
+  "design": {
+    "name": "BoxoBot V2",
+    "joints": [
+      {
+        "id": 1,
+        "x": -3.5,
+        "y": 4
+      },
+      {
+        "id": 3,
+        "x": -4.5,
+        "y": 3.5
+      },
+      {
+        "id": 5,
+        "x": -4,
+        "y": 6.5
+      },
+      {
+        "id": 8,
+        "x": -2,
+        "y": 0.15,
+        "isFoot": true
+      },
+      {
+        "id": 12,
+        "x": -3,
+        "y": 7,
+        "isHead": true,
+        "isHitTarget": true,
+        "hitValue": 3
+      },
+      {
+        "id": 14,
+        "x": -5,
+        "y": 0.15,
+        "isFoot": true
+      },
+      {
+        "id": 18,
+        "x": -3.5,
+        "y": 3
+      },
+      {
+        "id": 19,
+        "x": -2,
+        "y": 5.5
+      },
+      {
+        "id": 20,
+        "x": -0.5,
+        "y": 5.5
+      },
+      {
+        "id": 21,
+        "x": -2.5,
+        "y": 2.5
+      },
+      {
+        "id": 22,
+        "x": -1,
+        "y": 7,
+        "isGlove": true
+      },
+      {
+        "id": 23,
+        "x": 0,
+        "y": 6.5,
+        "isGlove": true
+      },
+      {
+        "id": 24,
+        "x": -1.5,
+        "y": 6
+      }
+    ],
+    "bones": [
+      {
+        "id": 1,
+        "startJointId": 3,
+        "endJointId": 1,
+        "rigid": true
+      },
+      {
+        "id": 5,
+        "startJointId": 5,
+        "endJointId": 3,
+        "rigid": true
+      },
+      {
+        "id": 14,
+        "startJointId": 12,
+        "endJointId": 3
+      },
+      {
+        "id": 27,
+        "startJointId": 3,
+        "endJointId": 18
+      },
+      {
+        "id": 28,
+        "startJointId": 18,
+        "endJointId": 1
+      },
+      {
+        "id": 29,
+        "startJointId": 18,
+        "endJointId": 14
+      },
+      {
+        "id": 31,
+        "startJointId": 8,
+        "endJointId": 18
+      },
+      {
+        "id": 32,
+        "startJointId": 5,
+        "endJointId": 19,
+        "rigid": true
+      },
+      {
+        "id": 33,
+        "startJointId": 19,
+        "endJointId": 12,
+        "rigid": true
+      },
+      {
+        "id": 35,
+        "startJointId": 20,
+        "endJointId": 19
+      },
+      {
+        "id": 36,
+        "startJointId": 5,
+        "endJointId": 1,
+        "rigid": true
+      },
+      {
+        "id": 37,
+        "startJointId": 3,
+        "endJointId": 14
+      },
+      {
+        "id": 38,
+        "startJointId": 1,
+        "endJointId": 21
+      },
+      {
+        "id": 39,
+        "startJointId": 21,
+        "endJointId": 8
+      },
+      {
+        "id": 40,
+        "startJointId": 21,
+        "endJointId": 3
+      },
+      {
+        "id": 41,
+        "startJointId": 23,
+        "endJointId": 20
+      },
+      {
+        "id": 43,
+        "startJointId": 19,
+        "endJointId": 1,
+        "rigid": true
+      },
+      {
+        "id": 44,
+        "startJointId": 5,
+        "endJointId": 24
+      },
+      {
+        "id": 45,
+        "startJointId": 24,
+        "endJointId": 22
+      },
+      {
+        "id": 46,
+        "startJointId": 12,
+        "endJointId": 5
+      }
+    ],
+    "muscles": [
+      {
+        "id": 18,
+        "startBoneId": 35,
+        "endBoneId": 14,
+        "canExpand": true
+      },
+      {
+        "id": 22,
+        "startBoneId": 38,
+        "endBoneId": 31,
+        "canExpand": true
+      },
+      {
+        "id": 23,
+        "startBoneId": 39,
+        "endBoneId": 31,
+        "canExpand": true
+      },
+      {
+        "id": 24,
+        "startBoneId": 29,
+        "endBoneId": 31,
+        "canExpand": true
+      },
+      {
+        "id": 25,
+        "startBoneId": 38,
+        "endBoneId": 27,
+        "canExpand": true
+      },
+      {
+        "id": 26,
+        "startBoneId": 41,
+        "endBoneId": 35,
+        "canExpand": true
+      },
+      {
+        "id": 27,
+        "startBoneId": 44,
+        "endBoneId": 14,
+        "canExpand": true
+      },
+      {
+        "id": 28,
+        "startBoneId": 44,
+        "endBoneId": 27,
+        "canExpand": true
+      },
+      {
+        "id": 29,
+        "startBoneId": 46,
+        "endBoneId": 44,
+        "canExpand": true
+      },
+      {
+        "id": 30,
+        "startBoneId": 45,
+        "endBoneId": 44,
+        "canExpand": true
+      },
+      {
+        "id": 31,
+        "startBoneId": 46,
+        "endBoneId": 35,
+        "canExpand": true
+      }
+    ],
+    "appearance": {
+      "version": 1,
+      "googlyEyes": [],
+      "bodyParts": [],
+      "cloth": []
+    },
+    "footMass": 2.5
+  },
+  "boxingMeta": {
+    "divisionId": "upright",
+    "ruleVersion": 1,
+    "obsPackVersion": 2,
+    "brainHz": 30
+  }
+}

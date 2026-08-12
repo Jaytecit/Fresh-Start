@@ -47,16 +47,15 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
     ],
   },
   'first-loop-edit': {
-    title: 'Step 1 — Load a body',
+    title: 'Step 2 — The body',
     body: [
-      'Pick a preset such as Simple Hopper. You can redraw later; the loop matters more than perfection.',
+      'A Floppy Chain is already loaded. You can redraw or pick another preset; the loop matters more than perfection.',
     ],
   },
   'first-loop-skill': {
-    title: 'Step 2 — Pick a challenge',
+    title: 'Step 1 — The challenge',
     body: [
-      'Try Skill → Walk, Goal → Run, Env → Flat Ground.',
-      'Those three controls live on the strip above the canvas when you leave this panel.',
+      'Walk, Run, and Flat Ground are already selected. Change them on the strip above the canvas if you want a different challenge.',
     ],
   },
   'first-loop-train': {

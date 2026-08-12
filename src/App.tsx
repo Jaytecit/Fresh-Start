@@ -21,7 +21,14 @@ import {
   getBoxingDivision,
   type BoxingDivisionId,
 } from "./boxing/divisions";
-import { sparringDesignForDivision } from "./brain/boxingTraining";
+import {
+  DEFAULT_SPARRING_OPPONENT_ID,
+  normalizeSparringOpponentId,
+  resolveSparringOpponent,
+  sparringOpponentLabel,
+  sparringOpponentsForDivision,
+  type SparringOpponentId,
+} from "./boxing/sparringOpponents";
 import {
   BOXING_PRIORITY_KEYS,
   BOXING_PRIORITY_LABELS,
@@ -159,7 +166,7 @@ import { type DiscoSlotState } from "./components/DiscoSlotsPanel";
 import { DiscoCurriculumPanel } from "./components/DiscoCurriculumPanel";
 import { DiscoTrackLearnPanel } from "./components/DiscoTrackLearnPanel";
 import { DiscoZonePanel } from "./components/DiscoZonePanel";
-import { BoxingSkillPanel } from "./components/BoxingSkillPanel";
+import { BoxingSkillPanel, type BoxingMatchOpponent } from "./components/BoxingSkillPanel";
 import {
   HeadToHeadPanel,
   headToHeadEntriesFromModels,
@@ -191,7 +198,7 @@ import {
   loadHoverHelpEnabled,
   saveHoverHelpEnabled,
 } from "./help/hoverHelp";
-import { PRESETS } from "./creature/presets";
+import { FLOPPY_CHAIN, PRESETS } from "./creature/presets";
 import { buildHintsForSkill } from "./creature/buildHints";
 import { cloneDesign, type CreatureDesign } from "./creature/types";
 import { EditorCanvas, type EditTool } from "./editor/EditorCanvas";
@@ -258,7 +265,6 @@ import {
   defaultGoalForSkill,
   getGoal,
   goalsForSkill,
-  loadActiveGoalId,
   saveActiveGoalId,
   type GoalId,
 } from "./goals/catalog";
@@ -349,7 +355,6 @@ import {
   type LiveFocusStats,
 } from "./sim/simulation";
 import {
-  loadActiveSkill,
   saveActiveSkill,
   SKILLS,
   type SkillId,
@@ -374,15 +379,9 @@ function ensureAppearance(design: CreatureDesign): CreatureDesign {
   return { ...design, appearance: emptyAppearance() };
 }
 
-function loadEnabledSkill(): SkillId {
-  const saved = loadActiveSkill();
-  const enabled =
-    (saved !== "boxing" || isFeatureEnabled("boxingMode")) &&
-    (saved !== "disco" || isFeatureEnabled("discoMode"));
-  if (enabled) return saved;
-  saveActiveSkill("walking");
-  return "walking";
-}
+const LANDING_SKILL: SkillId = "walking";
+const LANDING_GOAL: GoalId = "run";
+const LANDING_PRESET = FLOPPY_CHAIN;
 
 export default function App() {
   const simulation = useMemo(() => new Simulation(), []);
@@ -417,18 +416,10 @@ export default function App() {
   const [snapEnabled, setSnapEnabled] = useState(true);
   /** Edit tab: drop creature idle under gravity to preview natural settle. */
   const [editPhysics, setEditPhysics] = useState(false);
-  const [skill, setSkill] = useState<SkillId>(() => loadEnabledSkill());
-  const [goalId, setGoalId] = useState<GoalId>(() => {
-    const z = loadEnabledSkill();
-    const saved = loadActiveGoalId(defaultGoalForSkill(z).id);
-    const allowed = goalsForSkill(z);
-    if (allowed.some((g) => g.id === saved)) return saved;
-    const fallback = defaultGoalForSkill(z).id;
-    saveActiveGoalId(fallback);
-    return fallback;
-  });
+  const [skill, setSkill] = useState<SkillId>(LANDING_SKILL);
+  const [goalId, setGoalId] = useState<GoalId>(LANDING_GOAL);
   const [design, setDesign] = useState<CreatureDesign>(() =>
-    ensureAppearance(cloneDesign(PRESETS[0])),
+    ensureAppearance(cloneDesign(LANDING_PRESET)),
   );
   const [selection, setSelection] = useState<EditorSelection>(null);
   const [driveMode, setDriveMode] = useState<DriveMode>("idle");
@@ -527,7 +518,7 @@ export default function App() {
     genome: Genome;
   } | null>(null);
   const [packages, setPackages] = useState<CreaturePackage[]>([]);
-  const [saveName, setSaveName] = useState("Custom");
+  const [saveName, setSaveName] = useState(LANDING_PRESET.name);
   const [savedModels, setSavedModels] = useState<SavedModel[]>([]);
   const [discoTrack, setDiscoTrack] = useState("");
   const [discoGains, setDiscoGains] = useState<DiscoReactivityGains>(() => ({
@@ -634,6 +625,8 @@ export default function App() {
   );
   const [boxingDivisionId, setBoxingDivisionId] =
     useState<BoxingDivisionId>("upright");
+  const [boxingSparringId, setBoxingSparringId] =
+    useState<SparringOpponentId>(DEFAULT_SPARRING_OPPONENT_ID);
   /** Metadata for the in-sim Boxing live evolve session (elite save on finish). */
   const boxingLiveMetaRef = useRef<{
     design: CreatureDesign;
@@ -683,7 +676,7 @@ export default function App() {
   const [immersive, setImmersive] = useState(false);
   /** Edit menu creature picker: `preset:Name` | `pkg:id` | `custom`. */
   const [selectedCreatureKey, setSelectedCreatureKey] = useState(
-    () => `preset:${PRESETS[0]?.name ?? "Custom"}`,
+    () => `preset:${LANDING_PRESET.name}`,
   );
   const [worldThemeOpen, setWorldThemeOpen] = useState(true);
   const [worldLibOpen, setWorldLibOpen] = useState(true);
@@ -698,6 +691,7 @@ export default function App() {
   /** Persist Edit pan/zoom across tool/selection changes and remounts. */
   const editorCamRef = useRef(createCamera());
   const designRef = useRef(design);
+  const sandboxTabRef = useRef(sandboxTab);
   const bestGenomeRef = useRef(bestGenome);
   const trainTelemetryOnRef = useRef(trainTelemetryOn);
   trainTelemetryOnRef.current = trainTelemetryOn;
@@ -713,6 +707,7 @@ export default function App() {
   const envUndoStackRef = useRef<EnvironmentDesign[]>([]);
   const envDesignRef = useRef(envDesign);
   designRef.current = design;
+  sandboxTabRef.current = sandboxTab;
   bestGenomeRef.current = bestGenome;
   driveModeRef.current = driveMode;
   discoGainsRef.current = discoGains;
@@ -757,6 +752,11 @@ export default function App() {
       setDiscoSetups(loadDiscoSetups());
     }
   }, [refreshPackages, refreshModels, refreshEnvPackages]);
+
+  useEffect(() => {
+    saveActiveSkill(LANDING_SKILL);
+    saveActiveGoalId(LANDING_GOAL);
+  }, []);
 
   useEffect(() => {
     if (!isFeatureEnabled("trainRecipes")) return;
@@ -1927,6 +1927,12 @@ export default function App() {
     if (restoreEnvironment) restorePreDiscoEnvironment();
   }, [restorePreDiscoEnvironment, simulation, stopDiscoDrive]);
 
+  useEffect(() => {
+    setBoxingSparringId((id) =>
+      normalizeSparringOpponentId(boxingDivisionId, id),
+    );
+  }, [boxingDivisionId]);
+
   const enterBoxingSkill = useCallback(() => {
     captureLiveElite();
     if (simulation.isHeadToHead) simulation.abortHeadToHead();
@@ -2016,20 +2022,6 @@ export default function App() {
       skill,
     ],
   );
-
-  useEffect(() => {
-    if (!ready || !isFeatureEnabled("discoMode")) return;
-    if (skill === "disco") enterDiscoSkill();
-    // Restore disco arena once after physics init when the saved skill is Disco.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/ready only
-  }, [ready]);
-
-  useEffect(() => {
-    if (!ready || !isFeatureEnabled("boxingMode")) return;
-    if (skill === "boxing") enterBoxingSkill();
-    // Restore the ring once after physics init when Boxing was the saved skill.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/ready only
-  }, [ready]);
 
   const commitDesign = useCallback(
     (next: CreatureDesign) => {
@@ -2255,7 +2247,24 @@ export default function App() {
     simulation
       .init()
       .then(() => {
-        if (!cancelled) setReady(true);
+        if (cancelled) return;
+        simulation.setEnvironment(envDesignRef.current);
+        simulation.setTask(activeTaskRef.current);
+        const body = designRef.current;
+        if (body.joints.length > 0) {
+          simulation.loadDesign(body);
+        }
+        const tab = sandboxTabRef.current;
+        if (tab === "train") {
+          setMode("sim");
+          simulation.running = true;
+        } else if (tab === "world") {
+          setMode("world");
+          simulation.running = false;
+        } else {
+          simulation.running = false;
+        }
+        setReady(true);
       })
       .catch((err: unknown) => {
         if (!cancelled)
@@ -2379,6 +2388,7 @@ export default function App() {
   const syncDesignToSim = (designOverride?: CreatureDesign) => {
     const next = designOverride ?? design;
     if (next.joints.length === 0) return false;
+    if (!simulation.world) return false;
     try {
       const elite = captureLiveElite();
       if (simulation.isHeadToHead) simulation.abortHeadToHead();
@@ -2477,6 +2487,10 @@ export default function App() {
         return;
       }
       setEditPhysics(false);
+      if (!simulation.world) {
+        setSandboxTab("train");
+        return;
+      }
       if (simulation.isEvolving) {
         setSandboxTab("train");
         return;
@@ -2859,7 +2873,11 @@ export default function App() {
       const maxGens = isFeatureEnabled("trainRecipes")
         ? gaKnobs.maxGenerations
         : LIVE_MAX_GENERATIONS;
-      const opponentDesign = sparringDesignForDivision(divisionId);
+      const opponent = resolveSparringOpponent(
+        divisionId,
+        boxingSparringId,
+        runSeed,
+      );
 
       let resolvedSeed = seedFrom;
       if (resolvedSeed) {
@@ -2903,7 +2921,8 @@ export default function App() {
         simulation.startBoxingLiveEvolve({
           design: trainingDesign,
           divisionId,
-          opponentDesign,
+          opponentDesign: opponent.design,
+          opponentWeights: opponent.weights,
           populationSize: popSize,
           batchSize,
           maxGenerations: Math.max(1, maxGens),
@@ -2990,6 +3009,7 @@ export default function App() {
     [
       boxingDivisionId,
       boxingPriorities,
+      boxingSparringId,
       episodeSeconds,
       gaKnobs,
       observeSpeed,
@@ -3349,27 +3369,40 @@ export default function App() {
   const startBoxingMatch = useCallback(
     (opts: {
       modelA: SavedModel;
-      modelB: SavedModel;
+      opponent: BoxingMatchOpponent;
       divisionId: BoxingDivisionId;
     }) => {
       const pool = designCandidatePool(packages, BUNDLED_MODELS, design);
       const designA =
         opts.modelA.boxingDesign ?? resolveDesignForModel(opts.modelA, pool);
-      const designB =
-        opts.modelB.boxingDesign ?? resolveDesignForModel(opts.modelB, pool);
-      if (!designA || !designB) {
+      const seedA = modelToSeed(opts.modelA);
+      let designB: CreatureDesign | null = null;
+      let seedB: { shape: NetworkShape; weights: Float32Array } | null = null;
+      if (opts.opponent.kind === "sparring") {
+        const sparring = resolveSparringOpponent(
+          opts.divisionId,
+          opts.opponent.id,
+          runSeed,
+        );
+        designB = sparring.design;
+        seedB = { shape: sparring.shape, weights: sparring.weights };
+      } else {
+        designB =
+          opts.opponent.model.boxingDesign ??
+          resolveDesignForModel(opts.opponent.model, pool);
+        seedB = modelToSeed(opts.opponent.model);
+      }
+      if (!designA || !designB || !seedB) {
         setError("Could not resolve both Boxing fighter designs.");
         return;
       }
-      const seedA = modelToSeed(opts.modelA);
-      const seedB = modelToSeed(opts.modelB);
       const expectedA = shapeForBoxingDesign(designA);
       const expectedB = shapeForBoxingDesign(designB);
       if (
         !shapesCompatible(seedA.shape, expectedA) ||
         !shapesCompatible(seedB.shape, expectedB)
       ) {
-        setError("A saved Boxing brain does not match its fighter body.");
+        setError("A Boxing brain does not match its fighter body.");
         return;
       }
       try {
@@ -3424,6 +3457,7 @@ export default function App() {
       design,
       episodeSeconds,
       packages,
+      runSeed,
       simulation,
     ],
   );
@@ -3622,14 +3656,6 @@ export default function App() {
           {" "}
           Dismiss{" "}
         </button>{" "}
-      </div>
-    );
-  }
-  if (!ready) {
-    return (
-      <div className="app loading">
-        {" "}
-        <h1>Solemn Sandbox</h1> <p>Loading physics…</p>{" "}
       </div>
     );
   }
@@ -5342,6 +5368,43 @@ export default function App() {
                   Add at least one muscle or wheel in Edit first.
                 </p>
               )}
+              {activeTask === "boxing" && isFeatureEnabled("boxingMode") && (
+                <div className="priority-sliders">
+                  <h3 className="subhead">Sparring partner</h3>
+                  <p className="hint muted">
+                    Level 1 is a random-weight dummy. Level 2 is BoxoBot V2T, a
+                    trained boxer that punches back.
+                  </p>
+                  <label className="field-row">
+                    <span>Opponent</span>
+                    <select
+                      value={boxingSparringId}
+                      disabled={evolveProgress.running}
+                      onChange={(event) =>
+                        setBoxingSparringId(
+                          event.target.value as SparringOpponentId,
+                        )
+                      }
+                    >
+                      {sparringOpponentsForDivision(boxingDivisionId).map(
+                        (item) => (
+                          <option key={item.id} value={item.id}>
+                            Level {item.level} ·{" "}
+                            {sparringOpponentLabel(item.id, boxingDivisionId)}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <p className="hint muted">
+                    {
+                      sparringOpponentsForDivision(boxingDivisionId).find(
+                        (item) => item.id === boxingSparringId,
+                      )?.description
+                    }
+                  </p>
+                </div>
+              )}
               {isFeatureEnabled("goalPriorities") &&
                 activeTask === "boxing" && (
                 <div className="priority-sliders">
@@ -6793,6 +6856,12 @@ export default function App() {
           !showTrophyRoom;
 
         const sandboxTabs: SandboxTab[] = [
+          {
+            id: "tutorial",
+            label: "Tutorial",
+            // Full-bleed viewport owns this tab; no side panel body.
+            content: null,
+          },
           { id: "skill", label: "Skill", content: skillPanel },
           ...(isFeatureEnabled("discoveryUi")
             ? [
@@ -6816,12 +6885,6 @@ export default function App() {
             ? [{ id: "h2h" as const, label: "H2H", content: h2hPanel }]
             : []),
           { id: "world", label: "Environment builder", content: worldPanel },
-          {
-            id: "tutorial",
-            label: "Tutorial",
-            // Full-bleed viewport owns this tab; no side panel body.
-            content: null,
-          },
         ];
 
         const topbar = (
@@ -6893,7 +6956,16 @@ export default function App() {
                       ? creaturesPanel
                       : showTrophyRoom
                         ? trophyRoom
-                        : (
+                        : !ready &&
+                            (sandboxTab === "train" ||
+                              mode === "sim" ||
+                              mode === "world")
+                          ? (
+                            <div className="app loading">
+                              <p>Loading physics…</p>
+                            </div>
+                          )
+                          : (
                           <>
                             {viewport}
                             {showTutorialHelp && tutorialHelpKey && (
@@ -6975,7 +7047,16 @@ export default function App() {
                     ? creaturesPanel
                     : showTrophyRoom
                       ? trophyRoom
-                      : (
+                      : !ready &&
+                          (sandboxTab === "train" ||
+                            mode === "sim" ||
+                            mode === "world")
+                        ? (
+                          <div className="app loading">
+                            <p>Loading physics…</p>
+                          </div>
+                        )
+                        : (
                         <>
                           {viewport}
                           {showTutorialHelp && tutorialHelpKey && (

@@ -1,5 +1,9 @@
 import type { BoxingDivisionId } from '../boxing/divisions';
-import { GROUNDED_FIGHTER } from '../boxing/referenceFighters';
+import {
+  DEFAULT_SPARRING_OPPONENT_ID,
+  resolveSparringOpponent,
+  type SparringOpponentId,
+} from '../boxing/sparringOpponents';
 import {
   computeBoxingTrainingFitness,
   DEFAULT_BOXING_PRIORITIES,
@@ -10,7 +14,6 @@ import {
   meanHitAccuracy,
   meanHitPower,
 } from '../boxing/scoring';
-import { BOXOBOT } from '../creature/boxoBot';
 import type { CreatureDesign } from '../creature/types';
 import { cloneDesign } from '../creature/types';
 import { boxingRingEnv } from '../env/boxingRingEnv';
@@ -57,6 +60,7 @@ export interface BoxingTrainingResult {
 export interface BoxingTrainingOptions {
   design: CreatureDesign;
   divisionId: BoxingDivisionId;
+  opponentId?: SparringOpponentId;
   generations?: number;
   populationSize?: number;
   episodeSeconds?: number;
@@ -90,13 +94,10 @@ export function exportBoxingTrainingTelemetry(
 export function sparringDesignForDivision(
   divisionId: BoxingDivisionId,
 ): CreatureDesign {
-  if (divisionId === 'grounded') return cloneDesign(GROUNDED_FIGHTER);
-  // Default Boxing model / sparring partner for upright and open-frame.
-  return cloneDesign(BOXOBOT);
-}
-
-function sparringDesign(divisionId: BoxingDivisionId): CreatureDesign {
-  return sparringDesignForDivision(divisionId);
+  return resolveSparringOpponent(
+    divisionId,
+    DEFAULT_SPARRING_OPPONENT_ID,
+  ).design;
 }
 
 export function boxingTrainingFitness(
@@ -163,7 +164,7 @@ function yieldToUi(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** K6 — seeded GA against a fixed, versioned division sparring brain. */
+/** K6 — seeded GA against a versioned division sparring partner. */
 export async function evolveBoxingBrain(
   options: BoxingTrainingOptions,
 ): Promise<BoxingTrainingResult> {
@@ -173,9 +174,14 @@ export async function evolveBoxingBrain(
   const priorities = options.priorities ?? DEFAULT_BOXING_PRIORITIES;
   const rng = createRng(options.seed ?? 1);
   const shape = shapeForBoxingDesign(options.design);
-  const opponentDesign = sparringDesign(options.divisionId);
-  const opponentShape = shapeForBoxingDesign(opponentDesign);
-  const opponentWeights = randomWeights(opponentShape, createRng((options.seed ?? 1) + 991));
+  const opponent = resolveSparringOpponent(
+    options.divisionId,
+    options.opponentId ?? DEFAULT_SPARRING_OPPONENT_ID,
+    options.seed ?? 1,
+  );
+  const opponentDesign = opponent.design;
+  const opponentShape = opponent.shape;
+  const opponentWeights = opponent.weights;
   const seedGenome =
     options.seedGenome &&
     options.seedGenome.shape.inputCount === shape.inputCount &&
@@ -274,6 +280,6 @@ export async function evolveBoxingBrain(
     genome: best,
     generations: rows,
     divisionId: options.divisionId,
-    opponentName: opponentDesign.name,
+    opponentName: opponent.name,
   };
 }
