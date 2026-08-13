@@ -13,6 +13,9 @@ export const COMBAT_ROUND_COUNTS = [1, 2, 3, 4, 5, 6, 8, 10, 12] as const;
 export const COMBAT_ROUNDS_DEFAULT = 1;
 export const COMBAT_ROUNDS_MAX = 12;
 
+/** Playback only — Rapier still steps at `FIXED_DT`. 0.25× normal speed. */
+export const COMBAT_SLOMO_TIME_SCALE = 0.25;
+
 export const BOXING_ROUND_SECONDS_OPTIONS = [15, 30, 45, 60, 90] as const;
 export const JOUST_ROUND_SECONDS_OPTIONS = [6, 8, 12, 16, 20] as const;
 export const RACE_ROUND_SECONDS_OPTIONS = [10, 15, 20, 30, 45, 60] as const;

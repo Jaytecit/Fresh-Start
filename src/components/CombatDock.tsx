@@ -94,6 +94,8 @@ interface Props {
   onRoundSecondsChange: (n: number) => void;
   onStart: () => void;
   onStop: () => void;
+  sloMo: boolean;
+  onSloMoChange: (on: boolean) => void;
   collapsed?: boolean;
 }
 
@@ -187,6 +189,8 @@ export function CombatDock({
   onRoundSecondsChange,
   onStart,
   onStop,
+  sloMo,
+  onSloMoChange,
   collapsed,
 }: Props) {
   const running =
@@ -242,6 +246,17 @@ export function CombatDock({
               Start
             </button>
           )}
+          <button
+            type="button"
+            className={sloMo ? 'active' : ''}
+            disabled={busy}
+            aria-pressed={sloMo}
+            aria-label="Slo-Mo 0.25 times normal speed"
+            title="Slo-Mo · 0.25×"
+            onClick={() => onSloMoChange(!sloMo)}
+          >
+            Slo-Mo
+          </button>
         </div>
         <span className="dock-summary-stats">
           {live ||
@@ -427,6 +442,17 @@ export function CombatDock({
                 {mode === 'joust' ? 'Start pass' : 'Start match'}
               </button>
             )}
+            <button
+              type="button"
+              className={sloMo ? 'active' : ''}
+              disabled={busy}
+              aria-pressed={sloMo}
+              aria-label="Slo-Mo 0.25 times normal speed"
+              title="Slo-Mo · 0.25×"
+              onClick={() => onSloMoChange(!sloMo)}
+            >
+              Slo-Mo
+            </button>
           </div>
           {live && <p className="hint">{live}</p>}
           {mode === 'boxing' && lastBoxing && !boxingRunning && (

@@ -170,6 +170,7 @@ import {
 } from "./combat/types";
 import {
   COMBAT_ROUNDS_DEFAULT,
+  COMBAT_SLOMO_TIME_SCALE,
   clampCombatRounds,
   clampRoundSeconds,
   defaultRoundSeconds,
@@ -666,6 +667,7 @@ export default function App() {
   const [combatRoundSeconds, setCombatRoundSeconds] = useState(() =>
     defaultRoundSeconds("boxing"),
   );
+  const [combatSloMo, setCombatSloMo] = useState(false);
   const [combatCornerA, setCombatCornerA] = useState<CombatCornerValue>({
     kind: "workspace",
   });
@@ -950,9 +952,24 @@ export default function App() {
     simulation.setTask(activeTask);
   }, [activeTask, simulation]);
   useEffect(() => {
-    const scale = evolveProgress.running ? trainSpeed : observeSpeed;
+    const combatMatchRunning =
+      boxingRunning || joustingRunning || h2hRunning;
+    const scale = evolveProgress.running
+      ? trainSpeed
+      : combatMatchRunning && combatSloMo
+        ? COMBAT_SLOMO_TIME_SCALE
+        : observeSpeed;
     simulation.timeScale = scale;
-  }, [evolveProgress.running, observeSpeed, trainSpeed, simulation]);
+  }, [
+    boxingRunning,
+    combatSloMo,
+    evolveProgress.running,
+    h2hRunning,
+    joustingRunning,
+    observeSpeed,
+    trainSpeed,
+    simulation,
+  ]);
   useEffect(() => {
     const ghosts = showGhostPack || raceRecord;
     simulation.setShowGhostPack(ghosts);
@@ -5591,6 +5608,8 @@ export default function App() {
             }
             onStart={startCombat}
             onStop={stopCombat}
+            sloMo={combatSloMo}
+            onSloMoChange={setCombatSloMo}
             collapsed={dockCollapsed}
           />
         ) : null;

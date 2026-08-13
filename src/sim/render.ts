@@ -16,6 +16,10 @@ import { resolveBodyPartPose } from '../appearance/bodyPartOps';
 import type { AppearanceRig, BodyPartAttachment, ClothGarmentDef } from '../appearance/types';
 import { getBodyPart, getBodyPartImage } from '../appearance/bodyPartCatalog';
 import {
+  HEAD_JOINT_VISUAL_SCALE,
+  syntheticGloveNoseParts,
+} from '../appearance/roleCosmetics';
+import {
   PARA_VIS_BULGE,
   PARA_VIS_EDITOR_INFLATION,
   PARA_VIS_FILL,
@@ -24,7 +28,7 @@ import {
 import { driveGroupStrokeColor, normalizeDriveGroup } from '../brain/driveGroups';
 import type { CreatureDesign } from '../creature/types';
 import { EDITOR_GRID } from '../editor/grid';
-import { GROUND_Y } from '../physics/constants';
+import { GROUND_Y, JOINT_RADIUS } from '../physics/constants';
 import { isFeatureEnabled } from '../port/featureFlags';
 import {
   type Camera,
@@ -34,6 +38,20 @@ import {
 } from './Camera';
 import type { EnvCourseMarker } from '../env/types';
 import type { AgentSnapshot, SimulationSnapshot } from './simulation';
+
+/**
+ * Drawn joint discs only. Rapier colliders, mass, and probes stay on
+ * `JOINT_RADIUS` / `joint.radius`.
+ */
+const JOINT_NODE_VISUAL_SCALE = 0.5;
+
+function jointNodeScreenRadius(worldRadius: number, zoom: number): number {
+  return worldRadius * zoom * JOINT_NODE_VISUAL_SCALE;
+}
+
+function jointNodeScreenPx(px: number): number {
+  return px * JOINT_NODE_VISUAL_SCALE;
+}
 
 /** Resolve sprite pose from a live agent (bone- or joint-anchored). */
 function resolveAgentBodyPartPose(
@@ -724,10 +742,12 @@ function drawAgent(
   if (!hideSkeleton) {
     ctx.fillStyle = '#d8dde6';
     ctx.strokeStyle = '#2a3340';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = jointNodeScreenPx(1.5);
     for (const joint of agent.joints) {
       writeWorldToScreen(cam, w, h, joint.x, joint.y, _scrA);
-      const r = joint.radius * cam.zoom;
+      const r =
+        jointNodeScreenRadius(joint.radius, cam.zoom) *
+        (joint.isHead ? HEAD_JOINT_VISUAL_SCALE : 1);
       ctx.beginPath();
       ctx.arc(_scrA.x, _scrA.y, r, 0, Math.PI * 2);
       ctx.fill();
@@ -737,10 +757,10 @@ function drawAgent(
         (joint.isGlove || joint.isHitTarget)
       ) {
         ctx.save();
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = jointNodeScreenPx(2.5);
         ctx.strokeStyle = joint.isGlove ? '#d35f55' : '#e0b85a';
         ctx.beginPath();
-        ctx.arc(_scrA.x, _scrA.y, r + 4, 0, Math.PI * 2);
+        ctx.arc(_scrA.x, _scrA.y, r + jointNodeScreenPx(4), 0, Math.PI * 2);
         ctx.stroke();
         if (joint.isHitTarget) {
           ctx.fillStyle = '#e0b85a';
@@ -754,11 +774,11 @@ function drawAgent(
         (joint.isLance || joint.isGlove || joint.isHitTarget || joint.isHead)
       ) {
         ctx.save();
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = jointNodeScreenPx(2.5);
         const lance = joint.isLance || joint.isGlove;
         ctx.strokeStyle = lance ? '#c4a35a' : '#7ec8e3';
         ctx.beginPath();
-        ctx.arc(_scrA.x, _scrA.y, r + 4, 0, Math.PI * 2);
+        ctx.arc(_scrA.x, _scrA.y, r + jointNodeScreenPx(4), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
@@ -801,8 +821,14 @@ function drawAgent(
     );
   }
 
-  if (isFeatureEnabled('spriteBodyParts') && appearance?.bodyParts?.length) {
-    for (const part of appearance.bodyParts) {
+  if (isFeatureEnabled('spriteBodyParts')) {
+    const authored = appearance?.bodyParts ?? [];
+    for (const part of authored) {
+      const pose = resolveAgentBodyPartPose(agent, part);
+      if (!pose) continue;
+      drawBodyPartSprite(ctx, cam, w, h, part, pose);
+    }
+    for (const part of syntheticGloveNoseParts(agent.joints, authored)) {
       const pose = resolveAgentBodyPartPose(agent, part);
       if (!pose) continue;
       drawBodyPartSprite(ctx, cam, w, h, part, pose);
@@ -984,26 +1010,28 @@ export function drawDesign(
     const selected =
       selectedJoints.has(joint.id) || opts?.hoverJointId === joint.id;
     const clothPin = clothDraftJoints.has(joint.id);
-    const r = 0.28 * cam.zoom;
+    const r =
+      jointNodeScreenRadius(JOINT_RADIUS, cam.zoom) *
+      (joint.isHead ? HEAD_JOINT_VISUAL_SCALE : 1);
     ctx.fillStyle = selected ? '#f0c040' : clothPin ? '#c9a0e8' : '#d8dde6';
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = clothPin ? '#6a3d9a' : '#2a3340';
-    ctx.lineWidth = clothPin ? 2.5 : 1.5;
+    ctx.lineWidth = jointNodeScreenPx(clothPin ? 2.5 : 1.5);
     ctx.stroke();
     if (clothPin) {
       ctx.strokeStyle = 'rgba(160, 100, 220, 0.85)';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = jointNodeScreenPx(2);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, r + jointNodeScreenPx(5), 0, Math.PI * 2);
       ctx.stroke();
     }
     if (joint.isWheel) {
       ctx.strokeStyle = '#d4a04a';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = jointNodeScreenPx(2);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, r + jointNodeScreenPx(3), 0, Math.PI * 2);
       ctx.stroke();
     }
     if (joint.isFoot) {
@@ -1063,9 +1091,10 @@ export function drawDesign(
     }
   }
 
-  // Body-part preview (bone/joint anchored).
-  if (isFeatureEnabled('spriteBodyParts') && design.appearance?.bodyParts?.length) {
-    design.appearance.bodyParts.forEach((part, index) => {
+  // Body-part preview (bone/joint anchored), plus automatic glove noses.
+  if (isFeatureEnabled('spriteBodyParts')) {
+    const authored = design.appearance?.bodyParts ?? [];
+    authored.forEach((part, index) => {
       const pose = resolveBodyPartPose(design, part);
       if (!pose) return;
       drawBodyPartSprite(
@@ -1078,6 +1107,11 @@ export function drawDesign(
         opts?.selectedBodyPartIndex === index,
       );
     });
+    for (const part of syntheticGloveNoseParts(design.joints, authored)) {
+      const pose = resolveBodyPartPose(design, part);
+      if (!pose) continue;
+      drawBodyPartSprite(ctx, cam, w, h, part, pose);
+    }
   }
 
   for (let i = 0; i < editorCloth.length; i++) {
