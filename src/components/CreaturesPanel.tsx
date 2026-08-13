@@ -6,11 +6,7 @@ import { cloneDesign, type CreatureDesign } from '../creature/types';
 import type { BestEverEntry } from '../library/bestEver';
 import { bodyFingerprint } from '../library/bestEver';
 import type { CreaturePackage } from '../library/creaturePackages';
-import {
-  exportCreaturePackage,
-  packageSkillOverride,
-} from '../library/creaturePackages';
-import { exportCreatureJson } from '../library/jsonIO';
+import { packageSkillOverride } from '../library/creaturePackages';
 import type { SavedModel } from '../library/savedModels';
 import {
   FLYING_SUBCATEGORIES,
@@ -30,6 +26,7 @@ import { CapabilityPanel } from './CapabilityPanel';
 import { CreatureDesignPreview } from './CreatureDesignPreview';
 import { ModelsHub } from './ModelsHub';
 import { PublicCreationsHub } from './PublicCreationsHub';
+import { WorkspaceStatus, type BrainStatus } from './WorkspaceStatus';
 
 /** Preset-like bodies that are not in PRESETS[] (shown once under Presets). */
 const EXTRA_PRESETS: CreatureDesign[] = [ULTI_GROOVE_BOT_II];
@@ -59,12 +56,6 @@ interface Props {
   onContinueModel: (m: SavedModel) => void;
   onDeleteModel: (id: string) => void;
   onLoadDanceFreestyle?: (m: SavedModel) => void;
-  onDownloadText: (filename: string, text: string) => void;
-  onImportJson?: () => void;
-  /** C6 — share current elite (body + trained brain). */
-  onShareModel?: () => void;
-  shareBusy?: boolean;
-  canShareModel?: boolean;
   /** C7 — open a public gallery share into the workspace. */
   onOpenPublicShare?: (id: string) => void;
   presetSkillOverrides?: Record<string, SkillPlacement>;
@@ -73,6 +64,10 @@ interface Props {
     key: CreaturesBrowseKey,
     placement: SkillPlacement | null,
   ) => void;
+  workspaceBodyName: string;
+  workspaceBrain: BrainStatus;
+  workspaceBound: boolean;
+  onBackToSandbox: () => void;
 }
 
 function resolveBrowseDesign(
@@ -84,7 +79,7 @@ function resolveBrowseDesign(
     return {
       design: current,
       label: current.name || 'Current',
-      kind: 'Current design',
+      kind: 'Workspace',
     };
   }
   if (key.startsWith('preset:')) {
@@ -102,7 +97,7 @@ function resolveBrowseDesign(
         name: pkg.displayName,
       },
       label: pkg.displayName,
-      kind: 'Library',
+      kind: 'Saved body',
     };
   }
   return null;
@@ -155,15 +150,14 @@ export function CreaturesPanel({
   onContinueModel,
   onDeleteModel,
   onLoadDanceFreestyle,
-  onDownloadText,
-  onImportJson,
-  onShareModel,
-  shareBusy = false,
-  canShareModel = false,
   onOpenPublicShare,
   presetSkillOverrides = {},
   currentSkillOverride = null,
   onSetSkillPlacement,
+  workspaceBodyName,
+  workspaceBrain,
+  workspaceBound,
+  onBackToSandbox,
 }: Props) {
   const [browseKey, setBrowseKey] = useState<CreaturesBrowseKey>('current');
 
@@ -252,25 +246,35 @@ export function CreaturesPanel({
       <header className="creatures-room-header">
         <div>
           <p className="creatures-room-eyebrow">Solemn Sandbox</p>
-          <h1>Creature Library</h1>
+          <h1>Library</h1>
           <p className="creatures-room-lede">
-            Browse bodies by skill, inspect stats, and manage saved brains.
-            Disco is a manual category — move a dancer there yourself. Open a
-            body in the editor to change it. Train still runs live sessions.
+            Three shelves: Bodies, Trained, and Public creations. Use a body or
+            a trained creature; save from the Build and Train docks.
           </p>
+        </div>
+        <div className="creatures-room-chrome">
+          <WorkspaceStatus
+            compact
+            bodyName={workspaceBodyName}
+            brain={workspaceBrain}
+            bound={workspaceBound}
+          />
+          <button type="button" onClick={onBackToSandbox}>
+            Back to sandbox
+          </button>
         </div>
       </header>
 
       <div className="creatures-room-body">
         <aside className="creatures-picker">
-          <h3 className="subhead">Library</h3>
+          <h2>Bodies</h2>
           <div className="button-col creatures-picker-list">
             <button
               type="button"
               className={browseKey === 'current' ? 'active' : ''}
               onClick={() => pick('current')}
             >
-              Current · {currentDesign.name || 'Untitled'}
+              Workspace · {currentDesign.name || 'Untitled'}
             </button>
           </div>
 
@@ -360,9 +364,9 @@ export function CreaturesPanel({
 
               {isFeatureEnabled('creaturePackages') && (
                 <>
-                  <h3 className="subhead">Saved library</h3>
+                  <h3 className="subhead">Saved</h3>
                   {packages.length === 0 ? (
-                    <p className="hint muted">No saved packages yet.</p>
+                    <p className="hint muted">No saved bodies yet.</p>
                   ) : (
                     <div className="button-col creatures-picker-list">
                       {packages.map((pkg) => {
@@ -434,75 +438,23 @@ export function CreaturesPanel({
               disabled={selectedDesign.joints.length === 0}
               onClick={() => onOpenInEditor(browseKey)}
             >
-              Open in editor
+              Use body
             </button>
-            {isFeatureEnabled('jsonImportExport') && (
-              <>
-                <button
-                  type="button"
-                  disabled={selectedDesign.joints.length === 0}
-                  onClick={() =>
-                    onDownloadText(
-                      `${(selectedDesign.name || 'creature')
-                        .replace(/\s+/g, '_')
-                        .toLowerCase()}.json`,
-                      exportCreatureJson(selectedDesign),
-                    )
-                  }
-                >
-                  Export creature
-                </button>
-                {onImportJson && (
-                  <button
-                    type="button"
-                    title="Accepts freshstart-creature or freshstart-model JSON"
-                    onClick={onImportJson}
-                  >
-                    Import JSON
-                  </button>
-                )}
-              </>
-            )}
-            {onShareModel && isFeatureEnabled('creatureSharing') && (
+            {selectedPkg && (
               <button
                 type="button"
-                disabled={!canShareModel || evolving || shareBusy}
-                title="Create a public link for the current trained creature"
-                onClick={onShareModel}
+                className="danger-ghost"
+                onClick={() => {
+                  const ok = window.confirm(
+                    `Delete library creature "${selectedPkg.displayName}"?`,
+                  );
+                  if (!ok) return;
+                  onDeletePackage(selectedPkg.id);
+                  setBrowseKey('current');
+                }}
               >
-                {shareBusy ? 'Sharing…' : 'Share'}
+                Delete
               </button>
-            )}
-            {selectedPkg && (
-              <>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onDownloadText(
-                      `${selectedPkg.displayName
-                        .replace(/\s+/g, '_')
-                        .toLowerCase()}_package.json`,
-                      exportCreaturePackage(selectedPkg),
-                    )
-                  }
-                >
-                  Export package
-                </button>
-                <button
-                  type="button"
-                  className="danger-ghost"
-                  onClick={() => {
-                    const ok = window.confirm(
-                      `Delete library creature "${selectedPkg.displayName}"?`,
-                    );
-                    if (!ok) return;
-                    onDeletePackage(selectedPkg.id);
-                    setBrowseKey('current');
-                  }}
-                >
-                  Delete
-                </button>
-              </>
             )}
           </div>
 
@@ -523,7 +475,7 @@ export function CreaturesPanel({
               {bodyDiscoveries.length === 0 ? (
                 <p className="hint muted">
                   No trophies recorded under this name yet. Full shelves live in
-                  Trophy room.
+                  Trophies.
                 </p>
               ) : (
                 <ul className="stats">
@@ -548,34 +500,41 @@ export function CreaturesPanel({
           )}
         </section>
 
-        {isFeatureEnabled('savedModels') && (
-          <section className="creatures-careers">
-            <ModelsHub
-              task={activeTask}
-              savedModels={savedModels}
-              bestEverList={
-                isFeatureEnabled('bestEverLedger') ? bestEverList : []
-              }
-              evolving={evolving}
-              bodyFingerprint={selectedFp}
-              showAllBestEver={isFeatureEnabled('bestEverLedger')}
-              onContinue={onContinueModel}
-              onDelete={onDeleteModel}
-              onLoadDanceFreestyle={onLoadDanceFreestyle}
-            />
-          </section>
-        )}
+        {(isFeatureEnabled('savedModels') ||
+          (isFeatureEnabled('publicCreationsLibrary') &&
+            isFeatureEnabled('creatureSharing') &&
+            onOpenPublicShare)) && (
+          <div className="creatures-shelves">
+            {isFeatureEnabled('savedModels') && (
+              <section className="creatures-careers">
+                <ModelsHub
+                  task={activeTask}
+                  savedModels={savedModels}
+                  bestEverList={
+                    isFeatureEnabled('bestEverLedger') ? bestEverList : []
+                  }
+                  evolving={evolving}
+                  bodyFingerprint={selectedFp}
+                  showAllBestEver={isFeatureEnabled('bestEverLedger')}
+                  onContinue={onContinueModel}
+                  onDelete={onDeleteModel}
+                  onLoadDanceFreestyle={onLoadDanceFreestyle}
+                />
+              </section>
+            )}
 
-        {isFeatureEnabled('publicCreationsLibrary') &&
-          isFeatureEnabled('creatureSharing') &&
-          onOpenPublicShare && (
-            <section className="creatures-careers">
-              <PublicCreationsHub
-                evolving={evolving}
-                onOpen={onOpenPublicShare}
-              />
-            </section>
-          )}
+            {isFeatureEnabled('publicCreationsLibrary') &&
+              isFeatureEnabled('creatureSharing') &&
+              onOpenPublicShare && (
+                <section className="creatures-careers">
+                  <PublicCreationsHub
+                    evolving={evolving}
+                    onOpen={onOpenPublicShare}
+                  />
+                </section>
+              )}
+          </div>
+        )}
       </div>
     </div>
   );

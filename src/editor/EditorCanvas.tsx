@@ -626,7 +626,6 @@ export function EditorCanvas({
       onSelectRef.current?.(jointsSelection([id]));
       onChangeRef.current({
         ...d,
-        name: 'Custom',
         joints: [...d.joints, { id, x: snapped.x, y: snapped.y }],
       });
       return;
@@ -873,7 +872,6 @@ export function EditorCanvas({
         boneRigidRef.current && isFeatureEnabled('rigidStruts');
       onChangeRef.current({
         ...d,
-        name: 'Custom',
         bones: [
           ...d.bones,
           {
@@ -897,7 +895,6 @@ export function EditorCanvas({
     if (exists) return;
     onChangeRef.current({
       ...d,
-      name: 'Custom',
       muscles: [
         ...d.muscles,
         {

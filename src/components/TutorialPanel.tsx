@@ -7,7 +7,7 @@ type TutorialView = 'guided' | 'quickstart';
 
 export type TutorialJumpTarget = Extract<
   SandboxTabId,
-  'edit' | 'creatures' | 'train' | 'world' | 'discoveries' | 'skill' | 'h2h'
+  'edit' | 'creatures' | 'train' | 'world' | 'discoveries' | 'h2h'
 >;
 
 export interface TutorialJump {
@@ -306,69 +306,65 @@ function buildChapters(
       body: (
         <>
           <p>
-            The header tabs are rooms in the workshop. You can hop between them
-            freely — nothing here locks you into a path.
+            The header tabs are rooms and work modes. You can hop between them
+            freely — nothing here locks you into a path. Skill, Goal, and
+            Environment live on the strip above the canvas, not as their own tab.
           </p>
           <dl className="tutorial-map">
             <div>
-              <dt>Skill</dt>
-              <dd>
-                Choose a skill family (walk, jump, fly, disco, and more) and see
-                what that area is about.
-              </dd>
-            </div>
-            <div>
-              <dt>Creature builder</dt>
+              <dt>Build</dt>
               <dd>
                 Draw or load a body: joints, bones, muscles, feet, wheels,
                 decorations.
               </dd>
             </div>
             <div>
-              <dt>Creature Library</dt>
-              <dd>
-                Browse presets, your saved bodies, brains, and trophies tied to
-                a design.
-              </dd>
-            </div>
-            <div>
               <dt>Train</dt>
               <dd>
-                Evolve brains, watch the pack, play the best, save a model.
+                Evolve brains, watch the pack, play the best, save trained.
+                When Skill is Disco, this tab reads Disco and the dock becomes
+                the dance floor.
               </dd>
             </div>
+            {canJumpH2h && (
+              <div>
+                <dt>Combat</dt>
+                <dd>Race, box, or joust from the dock under the canvas.</dd>
+              </div>
+            )}
             <div>
-              <dt>Environment builder</dt>
+              <dt>Course</dt>
               <dd>
                 Author practice courses — hills, obstacles, launch pads,
                 markers.
               </dd>
             </div>
+            <div>
+              <dt>Library</dt>
+              <dd>
+                Bodies, Trained, and Public creations. Back to sandbox returns
+                to your last sandbox mode.
+              </dd>
+            </div>
             {canJumpDiscoveries && (
               <div>
-                <dt>Trophy room</dt>
+                <dt>Trophies</dt>
                 <dd>
                   Secret goals unlock while you experiment. Locked plaques stay
                   quiet until earned.
                 </dd>
               </div>
             )}
-            {canJumpH2h && (
-              <div>
-                <dt>H2H</dt>
-                <dd>Pit two saved brains against each other on a goal.</dd>
-              </div>
-            )}
           </dl>
           <p>
             Above the canvas, a strip lets you pick <strong>Skill</strong>,{' '}
-            <strong>Goal</strong>, and <strong>Env</strong> without leaving the
-            main view.
+            <strong>Goal</strong>, and <strong>Environment</strong> without
+            leaving the main view.
           </p>
           <div className="tutorial-actions">
-            {jump('Open Skill', 'skill', 'map', 'map-skill')}
-            {jump('Open Creature builder', 'edit', 'map', 'map-edit')}
-            {jump('Open Creature Library', 'creatures', 'map', 'map-creatures')}
+            {jump('See the Skill strip', 'edit', 'map', 'map-skill')}
+            {jump('Open Build', 'edit', 'map', 'map-edit')}
+            {jump('Open Library', 'creatures', 'map', 'map-creatures')}
           </div>
         </>
       ),
@@ -388,18 +384,18 @@ function buildChapters(
               <div>
                 <strong>Confirm the starter setup.</strong> Walk, Run, Flat
                 Ground, and a Floppy Chain are already loaded. Change skill on
-                the strip or Skill tab if you want a different challenge.
+                the strip above the canvas if you want a different challenge.
               </div>
-              {jump('Skill strip', 'skill', 'first-loop', 'first-loop-skill')}
+              {jump('Skill strip', 'edit', 'first-loop', 'first-loop-skill')}
             </li>
             <li>
               <div>
-                <strong>Tweak or rebuild the body.</strong> Open the Creature
-                builder — Floppy Chain is a friendly starter — or draw your own
-                with the skill tips in mind.
+                <strong>Tweak or rebuild the body.</strong> Open Build — Floppy
+                Chain is a friendly starter — or draw your own with the skill
+                tips in mind.
               </div>
               {jump(
-                'Creature builder',
+                'Build',
                 'edit',
                 'first-loop',
                 'first-loop-edit',
@@ -415,11 +411,11 @@ function buildChapters(
             <li>
               <div>
                 <strong>Watch &amp; keep.</strong> After a few rounds, Play best
-                shows the winner alone. Save model if you like it — you’ll find
-                it later in the Creature Library.
+                shows the winner alone. Save trained if you like it — you’ll find
+                it later in the Library.
               </div>
               {jump(
-                'Creature Library',
+                'Library',
                 'creatures',
                 'first-loop',
                 'first-loop-creatures',
@@ -461,8 +457,8 @@ function buildChapters(
               body rests before you train.
             </li>
             <li>
-              <strong>Save current</strong> stores the body in your library;
-              browse everything later under Creature Library.
+              <strong>Save body</strong> stores the body in your library;
+              browse everything later under Library.
             </li>
           </ul>
           <div className="tutorial-actions">
@@ -482,7 +478,7 @@ function buildChapters(
           </p>
           <ul>
             <li>
-              If nothing improves, try a simpler body, a flatter env, or a
+              If nothing improves, try a simpler body, a flatter course, or a
               shorter try length in Training setup.
             </li>
             <li>
@@ -491,8 +487,8 @@ function buildChapters(
               current run.
             </li>
             <li>
-              Saved brains live under Creature Library. Train’s “Start from”
-              can warm-start from a saved brain once you have one.
+              Trained creatures live under Library. Train’s “Start
+              from” can warm-start from a saved brain once you have one.
             </li>
             <li>
               Disco, flight, and wheeled goals need matching body bits (music
@@ -503,7 +499,7 @@ function buildChapters(
           <div className="tutorial-actions">
             {jump('Open Train', 'train', 'training', 'training-train')}
             {jump(
-              'Browse saved brains',
+              'Browse trained',
               'creatures',
               'training',
               'training-creatures',
@@ -525,19 +521,19 @@ function buildChapters(
             <li>Train the same walker on rough or obstacle courses.</li>
             <li>Build a hopper, switch Goal to Jump, and chase height.</li>
             <li>
-              Open Environment builder, drop a few boxes, save the env, then
+              Open Course, drop a few boxes, save the course, then
               train against it.
             </li>
             <li>
-              Load Disco, pick a track, and mess with band → muscle routing
-              (chaos is allowed).
+              Load Disco on the Skill strip (the Train tab becomes Disco), pick a
+              track, and mess with band → muscle routing (chaos is allowed).
             </li>
             <li>
-              Leave Train running while you check the Trophy room — secrets
+              Leave Train running while you check Trophies — secrets
               unlock as you experiment.
             </li>
             {canJumpH2h && (
-              <li>Save two models and try Head-to-Head.</li>
+              <li>Save trained, then try Combat (this workspace vs Dummy).</li>
             )}
             <li>
               Mark gloves / targets and spar in Boxing, or a lance and charge
@@ -546,20 +542,20 @@ function buildChapters(
           </ul>
           <div className="tutorial-actions">
             {jump(
-              'Environment builder',
+              'Course',
               'world',
               'wander',
               'wander-world',
             )}
             {canJumpDiscoveries &&
               jump(
-                'Trophy room',
+                'Trophies',
                 'discoveries',
                 'wander',
                 'wander-discoveries',
               )}
             {canJumpH2h &&
-              jump('Head-to-Head', 'h2h', 'wander', 'wander-h2h')}
+              jump('Combat', 'h2h', 'wander', 'wander-h2h')}
           </div>
         </>
       ),
@@ -662,7 +658,7 @@ function buildChapters(
           </ul>
           <h3>Scoring the course itself</h3>
           <p>
-            The Environment builder has scoring tools beyond terrain: penalty
+            The Course tab has scoring tools beyond terrain: penalty
             zones (lose points per second inside), reward zones (touch-once
             bonus), start / checkpoint / finish markers for timed sprints, and
             launch pads + landing zones for flight goals.
@@ -670,7 +666,7 @@ function buildChapters(
           <div className="tutorial-actions">
             {jump('Open Train', 'train', 'advanced', 'advanced-train')}
             {jump(
-              'Environment builder',
+              'Course',
               'world',
               'advanced',
               'advanced-world',
@@ -698,8 +694,8 @@ function buildChapters(
               or solid struts.
             </li>
             <li>
-              <strong>Lost your best brain?</strong> Check Creature Library →
-              Saved brains, or Save model after a good run.
+              <strong>Lost your best brain?</strong> Check Library →
+              Trained, or Save trained after a good run.
             </li>
           </ul>
           <p>
@@ -774,7 +770,7 @@ export function TutorialPanel({
               Hover help
               <span className="hint muted">
                 {' '}
-                — deeper tips when you point at controls
+                — also in the header. Deeper tips when you point at controls
               </span>
             </span>
           </label>
@@ -814,7 +810,7 @@ export function TutorialPanel({
           </p>
           <SimpleMarkdown source={tutorialMd} />
           <div className="tutorial-actions">
-            {jumpQuick('Open Creature builder', 'edit', onJump)}
+            {jumpQuick('Open Build', 'edit', onJump)}
             {jumpQuick('Open Train', 'train', onJump)}
             <button
               type="button"

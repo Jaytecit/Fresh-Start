@@ -25,7 +25,7 @@ interface Props {
   envDisabled?: boolean;
 }
 
-/** Full-width Skill / Goal / Env band above the sandbox body. */
+/** Full-width Skill / Goal / Environment band above the sandbox body. */
 export function ContextStrip({
   skill,
   onSelectSkill,
@@ -102,15 +102,15 @@ export function ContextStrip({
           </>
         ) : showSkillTabs && skill === 'disco' ? (
           <p className="hint muted context-strip-disco-hint">
-            Disco — track &amp; learn live in the Skill panel
+            Disco — you are in Disco. Track &amp; learn live in the dock below
           </p>
         ) : null}
       </div>
 
       {showEnv && (
         <div className="context-strip-env">
-          <HelpTip tip="Env is the course or ground your creature trains on. Flat is easiest; custom courses live in Environment builder.">
-            <span className="context-strip-label">Env</span>
+          <HelpTip tip="Environment is the course or ground your creature trains on. Flat is easiest; custom courses live in Course.">
+            <span className="context-strip-label">Environment</span>
           </HelpTip>
           <EnvPicker
             packages={envPackages}

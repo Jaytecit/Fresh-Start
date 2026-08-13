@@ -10,14 +10,14 @@ Inspired by [Evolution by Keiwan](https://keiwando.com/evolution/).
 
 | Area | What it’s for |
 | --- | --- |
-| **Creature builder** | Draw a body: place joints, connect bones (including solid struts), add muscles, decorate with body parts / eyes / cloth. |
-| **Creatures** | Browse presets and your library, inspect stats, saved brains, best scores, and trophies earned by a body. |
-| **Train** | Pick a goal and environment, then **Evolve** a brain. Watch a pack of try-outs, play the best, save models. |
-| **Environment builder** | Author flat ground, hills, obstacles, launch pads, score regions, and course markers for practice. |
-| **Skill / Goal / Env strip** | Switch skill areas (walk, jump, fly, motor, boxing, jousting, free, disco) and the training course without leaving the main view. |
-| **Disco** | Load music, route frequency bands to muscles, record / learn dances, run multi-dancer slots. |
-| **Trophy room** | Collect secret goals unlocked while experimenting. |
-| **Head-to-head** | Pit two saved brains against each other on a goal. |
+| **Build** | Draw a body: place joints, connect bones (including solid struts), add muscles, decorate with body parts / eyes / cloth. |
+| **Library** | Browse **Bodies**, **Trained**, and **Public creations**. **Back to sandbox** returns to your last sandbox mode. |
+| **Train** | Pick a goal and environment, then **Evolve** a brain. Watch a pack of try-outs, play the best, **Save trained**. |
+| **Course** | Author flat ground, hills, obstacles, launch pads, score regions, and course markers for practice. |
+| **Skill / Goal / Environment strip** | Switch skill areas (walk, jump, fly, motor, boxing, jousting, free, disco) and the training course without leaving the main view. |
+| **Disco** | When Skill is Disco, the Train tab becomes **Disco**. Load music, route bands to muscles, record / learn dances, run multi-dancer slots. |
+| **Trophies** | Collect secret goals unlocked while experimenting. |
+| **Combat** | Race, boxing, or joust. Pick corners (this workspace, library trained, or a house dummy) under the canvas. |
 
 **Tip:** Brace limbs with triangles. Long floppy chains tend to pancake under gravity.
 
@@ -40,13 +40,13 @@ Open **http://localhost:3001/**.
 
 See the short starter guide: [`docs/TUTORIAL.md`](./docs/TUTORIAL.md).
 
-1. Open **Creature builder** and load a preset (e.g. Simple Hopper), or draw your own.
-2. Use the strip above the canvas to pick a **Skill**, **Goal**, and **Env**.
+1. Open **Build** and load a preset (e.g. Simple Hopper), or draw your own.
+2. Use the strip above the canvas to pick a **Skill**, **Goal**, and **Environment**.
 3. Switch to **Train**, press **Evolve**, then **Play best** when a run finishes.
-4. Save a model from the Train dock; manage bodies and brains in **Creatures**.
-5. After you have a trained elite, use **Share** to get a public link (optional: list it in **Public creations**). See [`SHARING.md`](./SHARING.md).
+4. **Save trained** from the Train dock; browse **Bodies** and **Trained** in **Library**.
+5. After you have a trained elite, use **Share trained** to get a public link (optional: list it in **Public creations**). See [`SHARING.md`](./SHARING.md).
 
-Editor shortcuts: place joints with the joint tool; drag bone/muscle between parts; select to move or multi-select; Undo / Clear as needed. Save current and Import/Export JSON stay in the builder.
+Editor shortcuts: place joints with the joint tool; drag bone/muscle between parts; select to move or multi-select; Undo / Clear body as needed. Name, Save body, and Import/Export live in the Build dock.
 
 ---
 

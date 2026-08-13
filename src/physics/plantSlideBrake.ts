@@ -8,7 +8,8 @@
  *   muscle-driven micro-skid dies and feet stay planted for push-off
  * - Above the stick band, adverse along-surface damp only:
  *   tilted → downhill only (uphill / forward up the slab preserved)
- *   flat → world-left (−X) only (fast +X forward preserved)
+ *   flat → opposite of intended gait (default −X so fast +X is kept;
+ *   mirrored corner fighters pass forwardX = −1 so −X walking is kept)
  * - Ramp proximity fallback when thin slabs miss Rapier contact pairs
  */
 import type { EnvTerrain, ObstacleKind } from '../env/types';
@@ -48,6 +49,7 @@ function applySurfacePurchase(
   body: GripBody,
   antiScoot: number,
   surfaceRot: number,
+  forwardX: number,
 ): void {
   const purchaseScale = Math.max(0, antiScoot / ANTI_SCOOT);
   if (purchaseScale <= 0) return;
@@ -86,13 +88,14 @@ function applySurfacePurchase(
   if (SURFACE_TANGENT_BRAKE <= 0) return;
 
   const tilted = Math.abs(ty) > 0.08;
-  // Tilted: gravity's along-slab sign (downhill). Flat: along-surface that
-  // points world-left (−X) so fast forward (+X) is not braked.
+  // Tilted: gravity's along-slab sign (downhill). Flat: opposite of intended
+  // gait so fast forward is not braked (default +X; mirrored corners −X).
+  const facing = forwardX < 0 ? -1 : 1;
   const adverseSign = tilted
     ? Math.sign(GRAVITY_Y * ty) || -1
     : tx >= 0
-      ? -1
-      : 1;
+      ? -facing
+      : facing;
 
   const keepT =
     1 -
@@ -211,6 +214,8 @@ function resolveSurfaceTouch(
 /**
  * Apply anti-scoot-scaled purchase after world.step.
  * `antiScoot` is the Train-dock slider (defaults to ANTI_SCOOT).
+ * `forwardX` is intended gait along world X (+1 default, −1 for mirrored
+ * boxing / joust corner fighters). Tilted downhill brake is unchanged.
  */
 export function applyPlantSlideBrake(
   creature: SpawnedCreature,
@@ -218,6 +223,7 @@ export function applyPlantSlideBrake(
   world?: RAPIER.World | null,
   obstacles?: ObstacleHandle | null,
   antiScoot: number = ANTI_SCOOT,
+  forwardX: number = 1,
 ): void {
   const scale = clampAntiScoot(antiScoot);
   if (
@@ -251,7 +257,7 @@ export function applyPlantSlideBrake(
       PLANT_SLIDE_Y,
     );
     if (touch.ramp) {
-      applySurfacePurchase(j.body, scale, touch.surfaceRot);
+      applySurfacePurchase(j.body, scale, touch.surfaceRot, forwardX);
       continue;
     }
     if (!onTerrain && !touch.any) continue;
@@ -259,6 +265,7 @@ export function applyPlantSlideBrake(
       j.body,
       scale,
       touch.any ? touch.surfaceRot : 0,
+      forwardX,
     );
   }
 }

@@ -32,9 +32,11 @@ interface Props {
   options?: ReactNode;
   /** Selection / part inspectors. */
   inspector?: ReactNode;
+  /** Name / save / load / import / export. */
+  files?: ReactNode;
 }
 
-/** Creature builder bottom dock — three columns under the Edit canvas. */
+/** Build bottom dock — three columns under the Edit canvas. */
 export function CreatureDock({
   tool,
   onToolChange,
@@ -43,6 +45,7 @@ export function CreatureDock({
   toolsExtras,
   options,
   inspector,
+  files,
 }: Props) {
   const tools: EditTool[] = [
     ...TOOLS,
@@ -95,6 +98,9 @@ export function CreatureDock({
             <p className="hint muted">Select a joint, bone, or muscle.</p>
           )}
         </div>
+        {files && (
+          <div className="creature-dock-col creature-dock-files">{files}</div>
+        )}
       </div>
     </div>
   );

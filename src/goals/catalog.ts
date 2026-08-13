@@ -37,7 +37,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     task: 'sprint',
     title: 'Sprint Finish',
     blurb:
-      'Race checkpoints to the finish — faster finish scores more. Place start/finish markers in World.',
+      'Race checkpoints to the finish — faster finish scores more. Place start/finish markers in Course.',
     skills: ['walking', 'free'],
   },
   {
@@ -129,7 +129,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     task: 'motor_sprint',
     title: 'Motor Sprint',
     blurb:
-      'Wheeled race — checkpoints and finish time when markers are placed in World.',
+      'Wheeled race — checkpoints and finish time when markers are placed in Course.',
     skills: ['motor', 'free'],
   },
   {
@@ -161,7 +161,7 @@ export const GOAL_CATALOG: GoalDef[] = [
     task: 'flight_wing',
     title: 'Wing Flight',
     blurb:
-      'Climb and sustain with wings. Place a launch pad + landing zone in World for the pad→fly→land loop.',
+      'Climb and sustain with wings. Place a launch pad + landing zone in Course for the pad→fly→land loop.',
     skills: ['flying', 'free'],
   },
   {

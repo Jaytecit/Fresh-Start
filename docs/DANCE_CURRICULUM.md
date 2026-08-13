@@ -1,6 +1,6 @@
 # Disco multi-track dance curriculum
 
-Disco-only learning path. Free evolve, Edit, World, and Head-to-Head stay unchanged.
+Disco-only learning path. Free evolve, Edit, World, and Combat stay unchanged.
 
 ## Obs pack version
 

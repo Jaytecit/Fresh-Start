@@ -156,8 +156,10 @@ export const featureFlags = {
 
   /** Arena championship shell. */
   arenaChampionship: false,
-  /** Head-to-Head gauntlet (two models). */
+  /** Combat tab (race / boxing / joust). */
   headToHead: true,
+  /** Combat tab + Body/Brain/Trained vocabulary; sidebars are information-only. */
+  sandboxLayoutV2: true,
   /** Dedicated Boxing skill. */
   boxingMode: true,
   /** Dedicated Jousting skill (single-pass scorecard). */

@@ -246,7 +246,7 @@ export function importModelJson(raw: string): JsonResult<{
     return {
       ok: true,
       value: {
-        name: (typeof data.name === 'string' && data.name.trim()) || 'ImportedT',
+        name: (typeof data.name === 'string' && data.name.trim()) || 'Imported',
         task: data.task,
         shape: { ...data.shape },
         weights,

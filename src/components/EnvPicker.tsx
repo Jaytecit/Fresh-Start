@@ -8,7 +8,7 @@ interface Props {
   disabled?: boolean;
   onSelect: (pkg: EnvironmentPackage) => void;
   compact?: boolean;
-  /** When true, omit the Env label (caller may provide its own). */
+  /** When true, omit the Environment label (caller may provide its own). */
   hideLabel?: boolean;
 }
 
@@ -27,7 +27,7 @@ export function EnvPicker({
   return (
     <div className={compact ? 'env-picker env-picker-compact' : 'env-picker'}>
       <label className="field-row">
-        {!hideLabel && <span>Env</span>}
+        {!hideLabel && <span>Environment</span>}
         <select
           value={value}
           disabled={disabled}
@@ -40,7 +40,7 @@ export function EnvPicker({
           aria-label="Environment for the sim / training course"
         >
           {selectedPackageId == null && (
-            <option value="__studio__">Studio draft</option>
+            <option value="__studio__">Unsaved course</option>
           )}
           {packages.map((pkg) => (
             <option key={pkg.id} value={pkg.id}>

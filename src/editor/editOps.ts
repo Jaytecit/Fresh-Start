@@ -14,7 +14,6 @@ export function moveJoint(
 ): CreatureDesign {
   return {
     ...design,
-    name: 'Custom',
     joints: design.joints.map((j) => (j.id === jointId ? { ...j, x, y } : j)),
   };
 }
@@ -26,7 +25,6 @@ export function updateJoint(
 ): CreatureDesign {
   return {
     ...design,
-    name: 'Custom',
     joints: design.joints.map((j) => {
       if (j.id !== jointId) return j;
       const next = { ...j, ...patch };
@@ -54,7 +52,6 @@ export function updateBone(
 ): CreatureDesign {
   return {
     ...design,
-    name: 'Custom',
     bones: design.bones.map((b) => {
       if (b.id !== boneId) return b;
       const next = { ...b, ...patch };
@@ -114,7 +111,6 @@ export function updateMuscle(
 ): CreatureDesign {
   return {
     ...design,
-    name: 'Custom',
     muscles: design.muscles.map((m) => {
       if (m.id !== muscleId) return m;
       const next = { ...m, ...patch };
@@ -139,7 +135,6 @@ export function assignDriveGroup(
   const set = new Set(muscleIds);
   return {
     ...design,
-    name: 'Custom',
     muscles: design.muscles.map((m) =>
       set.has(m.id) ? { ...m, driveGroup: id } : m,
     ),
@@ -153,7 +148,6 @@ export function clearDriveGroup(
   const set = new Set(muscleIds);
   return {
     ...design,
-    name: 'Custom',
     muscles: design.muscles.map((m) => {
       if (!set.has(m.id) || m.driveGroup === undefined) return m;
       const next = { ...m };
@@ -187,7 +181,6 @@ export function deleteJoint(design: CreatureDesign, jointId: number): CreatureDe
     : undefined;
   return {
     ...design,
-    name: 'Custom',
     joints: design.joints.filter((j) => j.id !== jointId),
     bones: design.bones.filter((b) => !removedBoneIds.has(b.id)),
     muscles: design.muscles.filter(
@@ -211,7 +204,6 @@ export function deleteBone(design: CreatureDesign, boneId: number): CreatureDesi
     : undefined;
   return {
     ...design,
-    name: 'Custom',
     bones: design.bones.filter((b) => b.id !== boneId),
     muscles: design.muscles.filter(
       (m) => m.startBoneId !== boneId && m.endBoneId !== boneId,
@@ -223,7 +215,6 @@ export function deleteBone(design: CreatureDesign, boneId: number): CreatureDesi
 export function deleteMuscle(design: CreatureDesign, muscleId: number): CreatureDesign {
   return {
     ...design,
-    name: 'Custom',
     muscles: design.muscles.filter((m) => m.id !== muscleId),
   };
 }

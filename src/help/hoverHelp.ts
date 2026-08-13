@@ -1,4 +1,4 @@
-/** Persisted newcomer hover-help preference (Tutorial tab toggle). */
+/** Persisted newcomer hover-help preference (header and Tutorial toggle). */
 
 const HOVER_HELP_KEY = 'freshstart_hover_help_v1';
 

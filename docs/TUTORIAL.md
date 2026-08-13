@@ -2,7 +2,7 @@
 
 Welcome to **Solemn Sandbox**. This page is a short tour for first-time players — enough to get moving, not a full manual.
 
-In the app, open the **Tutorial** tab for the full guided tour, or switch to **Quick start** there to read this same guide without leaving the sandbox. Hover help (on by default) can be toggled in that same tab.
+In the app, open the **Tutorial** tab for the full guided tour, or switch to **Quick start** there to read this same guide without leaving the sandbox. **Hover help** (on by default) can be toggled from the header, and again in Tutorial.
 
 ## The big idea
 
@@ -12,21 +12,23 @@ You design a creature, pick a challenge, and let many “brains” try the cours
 
 | Tab / strip | Use it for |
 | --- | --- |
-| **Tutorial** | Guided tour + quick start + hover-help toggle |
-| **Creature builder** | Draw or load a body |
-| Strip above the canvas | Pick **Skill**, **Goal**, and **Env** |
-| **Train** | Evolve, watch, play best, save a brain |
-| **Creatures** | Browse presets, library, stats, and saved brains |
-| **Environment builder** | Build custom practice courses (optional at first) |
-| **Trophy room** | See secret goals you’ve unlocked |
+| **Tutorial** | Guided tour + quick start |
+| **Build** | Draw or load a body |
+| Strip above the canvas | Pick **Skill**, **Goal**, and **Environment** |
+| **Train** | Evolve, watch, play best, save trained |
+| **Combat** | Race, boxing, or joust from the dock under the canvas |
+| **Course** | Build custom practice courses (optional at first) |
+| **Library** | Browse **Bodies**, **Trained**, and **Public creations**. **Back to sandbox** returns to your last mode |
+| **Trophies** | See secret goals you’ve unlocked |
+| Header | **Hover help** and **Immersive** |
 
 ## Your first win (about 5 minutes)
 
 1. The sandbox already has **Walk**, **Run**, **Flat Ground**, and a **Floppy Chain** loaded.
-2. Open **Creature builder** if you want to tweak that body, or pick another preset.
+2. Open **Build** if you want to tweak that body, or pick another preset.
 3. Open **Train** and press **Evolve**.
 4. Let a few rounds finish. Press **Play best** to watch the winner alone.
-5. Press **Save model** if you like it.
+5. Press **Save trained** if you like it. Name the body first.
 
 That’s a full loop: body → goal → train → enjoy.
 
@@ -36,14 +38,14 @@ That’s a full loop: body → goal → train → enjoy.
 - Add at least one **muscle** (and mark **feet** if the goal cares about stepping).
 - Start small. A sturdy hopper or walker trains faster than a masterpiece with twenty muscles.
 - Use **Physics settle** in the builder to see how the body rests before you train.
-- **Save current** in the builder stores the body in your library; **Creatures** is where you browse everything later.
+- **Save body** in the Build dock stores the body in your library; **Library** is where you browse everything later.
 
 ## Training tips
 
 - **Evolve** tries many brains at once. Ghost outlines are the rest of the pack.
-- If nothing improves, try a simpler body, a flatter env, or a shorter try length in Training setup.
+- If nothing improves, try a simpler body, a flatter environment, or a shorter try length in Training setup.
 - **Play best** is for watching; **Keep training** continues from the elite of the current run.
-- Saved brains live under **Creatures**. Train’s “Start from” can warm-start from a saved brain once you have one.
+- Trained creatures live under **Library**. Train’s “Start from” can warm-start from a saved brain once you have one. Combat can use **This workspace** without exporting first.
 - Disco, flight, and wheeled goals need matching body bits (aero parts, wheels, etc.). Stick to Walk / Run until that feels natural.
 
 ## Advanced — fine-tuning training
@@ -55,16 +57,16 @@ All optional; defaults work. When you want to steer a run:
 - **Priorities** — sliders that tilt the score mix (not physics). Only sliders relevant to the selected goal are shown. **Train in stages** chains Stay tall → Run → Sprint; **Train course stages** grows a course as fitness clears each step.
 - **More training options** — raycast whisker senses (needs a fresh evolve), race your record (ghost), messy bodies (mass/length jitter), evolve body traits / structure, and a downloadable training log.
 - **Reading a run** — the **Rewards** panel breaks the best score into its terms; **Stats** and the network visualizer show fitness history and the live brain.
-- **Course scoring** (Environment builder) — penalty zones, touch-once reward zones, start / checkpoint / finish markers for timed sprints, launch pads + landing zones for flight.
+- **Course scoring** (Course tab) — penalty zones, touch-once reward zones, start / checkpoint / finish markers for timed sprints, launch pads + landing zones for flight.
 
 ## Fun ideas to try next
 
 - Train the same walker on **rough** or obstacle courses.
 - Build a **hopper**, switch Goal to Jump, and chase height.
-- Open **Environment builder**, drop a few boxes, save the env, then train against it.
-- Load **Disco**, pick a track, and mess with band → muscle routing (chaos is allowed).
-- Leave Train running while you check **Trophy room** — secrets unlock as you experiment.
-- Save two models and try **Head-to-head**.
+- Open **Course**, drop a few boxes, save the course, then train against it.
+- Load **Disco** on the Skill strip — the Train tab becomes Disco. Pick a track, and mess with band → muscle routing (chaos is allowed).
+- Leave Train running while you check **Trophies** — secrets unlock as you experiment.
+- Save two trained creatures and try **Combat**.
 - Mark gloves / targets and spar in **Boxing**, or a lance and charge in **Jousting**.
 
 ## If something feels stuck
@@ -72,6 +74,6 @@ All optional; defaults work. When you want to steer a run:
 - Empty design? Load a preset or place joints in the builder first.
 - Evolve greyed out? Need muscles (or wheels) on the body.
 - Creature pancakes? Add cross-bracing (triangles / solid struts).
-- Lost your best brain? Check **Creatures → Saved brains**, or Save model after a good run.
+- Lost your best brain? Check **Library → Trained**, or Save trained after a good run.
 
 Have fun — silly experiments are the point.

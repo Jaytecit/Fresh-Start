@@ -207,7 +207,6 @@ export function moveSelection(
   const set = new Set(jointIds);
   return {
     ...design,
-    name: 'Custom',
     joints: design.joints.map((j) =>
       set.has(j.id) ? { ...j, x: j.x + dx, y: clampJointY(j.y + dy) } : j,
     ),
@@ -254,7 +253,7 @@ export function scaleSelection(
       }),
     };
   }
-  return { ...design, name: 'Custom', joints, appearance };
+  return { ...design, joints, appearance };
 }
 
 /** Rotate selected joints about centroid by `deltaRadians`. */
@@ -298,7 +297,7 @@ export function rotateSelection(
       }),
     };
   }
-  return { ...design, name: 'Custom', joints, appearance };
+  return { ...design, joints, appearance };
 }
 
 function allocateIds(
@@ -449,7 +448,6 @@ function cloneSubgraph(
   return {
     design: {
       ...src,
-      name: 'Custom',
       joints: [...src.joints, ...newJoints],
       bones: [...src.bones, ...newBones],
       muscles: [...src.muscles, ...newMuscles],
@@ -511,7 +509,5 @@ export function deleteSelection(
   for (const id of jointIds) {
     next = deleteJoint(next, id);
   }
-  return next.name === design.name && next !== design
-    ? { ...next, name: 'Custom' }
-    : next;
+  return next;
 }

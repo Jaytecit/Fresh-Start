@@ -54,6 +54,8 @@ import { encodeGroups, spawnCreature } from '../src/physics/spawn.ts';
 import { createWorld, initRapier } from '../src/physics/world.ts';
 import { featureFlags } from '../src/port/featureFlags.ts';
 import { exportModelJson, importModelJson } from '../src/library/jsonIO.ts';
+import { resolveBoxingCorner } from '../src/combat/resolveCorners.ts';
+import { displayNameForTrained } from '../src/library/fileVocabulary.ts';
 import { shapeForBoxingDesign, Simulation } from '../src/sim/simulation.ts';
 
 function ok(condition: boolean, message: string): void {
@@ -770,6 +772,67 @@ async function assertBoxingV2TSparringLoads(): Promise<void> {
   }
 }
 
+async function assertWorkspaceCornerMatch(): Promise<void> {
+  const shape = shapeForBoxingDesign(UPRIGHT_FIGHTER);
+  const workspace = {
+    design: cloneDesign(UPRIGHT_FIGHTER),
+    shape,
+    weights: new Float32Array(shape.weightCount),
+  };
+  const fighterA = resolveBoxingCorner(
+    { kind: 'workspace' },
+    {
+      workspace,
+      models: [],
+      pool: [UPRIGHT_FIGHTER],
+      divisionId: 'upright',
+      seed: 1,
+    },
+  );
+  const fighterB = resolveBoxingCorner(
+    { kind: 'house', id: 'dummy' },
+    {
+      workspace,
+      models: [],
+      pool: [UPRIGHT_FIGHTER],
+      divisionId: 'upright',
+      seed: 2,
+    },
+  );
+  ok(fighterA !== null, 'workspace corner resolves without saveModel');
+  ok(fighterB !== null, 'dummy house corner resolves');
+  assert.equal(
+    displayNameForTrained('Hopper', 'boxing'),
+    'Hopper · Boxing Points',
+  );
+  const simulation = new Simulation();
+  await simulation.init();
+  try {
+    simulation.setEnvironment(boxingRingEnv());
+    simulation.startBoxingMatch({
+      entries: [
+        {
+          design: fighterA!.design,
+          shape: fighterA!.shape,
+          weights: fighterA!.weights,
+        },
+        {
+          design: fighterB!.design,
+          shape: fighterB!.shape,
+          weights: fighterB!.weights,
+        },
+      ],
+      divisionId: 'upright',
+      episodeSeconds: 1,
+    });
+    for (let i = 0; i < 8; i++) simulation.step(FIXED_DT);
+    ok(simulation.snapshot().agents.length >= 2, 'workspace vs dummy match spawned');
+  } finally {
+    simulation.world?.free();
+    simulation.world = null;
+  }
+}
+
 async function main(): Promise<void> {
   await initRapier();
   assertDivisions();
@@ -782,6 +845,7 @@ async function main(): Promise<void> {
   await assertBoxingBrainProbeAndTrainingProgress();
   await assertBoxingLiveBatch();
   await assertBoxingV2TSparringLoads();
+  await assertWorkspaceCornerMatch();
   await assertBoxingTrainingFitnessMoves();
   const first = await scriptedHit();
   const second = await scriptedHit();

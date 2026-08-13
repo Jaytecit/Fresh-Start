@@ -116,7 +116,7 @@ import {
   GOAL_CATALOG,
   goalsForZone,
 } from '../src/goals/catalog.ts';
-import { ZONES, ZONE_ORDER } from '../src/zones/zones.ts';
+import { SKILLS, SKILL_ORDER } from '../src/skills/skills.ts';
 import {
   aeroPresenceScale,
   emptyMetrics,
@@ -580,7 +580,7 @@ async function assertRampGrip(): Promise<void> {
   world.removeRigidBody(ballBody);
   destroyObstacles(world, handle);
 
-  // Ground and flat obstacles: same adverse-direction assist (brake −X, keep +X).
+  // Ground and flat obstacles: same adverse-direction assist (brake opposite of gait).
   const groundFoot = spawnCreature(world, {
     name: 'GroundFoot',
     joints: [{ id: 1, x: 0, y: JOINT_RADIUS + 0.02, isFoot: true }],
@@ -603,6 +603,21 @@ async function assertRampGrip(): Promise<void> {
   assert(
     Math.abs(groundBack) < Math.abs(vxBack) * 0.25,
     `flat purchase should cut −X scoot (vx=${groundBack.toFixed(3)})`,
+  );
+  // Mirrored corner (box / joust right side): intended gait is −X.
+  groundFoot.joints[0]!.body.setLinvel({ x: vxBack, y: 0 }, true);
+  applyPlantSlideBrake(groundFoot, null, world, null, ANTI_SCOOT_MAX, -1);
+  const mirroredFwd = groundFoot.joints[0]!.body.linvel().x;
+  assert(
+    Math.abs(mirroredFwd - vxBack) < 1e-6,
+    `mirrored flat purchase must preserve −X (vx=${mirroredFwd.toFixed(3)})`,
+  );
+  groundFoot.joints[0]!.body.setLinvel({ x: vxFwd, y: 0 }, true);
+  applyPlantSlideBrake(groundFoot, null, world, null, ANTI_SCOOT_MAX, -1);
+  const mirroredBack = groundFoot.joints[0]!.body.linvel().x;
+  assert(
+    Math.abs(mirroredBack) < Math.abs(vxFwd) * 0.25,
+    `mirrored flat purchase should cut +X scoot (vx=${mirroredBack.toFixed(3)})`,
   );
 
   const flatHandle = spawnStaticObstacles(
@@ -1308,12 +1323,12 @@ function assertCatalogAndZones(): void {
   );
   const pngCount = countPngs(assets);
   assert(pngCount > 50, `expected body-part PNGs, got ${pngCount}`);
-  assert(ZONE_ORDER.length === 8, 'eight skills');
-  assert(ZONES.walking.defaultTask === 'run', 'walking → run');
-  assert(ZONES.jumping.defaultTask === 'jump', 'jumping → jump');
-  assert(ZONES.disco.shortLabel === 'Disco', 'disco skill present');
-  assert(ZONES.boxing.defaultTask === 'boxing', 'boxing skill present');
-  assert(ZONES.jousting.defaultTask === 'jousting', 'jousting skill present');
+  assert(SKILL_ORDER.length === 8, 'eight skills');
+  assert(SKILLS.walking.defaultTask === 'run', 'walking → run');
+  assert(SKILLS.jumping.defaultTask === 'jump', 'jumping → jump');
+  assert(SKILLS.disco.shortLabel === 'Disco', 'disco skill present');
+  assert(SKILLS.boxing.defaultTask === 'boxing', 'boxing skill present');
+  assert(SKILLS.jousting.defaultTask === 'jousting', 'jousting skill present');
   assert(BUNDLED_MODELS.length >= 3, 'bundled models present');
   assert(GOAL_CATALOG.length >= 6, 'goal catalog has task families');
   assert(goalsForZone('walking').some((g) => g.id === 'run'), 'walking lists run');
@@ -1356,7 +1371,7 @@ function assertCatalogAndZones(): void {
   );
   assert(defaultGoalForZone('motor').task === 'motor', 'motor skill default');
   console.log(
-    `catalog OK pngs=${pngCount} skills=${ZONE_ORDER.length} goals=${GOAL_CATALOG.length} bundled=${BUNDLED_MODELS.length}`,
+    `catalog OK pngs=${pngCount} skills=${SKILL_ORDER.length} goals=${GOAL_CATALOG.length} bundled=${BUNDLED_MODELS.length}`,
   );
 }
 

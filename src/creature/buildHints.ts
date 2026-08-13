@@ -1,5 +1,5 @@
 /**
- * Skill-first build guidance shown in Creature builder / Skill tab.
+ * Skill-first build guidance shown in the Build sidebar.
  * Soft tips only — does not gate editing.
  */
 import type { SkillId } from '../skills/skills';
@@ -66,7 +66,7 @@ export const SKILL_BUILD_HINTS: Record<SkillId, SkillBuildHints> = {
       'Any actuated body works; dance brains are learned in Disco, not GA Train.',
       'Mark a head if you want look-at / expressiveness later.',
     ],
-    tip: 'Record motion on the Skill → Disco panel, then learn a dance brain.',
+    tip: 'Record motion in the Disco dock, then learn a dance brain.',
   },
 };
 

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { clampCourseMarker } from '../brain/courseMarkers';
 import { courseGateSummary } from '../env/courseAuthoring';
 import {
@@ -63,6 +64,7 @@ interface Props {
     patch: Partial<Pick<AuthoredCurriculumStage, 'label' | 'threshold'>>,
   ) => void;
   collapsed?: boolean;
+  files?: ReactNode;
 }
 
 function markerTag(m: EnvCourseMarker): string {
@@ -81,7 +83,7 @@ function orderedMarkers(env: EnvironmentDesign): EnvCourseMarker[] {
   return [...starts, ...cps, ...finishes];
 }
 
-/** World bottom dock — tools under the Environment Studio canvas. */
+/** Course bottom dock — tools under the Environment builder canvas. */
 export function WorldDock({
   tool,
   onToolChange,
@@ -109,6 +111,7 @@ export function WorldDock({
   onClearCurriculum,
   onPatchCurriculumStage,
   collapsed,
+  files,
 }: Props) {
   const primary = primarySelection(selection);
   const label =
@@ -206,6 +209,7 @@ export function WorldDock({
 
   return (
     <div className="dock-full">
+      {files}
       <div className="dock-col">
         <h3 className="subhead">Tools</h3>
         <div className="button-row wrap">
@@ -515,7 +519,7 @@ export function WorldDock({
               </div>
               {stages.length === 0 ? (
                 <p className="hint muted">
-                  Place checkpoints, then Build stages. Save the env and enable
+                  Place checkpoints, then Build stages. Save the course and enable
                   Train → course stages.
                 </p>
               ) : (
@@ -687,10 +691,27 @@ export function WorldDock({
           <button
             type="button"
             className="danger-ghost"
-            onClick={onClearAll}
+            onClick={() => {
+              const empty =
+                environment.obstacles.length === 0 &&
+                !(environment.regions && environment.regions.length > 0) &&
+                !(environment.markers && environment.markers.length > 0) &&
+                !environment.terrain &&
+                !environment.tower &&
+                !environment.curriculum &&
+                (environment.spawn?.x ?? 0) === 0 &&
+                (environment.spawn?.y ?? 0) === 0;
+              if (!empty) {
+                const ok = window.confirm(
+                  'Clear this course? Obstacles, terrain, markers, and scoring regions will be removed. Library saves are kept.',
+                );
+                if (!ok) return;
+              }
+              onClearAll();
+            }}
             title="Remove all obstacles, regions, markers, terrain, tower, and curriculum; reset spawn"
           >
-            Clear all
+            Clear course
           </button>
         </div>
         <p className="hint muted" style={{ marginTop: '0.35rem' }}>

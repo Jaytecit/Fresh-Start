@@ -34,6 +34,8 @@ export interface JoustingModelMeta {
 export interface SavedModel {
   id: string;
   name: string;
+  /** brain = weights only; trained = body + brain + goal. Inferred if omitted. */
+  kind?: 'brain' | 'trained';
   task: TaskId;
   shape: NetworkShape;
   /** Base64 of Float32 weights for compact JSON. */
@@ -71,10 +73,10 @@ export function decodeWeights(b64: string): Float32Array {
   return new Float32Array(bytes.buffer);
 }
 
-/** Built creature name + trailing T marks a trained (brain) product. */
+/** @deprecated Use displayNameForTrained from fileVocabulary. */
 export function trainedModelName(buildName: string): string {
   const base = (buildName || 'Creature').trim() || 'Creature';
-  return /T$/u.test(base) ? base : `${base}T`;
+  return base;
 }
 
 function readAll(): SavedModel[] {
@@ -102,6 +104,7 @@ export function saveModel(opts: {
   shape: NetworkShape;
   genome: Genome;
   design: CreatureDesign;
+  kind?: 'brain' | 'trained';
   danceMeta?: DanceCurriculumMeta;
   boxingMeta?: BoxingModelMeta;
   joustingMeta?: JoustingModelMeta;
@@ -109,6 +112,7 @@ export function saveModel(opts: {
   const model: SavedModel = {
     id: `m_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
     name: opts.name || `${opts.task} model`,
+    kind: opts.kind ?? 'trained',
     task: opts.task,
     shape: { ...opts.shape },
     weightsB64: encodeWeights(opts.genome.weights),

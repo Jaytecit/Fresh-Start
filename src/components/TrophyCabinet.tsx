@@ -54,7 +54,7 @@ export function TrophyCabinet({ discoveries }: Props) {
       <header className="trophy-room-header">
         <div className="trophy-room-brand">
           <p className="trophy-room-eyebrow">Solemn Sandbox</p>
-          <h1>Trophy Room</h1>
+          <h1>Trophies</h1>
           <p className="trophy-room-lede">
             Hidden goals unlocked while training and experimenting. Locked
             plaques stay silent until earned.

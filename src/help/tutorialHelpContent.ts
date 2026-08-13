@@ -26,24 +26,24 @@ export interface TutorialHelpContent {
 
 export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
   'map-skill': {
-    title: 'Skill panel',
+    title: 'Skill strip',
     body: [
       'Skill is the family of challenges you are in — walk, jump, fly, motor, free, or disco.',
-      'The strip above the canvas also switches Skill, Goal, and Env without leaving the view.',
+      'Change Skill, Goal, and Environment on the strip above the canvas. There is no Skill tab.',
     ],
   },
   'map-edit': {
-    title: 'Creature builder',
+    title: 'Build',
     body: [
       'Draw a body with joints, bones, and muscles — or load a preset.',
-      'Triangles hold shape better than long floppy chains. Save current stores the body in your library.',
+      'Triangles hold shape better than long floppy chains. Save body stores the body in your library.',
     ],
   },
   'map-creatures': {
-    title: 'Creature Library',
+    title: 'Library',
     body: [
-      'Browse presets, saved bodies, brains, and trophies tied to a design.',
-      'Open a body in the editor to change it. Training still happens under Train.',
+      'Bodies, Trained, and Public creations live here. Use body or Use trained to load them.',
+      'The workspace reminder shows what is loaded. Back to sandbox returns to Build, Train, Combat, or Course.',
     ],
   },
   'first-loop-edit': {
@@ -62,13 +62,13 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
     title: 'Step 3 — Evolve',
     body: [
       'Press Evolve. Ghost outlines are other try-outs in the pack.',
-      'Play best watches the winner alone; Save model keeps a brain you like.',
+      'Play best watches the winner alone; Save trained keeps body + brain + goal.',
     ],
   },
   'first-loop-creatures': {
     title: 'Step 4 — Find what you saved',
     body: [
-      'Saved brains and bodies land here. Continue a model from Train’s Start-from once you have one.',
+      'Bodies, Trained, and Public creations land here. Use body or Use trained to load them.',
     ],
   },
   'building-edit': {
@@ -81,32 +81,32 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
   'training-train': {
     title: 'Training room',
     body: [
-      'Evolve tries many brains. If nothing improves, simplify the body or flatten the env.',
+      'Evolve tries many brains. If nothing improves, simplify the body or flatten the course.',
       'Keep training continues from the elite of the current run.',
     ],
   },
   'training-creatures': {
-    title: 'Saved brains',
+    title: 'Trained creatures',
     body: [
-      'Models you save appear here, grouped with the body they belong to.',
+      'Bodies and trained creatures you save appear here. Use body or Use trained to load them.',
     ],
   },
   'wander-world': {
-    title: 'Environment builder',
+    title: 'Course',
     body: [
-      'Author hills, boxes, ramps, launch pads, and markers. Save an env, then pick it from the Env strip.',
+      'Author hills, boxes, ramps, launch pads, and markers. Save a course, then pick it from the Environment strip.',
     ],
   },
   'wander-discoveries': {
-    title: 'Trophy room',
+    title: 'Trophies',
     body: [
       'Secret goals unlock while you experiment. Locked plaques stay quiet until earned.',
     ],
   },
   'wander-h2h': {
-    title: 'Head-to-Head',
+    title: 'Combat',
     body: [
-      'Pit two saved brains against each other on a goal. Save two models first.',
+      'Race, box, or joust from the Combat dock. Corner A can be this workspace once you have a brain — no export required.',
     ],
   },
   'advanced-train': {
@@ -120,7 +120,7 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
     title: 'Scoring the course itself',
     body: [
       'Penalty and reward zones, start / checkpoint / finish markers, and launch pads all change how a course scores.',
-      'Save the env, then pick it from the Env strip before training.',
+      'Save the course, then pick it from the Environment strip before training.',
     ],
   },
   'stuck-edit': {
@@ -133,8 +133,8 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
   'stuck-train': {
     title: 'Back to training',
     body: [
-      'If Evolve is greyed out, add muscles or wheels in the builder first.',
-      'After a good run, Save model so you do not lose the brain.',
+      'If Evolve is greyed out, add muscles or wheels in Build first.',
+      'After a good run, Save trained so you do not lose the brain.',
     ],
   },
 };

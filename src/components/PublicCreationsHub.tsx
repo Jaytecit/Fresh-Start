@@ -56,7 +56,7 @@ export function PublicCreationsHub({ evolving, onOpen }: Props) {
       </div>
       <p className="hint muted">
         Creatures others opted to list when sharing. Open loads into the
-        workspace (your saved models stay untouched).
+        workspace (your Library stays untouched).
       </p>
 
       {error && <p className="share-dialog-error">{error}</p>}

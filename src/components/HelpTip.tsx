@@ -15,7 +15,7 @@ interface Props {
 }
 
 /**
- * Newcomer hover/focus help. Silent when Tutorial hover-help toggle is OFF.
+ * Newcomer hover/focus help. Silent when hover help is off.
  */
 export function HelpTip({ tip, children, wide }: Props) {
   const enabled = useHoverHelpEnabled();

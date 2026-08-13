@@ -91,7 +91,7 @@ export function ShareDialog({
                   Also list in Public creations
                   <span className="hint muted">
                     {' '}
-                    — discoverable in the Creatures library
+                    — discoverable in the Library
                   </span>
                 </span>
               </label>

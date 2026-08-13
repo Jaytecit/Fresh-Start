@@ -168,7 +168,7 @@ export function DiscoSlotsPanel({
                       const m = savedModels.find((s) => s.id === v.slice(6));
                       if (m && !loadSaved(i, m)) {
                         window.alert(
-                          'Could not find a matching creature body for that saved model. Save/load the design in Edit first.',
+                          'Could not find a matching creature body for that saved model. Save/load the design in Build first.',
                         );
                       }
                     }

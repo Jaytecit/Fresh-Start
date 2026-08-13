@@ -39,6 +39,7 @@ import { encodeGroups, spawnCreature } from '../src/physics/spawn.ts';
 import { createWorld, initRapier } from '../src/physics/world.ts';
 import { featureFlags } from '../src/port/featureFlags.ts';
 import { exportModelJson, importModelJson } from '../src/library/jsonIO.ts';
+import { resolveJoustCorner } from '../src/combat/resolveCorners.ts';
 import {
   shapeForJoustingDesign,
   Simulation,
@@ -385,6 +386,62 @@ function assertModelJson(): void {
   }
 }
 
+async function assertWorkspaceCornerPass(): Promise<void> {
+  const shape = shapeForJoustingDesign(JOUSTBOT);
+  const workspace = {
+    design: cloneDesign(JOUSTBOT),
+    shape,
+    weights: randomWeights(shape, createRng(9)),
+  };
+  const fighterA = resolveJoustCorner(
+    { kind: 'workspace' },
+    {
+      workspace,
+      models: [],
+      pool: [JOUSTBOT],
+      traineeDesign: JOUSTBOT,
+      seed: 1,
+    },
+  );
+  const fighterB = resolveJoustCorner(
+    { kind: 'house', id: 'dummy' },
+    {
+      workspace,
+      models: [],
+      pool: [JOUSTBOT],
+      traineeDesign: JOUSTBOT,
+      seed: 2,
+    },
+  );
+  ok(fighterA !== null, 'joust workspace corner resolves without saveModel');
+  ok(fighterB !== null, 'joust dummy house corner resolves');
+  const simulation = new Simulation();
+  await simulation.init();
+  try {
+    simulation.setEnvironment(joustLaneEnv());
+    simulation.startJoustMatch({
+      entries: [
+        {
+          design: fighterA!.design,
+          shape: fighterA!.shape,
+          weights: fighterA!.weights,
+        },
+        {
+          design: fighterB!.design,
+          shape: fighterB!.shape,
+          weights: fighterB!.weights,
+        },
+      ],
+      episodeSeconds: 2,
+    });
+    for (let i = 0; i < 8; i++) simulation.step(FIXED_DT);
+    ok(simulation.snapshot().agents.length >= 2, 'workspace vs dummy joust spawned');
+  } finally {
+    simulation.world?.free();
+    simulation.world = null;
+  }
+}
+
 async function main(): Promise<void> {
   await initRapier();
   assertEligibility();
@@ -393,6 +450,7 @@ async function main(): Promise<void> {
   assertOpponentSolidSeparation();
   assertScorecardRules();
   await assertMatchObsAndTraining();
+  await assertWorkspaceCornerPass();
   assertModelJson();
   console.log('smoke-jousting: ok');
 }

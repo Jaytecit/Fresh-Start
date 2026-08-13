@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   DEFAULT_DISCO_AUTO,
   DEFAULT_DISCO_MOTION,
@@ -28,7 +28,7 @@ import type { SavedModel } from '../library/savedModels';
 import { isFeatureEnabled } from '../port/featureFlags';
 import { DiscoSlotsPanel, type DiscoSlotState } from './DiscoSlotsPanel';
 
-interface Props {
+export interface DiscoZonePanelProps {
   trackName: string;
   hasTrack: boolean;
   playing: boolean;
@@ -74,6 +74,7 @@ interface Props {
   onSaveSetup?: () => void;
   onLoadSetup?: (id: string) => void;
   onDeleteSetup?: (id: string) => void;
+  learnExtras?: ReactNode;
 }
 
 function formatTrackTime(seconds: number): string {
@@ -113,7 +114,7 @@ function selectionTarget(
   return { kind: 'muscle', muscleId: m.id };
 }
 
-/** Bottom-dock disco tuning (H1/H2/H5) — track/learn live in the Zone sidebar. */
+/** Disco dock body — track, routing, slots. Learn/curriculum are composed by DiscoDock. */
 export function DiscoZonePanel({
   trackName,
   hasTrack,
@@ -156,7 +157,8 @@ export function DiscoZonePanel({
   onSaveSetup,
   onLoadSetup,
   onDeleteSetup,
-}: Props) {
+  learnExtras,
+}: DiscoZonePanelProps) {
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [setupPick, setSetupPick] = useState('');
   const duration = Number.isFinite(trackDuration) ? Math.max(0, trackDuration) : 0;
@@ -323,6 +325,9 @@ export function DiscoZonePanel({
       )}
 
       <div className="disco-dock-main">
+        {learnExtras && (
+          <div className="disco-dock-section">{learnExtras}</div>
+        )}
         <div className="disco-dock-section">
           <h3 className="subhead">Frequency reactivity</h3>
           <p className="hint muted disco-inline-hint">

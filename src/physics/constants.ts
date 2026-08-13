@@ -128,7 +128,8 @@ export const PLANT_SLIDE_BRAKE = 0.45;
  * - SURFACE_STANCE_STICK: bidirectional along-surface damp when |along| is
  *   below STANCE_STICK_SPEED (kills muscle-driven micro-skid so feet plant)
  * - SURFACE_TANGENT_BRAKE: adverse along-surface kill above the stick band
- *   (tilted: downhill only; flat: world-left / −X only so fast +X is kept).
+ *   (tilted: downhill only; flat: opposite of intended gait — default −X
+ *   so fast +X is kept; mirrored corners pass forwardX = −1).
  * Coulomb μ alone does not stop rolling spheres.
  */
 export const SURFACE_ANTI_ROLL = 0.95;

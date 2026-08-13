@@ -6,15 +6,13 @@ import {
 import { HelpTip } from './HelpTip';
 
 const TAB_TIPS: Partial<Record<SandboxTabId, string>> = {
-  skill:
-    'Skill chooses the challenge family — walk, jump, fly, motor, free play, or disco.',
-  edit: 'Creature builder — draw joints, bones, and muscles, or load a preset.',
-  creatures: 'Library of presets, saved bodies, brains, and trophies.',
-  train: 'Evolve brains, watch the pack, play the best, and save models.',
-  world: 'Environment builder — author courses, obstacles, and markers.',
-  h2h: 'Head-to-Head — pit two saved brains against each other.',
-  discoveries: 'Trophy room — secret goals unlocked while experimenting.',
-  tutorial: 'Tutorial — optional pointers, quick start, and the hover-help toggle.',
+  edit: 'Build — draw joints, bones, and muscles, or load a preset.',
+  creatures: 'Library of bodies and trained creatures. Use body or Use trained to load one.',
+  train: 'Evolve brains, watch the pack, play the best, and save trained creatures.',
+  world: 'Course — author practice grounds, obstacles, and markers.',
+  h2h: 'Combat — race, boxing, or joust. Pick corners in the dock under the canvas.',
+  discoveries: 'Trophies — secret goals unlocked while experimenting.',
+  tutorial: 'Tutorial — optional pointers and a quick start.',
 };
 
 export type SandboxTabId =
@@ -31,6 +29,8 @@ export interface SandboxTab {
   id: SandboxTabId;
   label: string;
   content: ReactNode;
+  /** Hover tip; falls back to the built-in tip for this tab id. */
+  tip?: string;
 }
 
 interface Props {
@@ -38,9 +38,9 @@ interface Props {
   activeTab: SandboxTabId;
   onActiveTabChange: (id: SandboxTabId) => void;
   viewport: ReactNode;
-  /** Full-width band above sidebar + viewport (Skill / Goal / Env). */
+  /** Full-width band above sidebar + viewport (Skill / Goal / Environment). */
   contextStrip?: ReactNode | null;
-  /** Bottom chrome overlaid under the ground band (Train or World). */
+  /** Bottom chrome overlaid under the ground band (Train or Course). */
   dock?: ReactNode | null;
   /** Label in the dock bar (default Train). */
   dockLabel?: string;
@@ -73,10 +73,11 @@ export function SandboxTabRail({
         const classes = [
           tab.id === activeTab ? 'active' : '',
           tab.id === 'tutorial' ? 'topbar-tab-tutorial' : '',
+          tab.label === 'Disco' ? 'topbar-tab-disco' : '',
         ]
           .filter(Boolean)
           .join(' ');
-        const tip = TAB_TIPS[tab.id];
+        const tip = tab.tip ?? TAB_TIPS[tab.id];
         const btn = (
           <button
             type="button"

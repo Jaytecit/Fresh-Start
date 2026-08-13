@@ -1,6 +1,6 @@
 # Creature sharing & public creations
 
-Public **Share → link → preview → Open in Solemn Sandbox** for trained models, plus an opt-in **Public creations** library in the Creatures room.
+Public **Share → link → preview → Open in Solemn Sandbox** for trained models, plus an opt-in **Public creations** library in the Library room.
 
 ## Architecture
 
@@ -61,7 +61,7 @@ Untrusted input is validated on the server by self-contained [`api/_lib/validate
 
 - Opt-in only: Share dialog checkbox **“Also list in Public creations”** (default off).
 - Link-only shares stay private-by-obscurity (guessable IDs only).
-- Listed entries are discoverable in Creatures → **Public creations**.
+- Listed entries are discoverable in Library → **Public creations**.
 - Open uses the same confirm + `importModelJson` path; does **not** append to the visitor’s saved-models library.
 - Catalog entry schema (no weights): `id`, `name`, `task`, `fitness`, joint/bone/muscle counts, NN dims, `version`, `listedAt`.
 - No delete UI for others’ listings in v1 (remove catalog blobs from the Vercel Blob dashboard if needed).
@@ -94,7 +94,7 @@ Local Vite sharing does **not** need Blob env vars (uses `.data/shares/` + `.dat
 2. Create a Blob store for the project and set `BLOB_READ_WRITE_TOKEN` for Production (and Preview if you want share there too).
 3. Confirm [`vercel.json`](vercel.json) rewrites: `/share/:id` → share page API; SPA fallback for other routes.
 4. Hard-refresh `/share/{id}` must work without visiting the homepage first.
-5. Share with the Public creations checkbox → entry appears under Creatures → Public creations after refresh.
+5. Share with the Public creations checkbox → entry appears under Library → Public creations after refresh.
 
 ## Expiry / cost
 

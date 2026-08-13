@@ -3362,13 +3362,15 @@ export class Simulation {
     );
 
     const terrain = this.activeTerrain();
-    for (const member of this.cohort.slice(0, 2)) {
+    for (let i = 0; i < 2; i++) {
+      const member = this.cohort[i]!;
       applyPlantSlideBrake(
         member.creature,
         terrain,
         this.world,
         this.envObstacles,
         this.antiScoot,
+        i === 0 ? 1 : -1,
       );
       member.uprightSum += instantUprightQuality(member.creature);
       member.uprightSteps++;
@@ -3603,13 +3605,17 @@ export class Simulation {
         pair.hitTracker.attempts,
         dt,
       );
-      for (const member of [pair.trainee, pair.sparring]) {
+      for (const [member, forwardX] of [
+        [pair.trainee, 1],
+        [pair.sparring, -1],
+      ] as const) {
         applyPlantSlideBrake(
           member.creature,
           terrain,
           this.world,
           this.envObstacles,
           this.antiScoot,
+          forwardX,
         );
         member.uprightSum += instantUprightQuality(member.creature);
         member.uprightSteps++;
@@ -3888,13 +3894,15 @@ export class Simulation {
     }
 
     const terrain = this.activeTerrain();
-    for (const member of this.cohort.slice(0, 2)) {
+    for (let i = 0; i < 2; i++) {
+      const member = this.cohort[i]!;
       applyPlantSlideBrake(
         member.creature,
         terrain,
         this.world,
         this.envObstacles,
         this.antiScoot,
+        i === 0 ? 1 : -1,
       );
     }
 
@@ -4087,13 +4095,17 @@ export class Simulation {
           pair.frozen = true;
         }
       }
-      for (const member of [pair.trainee, pair.sparring]) {
+      for (const [member, forwardX] of [
+        [pair.trainee, 1],
+        [pair.sparring, -1],
+      ] as const) {
         applyPlantSlideBrake(
           member.creature,
           terrain,
           this.world,
           this.envObstacles,
           this.antiScoot,
+          forwardX,
         );
       }
     }

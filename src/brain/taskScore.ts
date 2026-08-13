@@ -1210,7 +1210,7 @@ export function scoringLegendForTask(task: TaskId): string {
       return 'Peak horizontal speed + travel × upright − fall.' + zoneNote;
     case 'sprint':
       return (
-        'Peak forward progress + ordered checkpoints + finish-time bonus × upright; fall keeps a progress floor. Place start/finish in World.' +
+        'Peak forward progress + ordered checkpoints + finish-time bonus × upright; fall keeps a progress floor. Place start/finish in Course.' +
         zoneNote
       );
     case 'stay':
@@ -1255,7 +1255,7 @@ export function scoringLegendForTask(task: TaskId): string {
       );
     case 'motor_sprint':
       return (
-        'Wheeled race: peak progress + checkpoints + finish-time bonus × upright. Place start/finish in World.' +
+        'Wheeled race: peak progress + checkpoints + finish-time bonus × upright. Place start/finish in Course.' +
         zoneNote
       );
     case 'flight':

@@ -1,5 +1,6 @@
 import type { TaskId } from '../brain/types';
 import type { BestEverEntry } from '../library/bestEver';
+import { inferSavedModelKind, goalTitleForTask } from '../library/fileVocabulary';
 import type { SavedModel } from '../library/savedModels';
 
 interface Props {
@@ -39,9 +40,10 @@ export function ModelsHub({
   bodyFingerprint = null,
   showAllBestEver = false,
 }: Props) {
-  const models = bodyFingerprint
+  const models = (bodyFingerprint
     ? savedModels.filter((m) => bodyFpFromModel(m) === bodyFingerprint)
-    : savedModels;
+    : savedModels
+  ).filter((m) => inferSavedModelKind(m) === 'trained');
   const forTask = models.filter((m) => m.task === task);
   const others = models.filter((m) => m.task !== task);
   const danceModels = models.filter((m) => m.task === 'dance');
@@ -53,11 +55,11 @@ export function ModelsHub({
 
   return (
     <section>
-      <h2>Saved brains</h2>
+      <h2>Trained</h2>
       <p className="hint muted">
         {bodyFingerprint
-          ? 'Trained brains for this body. Keep training from a row, or pick Start from in Train setup.'
-          : 'Trained brains and all-time bests. Keep training from a row, or pick Start from in Train setup.'}
+          ? 'Trained creatures bound to this body. Use trained loads body + brain + goal.'
+          : 'Trained creatures (body + brain + goal). Use trained loads them into the workspace.'}
       </p>
 
       {best.length > 0 && (
@@ -75,9 +77,9 @@ export function ModelsHub({
         </>
       )}
 
-      <h3 className="subhead">Saved · {task}</h3>
+      <h3 className="subhead">This goal · {goalTitleForTask(task)}</h3>
       {forTask.length === 0 ? (
-        <p className="hint muted">No saved models for this task.</p>
+        <p className="hint muted">No trained creatures for this goal.</p>
       ) : (
         <div className="button-col">
           {forTask.slice(0, 12).map((m) => (
@@ -93,11 +95,15 @@ export function ModelsHub({
                 title={
                   m.task === 'dance'
                     ? `Load into Disco freestyle · fit ${m.fitness.toFixed(3)}`
-                    : `Keep training · ${m.task} · fit ${m.fitness.toFixed(3)}`
+                    : `Use trained · ${m.designName} · ${m.task} · fit ${m.fitness.toFixed(3)}`
                 }
               >
-                {m.name}
-                <span className="hint muted"> · {m.fitness.toFixed(2)}</span>
+                Use trained · {m.name}
+                <span className="hint muted">
+                  {' '}
+                  · {goalTitleForTask(m.task)} · {m.fitness.toFixed(2)}
+                  {m.designName ? ` · ${m.designName}` : ''}
+                </span>
               </button>
               <button
                 type="button"
@@ -150,7 +156,7 @@ export function ModelsHub({
 
       {others.length > 0 && (
         <>
-          <h3 className="subhead">Other tasks</h3>
+          <h3 className="subhead">Other goals</h3>
           <div className="button-col">
             {others.slice(0, 12).map((m) => (
               <div key={m.id} className="library-row">
@@ -158,10 +164,14 @@ export function ModelsHub({
                   type="button"
                   disabled={evolving}
                   onClick={() => onContinue(m)}
-                  title={`${m.task} · fit ${m.fitness.toFixed(3)}`}
-                >
-                  {m.name}
-                  <span className="hint muted"> · {m.task}</span>
+                title={`Use trained · ${m.designName} · ${m.task} · fit ${m.fitness.toFixed(3)}`}
+              >
+                Use trained · {m.name}
+                <span className="hint muted">
+                  {' '}
+                  · {goalTitleForTask(m.task)} · {m.fitness.toFixed(2)}
+                  {m.designName ? ` · ${m.designName}` : ''}
+                </span>
                 </button>
                 <button
                   type="button"
