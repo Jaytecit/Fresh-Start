@@ -6,6 +6,7 @@ import type { MorphGenes } from '../creature/morphGenes';
 import { morphFingerprint } from '../creature/morphGenes';
 import { cloneDesign, type CreatureDesign } from '../creature/types';
 import type { BoxingDivisionId } from '../boxing/divisions';
+import type { JoustingDivisionId } from '../jousting/divisions';
 import { recipeFingerprint } from './bestEver';
 
 const STORAGE_KEY = 'freshstart_saved_models_v1';
@@ -29,6 +30,7 @@ export interface JoustingModelMeta {
   ruleVersion: 1;
   obsPackVersion: 1;
   brainHz: 30;
+  divisionId?: JoustingDivisionId;
 }
 
 export interface SavedModel {

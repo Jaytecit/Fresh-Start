@@ -8,9 +8,17 @@ import {
   sparringOpponentsForDivision,
 } from '../boxing/sparringOpponents';
 import {
-  JOUST_SPARRING_OPPONENTS,
+  JOUSTING_DIVISIONS,
+  type JoustingDivisionId,
+} from '../jousting/eligibility';
+import {
   joustSparringOpponentLabel,
+  joustSparringOpponentsForDivision,
 } from '../jousting/sparringOpponents';
+import {
+  RACE_DIVISIONS,
+  type RaceDivisionId,
+} from '../race/divisions';
 import { GOAL_CATALOG, type GoalId } from '../goals/catalog';
 import type { SavedModel } from '../library/savedModels';
 import {
@@ -19,6 +27,11 @@ import {
   type CombatCornerValue,
   type CombatMode,
 } from '../combat/types';
+import {
+  COMBAT_ROUND_COUNTS,
+  roundLengthLabel,
+  roundSecondsOptions,
+} from '../combat/format';
 import type { BoxingMatchResult, HeadToHeadResult, JoustMatchResult } from '../sim/simulation';
 
 interface Props {
@@ -35,6 +48,10 @@ interface Props {
   raceModels: SavedModel[];
   divisionId: BoxingDivisionId;
   onDivisionChange: (id: BoxingDivisionId) => void;
+  joustingDivisionId: JoustingDivisionId;
+  onJoustingDivisionChange: (id: JoustingDivisionId) => void;
+  raceDivisionId: RaceDivisionId;
+  onRaceDivisionChange: (id: RaceDivisionId) => void;
   raceGoalId: GoalId;
   onRaceGoalChange: (id: GoalId) => void;
   useCurrentEnv: boolean;
@@ -48,17 +65,33 @@ interface Props {
     episodeT: number;
     episodeDuration: number;
     points: [number, number];
+    countRemaining?: [number, number];
+    down?: [boolean, boolean];
+    reason?: string | null;
+    roundIndex?: number;
+    roundCount?: number;
   } | null;
   joustingProgress: {
     episodeT: number;
     episodeDuration: number;
     totals: [number, number];
     phase: string;
+    roundIndex?: number;
+    roundCount?: number;
   } | null;
-  raceProgress: { episodeT: number; episodeDuration: number } | null;
+  raceProgress: {
+    episodeT: number;
+    episodeDuration: number;
+    roundIndex?: number;
+    roundCount?: number;
+  } | null;
   lastBoxing: BoxingMatchResult | null;
   lastJoust: JoustMatchResult | null;
   lastRace: HeadToHeadResult | null;
+  rounds: number;
+  onRoundsChange: (n: number) => void;
+  roundSeconds: number;
+  onRoundSecondsChange: (n: number) => void;
   onStart: () => void;
   onStop: () => void;
   collapsed?: boolean;
@@ -129,6 +162,10 @@ export function CombatDock({
   raceModels,
   divisionId,
   onDivisionChange,
+  joustingDivisionId,
+  onJoustingDivisionChange,
+  raceDivisionId,
+  onRaceDivisionChange,
   raceGoalId,
   onRaceGoalChange,
   useCurrentEnv,
@@ -144,6 +181,10 @@ export function CombatDock({
   lastBoxing,
   lastJoust,
   lastRace,
+  rounds,
+  onRoundsChange,
+  roundSeconds,
+  onRoundSecondsChange,
   onStart,
   onStop,
   collapsed,
@@ -160,22 +201,32 @@ export function CombatDock({
       item.id === 'boxobot-v2t' ? ` · ${BOXOBOT_V2T_FITNESS.toFixed(0)}` : ''
     }`,
   }));
-  const joustHouse = JOUST_SPARRING_OPPONENTS.map((item) => ({
-    id: item.id,
-    label: `Level ${item.level} · ${joustSparringOpponentLabel(item.id, workspaceLabel)}`,
-  }));
+  const joustHouse = joustSparringOpponentsForDivision(joustingDivisionId).map(
+    (item) => ({
+      id: item.id,
+      label: `Level ${item.level} · ${joustSparringOpponentLabel(item.id, workspaceLabel)}`,
+    }),
+  );
 
   const saved =
     mode === 'boxing' ? boxingModels : mode === 'joust' ? joustingModels : raceModels;
   const house = mode === 'boxing' ? boxingHouse : mode === 'joust' ? joustHouse : [];
 
   let live = '';
+  const roundBit = (index?: number, count?: number) =>
+    index && count && count > 1 ? `R${index}/${count} · ` : '';
   if (mode === 'boxing' && boxingRunning && boxingProgress) {
-    live = `${boxingProgress.episodeT.toFixed(1)} / ${boxingProgress.episodeDuration.toFixed(0)}s · A ${boxingProgress.points[0]}–${boxingProgress.points[1]} B`;
+    const count = boxingProgress.countRemaining;
+    const down = boxingProgress.down;
+    const countBit =
+      down && count && (down[0] || down[1])
+        ? ` · count ${down[0] ? `A ${count[0]}` : ''}${down[0] && down[1] ? ' / ' : ''}${down[1] ? `B ${count[1]}` : ''}`
+        : '';
+    live = `${roundBit(boxingProgress.roundIndex, boxingProgress.roundCount)}${boxingProgress.episodeT.toFixed(1)} / ${boxingProgress.episodeDuration.toFixed(0)}s · A ${boxingProgress.points[0]}–${boxingProgress.points[1]} B${countBit}`;
   } else if (mode === 'joust' && joustingRunning && joustingProgress) {
-    live = `${joustingProgress.phase} · ${joustingProgress.episodeT.toFixed(1)}s · A ${joustingProgress.totals[0].toFixed(1)} · B ${joustingProgress.totals[1].toFixed(1)}`;
+    live = `${roundBit(joustingProgress.roundIndex, joustingProgress.roundCount)}${joustingProgress.phase} · ${joustingProgress.episodeT.toFixed(1)}s · A ${joustingProgress.totals[0].toFixed(1)} · B ${joustingProgress.totals[1].toFixed(1)}`;
   } else if (mode === 'race' && raceRunning && raceProgress) {
-    live = `Heat ${raceProgress.episodeT.toFixed(1)}s / ${raceProgress.episodeDuration.toFixed(0)}s`;
+    live = `${roundBit(raceProgress.roundIndex, raceProgress.roundCount)}Heat ${raceProgress.episodeT.toFixed(1)}s / ${raceProgress.episodeDuration.toFixed(0)}s`;
   }
 
   if (collapsed) {
@@ -242,8 +293,42 @@ export function CombatDock({
               </select>
             </label>
           )}
+          {mode === 'joust' && (
+            <label className="field-row" style={{ marginTop: '0.4rem' }}>
+              <span>Division</span>
+              <select
+                value={joustingDivisionId}
+                disabled={locked}
+                onChange={(e) =>
+                  onJoustingDivisionChange(e.target.value as JoustingDivisionId)
+                }
+              >
+                {JOUSTING_DIVISIONS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {mode === 'race' && (
             <>
+              <label className="field-row" style={{ marginTop: '0.4rem' }}>
+                <span>Division</span>
+                <select
+                  value={raceDivisionId}
+                  disabled={locked}
+                  onChange={(e) =>
+                    onRaceDivisionChange(e.target.value as RaceDivisionId)
+                  }
+                >
+                  {RACE_DIVISIONS.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="field-row" style={{ marginTop: '0.4rem' }}>
                 <span>Goal</span>
                 <select
@@ -297,6 +382,36 @@ export function CombatDock({
         </div>
         <div className="combat-dock-run">
           <h3 className="subhead">Match</h3>
+          <label className="field-row">
+            <span>Rounds</span>
+            <select
+              value={rounds}
+              disabled={locked}
+              onChange={(e) => onRoundsChange(Number(e.target.value))}
+              aria-label="Number of rounds"
+            >
+              {COMBAT_ROUND_COUNTS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-row">
+            <span>{roundLengthLabel(mode)}</span>
+            <select
+              value={roundSeconds}
+              disabled={locked}
+              onChange={(e) => onRoundSecondsChange(Number(e.target.value))}
+              aria-label={roundLengthLabel(mode)}
+            >
+              {roundSecondsOptions(mode).map((s) => (
+                <option key={s} value={s}>
+                  {s}s
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="button-row">
             {running ? (
               <button type="button" onClick={onStop}>
@@ -321,6 +436,11 @@ export function CombatDock({
               {lastBoxing.winner === null
                 ? 'draw'
                 : `corner ${lastBoxing.winner === 0 ? 'A' : 'B'} wins`}
+              {lastBoxing.reason === 'tko'
+                ? ' by TKO'
+                : lastBoxing.reason === 'count-out'
+                  ? ' by count-out'
+                  : ''}
             </p>
           )}
           {mode === 'joust' && lastJoust && !joustingRunning && (

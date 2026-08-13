@@ -116,6 +116,19 @@ import {
 } from '../boxing/hitProbes';
 import { enableBoxingOpponentContact } from '../boxing/opponentContact';
 import {
+  boxingCountRemaining,
+  createBoxingFighterClock,
+  isBoxingTkoHit,
+  measureBoxingStance,
+  resetBoxingClockForRound,
+  resolveBoxingStop,
+  updateBoxingFighterClock,
+  type BoxingFighterClock,
+  type BoxingStopReason,
+} from '../boxing/knockdown';
+import { clampCombatRounds } from '../combat/format';
+import { raceEligibility, type RaceDivisionId } from '../race/divisions';
+import {
   computeBoxingTrainingFitness,
   createBoxingBehaviorMetrics,
   DEFAULT_BOXING_PRIORITIES,
@@ -130,7 +143,7 @@ import {
   type BoxingMatchScore,
   type BoxingOwner,
 } from '../boxing/scoring';
-import { joustingEligibility } from '../jousting/eligibility';
+import { joustingEligibility, type JoustingDivisionId } from '../jousting/eligibility';
 import {
   createJoustHitTracker,
   createJoustProbes,
@@ -147,11 +160,14 @@ import {
   type JoustPassState,
 } from '../jousting/pass';
 import {
+  addJoustFighterCards,
   computeJoustingFitness,
   createJoustScorecard,
   DEFAULT_JOUSTING_PRIORITIES,
+  emptyJoustFighterCard,
   freezeJoustScorecard,
   joustWinner,
+  type JoustFighterCard,
   type JoustingPriorities,
   type JoustScorecard,
 } from '../jousting/scorecard';
@@ -468,13 +484,21 @@ export interface HeadToHeadEntry {
 export interface HeadToHeadResult {
   fitness: [number, number];
   metrics: [TaskEpisodeMetrics, TaskEpisodeMetrics];
+  roundCount?: number;
+  heatWins?: [number, number];
 }
 
 export interface HeadToHeadOptions {
   entries: [HeadToHeadEntry, HeadToHeadEntry];
   task: TaskId;
+  divisionId: RaceDivisionId;
   episodeSeconds?: number;
-  onProgress?: (episodeT: number, episodeDuration: number) => void;
+  roundCount?: number;
+  onProgress?: (
+    episodeT: number,
+    episodeDuration: number,
+    round?: { index: number; count: number },
+  ) => void;
   onFinished?: (result: HeadToHeadResult) => void;
 }
 
@@ -490,16 +514,20 @@ export type BoxingMatchEntry = HeadToHeadEntry;
 export interface BoxingMatchResult {
   score: BoxingMatchScore;
   winner: BoxingOwner | null;
-  reason: 'points' | 'draw';
+  reason: BoxingStopReason;
   episodeDuration: number;
   upright: [number, number];
+  fallen: [boolean, boolean];
+  knockdowns: [number, number];
   behavior: BoxingBehaviorMetrics;
+  roundCount?: number;
 }
 
 export interface BoxingMatchOptions {
   entries: [BoxingMatchEntry, BoxingMatchEntry];
   divisionId: BoxingDivisionId;
   episodeSeconds?: number;
+  roundCount?: number;
   onProgress?: (snapshot: BoxingMatchSnapshot) => void;
   onFinished?: (result: BoxingMatchResult) => void;
 }
@@ -534,6 +562,14 @@ export interface BoxingMatchSnapshot {
   lastHit: BoxingHitEvent | null;
   finished: boolean;
   winner: BoxingOwner | null;
+  reason: BoxingStopReason | null;
+  upright: [number, number];
+  fallen: [boolean, boolean];
+  down: [boolean, boolean];
+  countRemaining: [number, number];
+  knockdowns: [number, number];
+  roundIndex: number;
+  roundCount: number;
 }
 
 export type JoustMatchEntry = HeadToHeadEntry;
@@ -543,11 +579,14 @@ export interface JoustMatchResult {
   winner: JoustOwner | null;
   reason: JoustClashReason | 'draw';
   episodeDuration: number;
+  roundCount?: number;
 }
 
 export interface JoustMatchOptions {
   entries: [JoustMatchEntry, JoustMatchEntry];
+  divisionId: JoustingDivisionId;
   episodeSeconds?: number;
+  roundCount?: number;
   priorities?: JoustingPriorities;
   onProgress?: (snapshot: JoustMatchSnapshot) => void;
   onFinished?: (result: JoustMatchResult) => void;
@@ -555,6 +594,7 @@ export interface JoustMatchOptions {
 
 export interface JoustLiveEvolveOptions {
   design: CreatureDesign;
+  divisionId: JoustingDivisionId;
   opponentDesign: CreatureDesign;
   opponentWeights?: Float32Array;
   populationSize?: number;
@@ -580,6 +620,8 @@ export interface JoustMatchSnapshot {
   lastHit: JoustHitEvent | null;
   finished: boolean;
   winner: JoustOwner | null;
+  roundIndex: number;
+  roundCount: number;
 }
 
 /** E5 — champion / replay metrics snapshot for secret evaluation. */
@@ -696,6 +738,8 @@ interface BoxingLivePair {
   hitTracker: BoxingHitTracker;
   score: BoxingMatchScore;
   behavior: BoxingBehaviorMetrics;
+  clocks: [BoxingFighterClock, BoxingFighterClock];
+  stop: { winner: BoxingOwner | null; reason: BoxingStopReason } | null;
 }
 
 interface BoxingLiveEvolveState {
@@ -747,6 +791,7 @@ interface JoustLivePair {
 
 interface JoustLiveEvolveState {
   design: CreatureDesign;
+  divisionId: JoustingDivisionId;
   shape: NetworkShape;
   opponentDesign: CreatureDesign;
   opponentShape: NetworkShape;
@@ -1163,7 +1208,16 @@ export class Simulation {
     task: TaskId;
     episodeT: number;
     episodeDuration: number;
-    onProgress?: (episodeT: number, episodeDuration: number) => void;
+    roundIndex: number;
+    roundCount: number;
+    totalFitness: [number, number];
+    heatWins: [number, number];
+    entries: [HeadToHeadEntry, HeadToHeadEntry];
+    onProgress?: (
+      episodeT: number,
+      episodeDuration: number,
+      round?: { index: number; count: number },
+    ) => void;
     onFinished?: (result: HeadToHeadResult) => void;
   } | null = null;
   private h2hFinished: HeadToHeadResult | null = null;
@@ -1171,10 +1225,15 @@ export class Simulation {
     divisionId: BoxingDivisionId;
     episodeT: number;
     episodeDuration: number;
+    roundIndex: number;
+    roundCount: number;
+    entries: [BoxingMatchEntry, BoxingMatchEntry];
     score: BoxingMatchScore;
     probes: [BoxingProbeSet, BoxingProbeSet];
     hitTracker: BoxingHitTracker;
     behavior: BoxingBehaviorMetrics;
+    clocks: [BoxingFighterClock, BoxingFighterClock];
+    tkoAttacker: BoxingOwner | null;
     onProgress?: (snapshot: BoxingMatchSnapshot) => void;
     onFinished?: (result: BoxingMatchResult) => void;
   } | null = null;
@@ -1184,8 +1243,13 @@ export class Simulation {
   private duelFocusIndex = 0;
   private boxingLive: BoxingLiveEvolveState | null = null;
   private jousting: {
+    divisionId: JoustingDivisionId;
     episodeT: number;
     episodeDuration: number;
+    roundIndex: number;
+    roundCount: number;
+    entries: [JoustMatchEntry, JoustMatchEntry];
+    accumulated: [JoustFighterCard, JoustFighterCard];
     scorecard: JoustScorecard;
     probes: [JoustProbeSet, JoustProbeSet];
     hitTracker: JoustHitTracker;
@@ -1300,6 +1364,34 @@ export class Simulation {
     } else {
       this.applyAuthorMassTune();
     }
+  }
+
+  /** Empty the viewport without respawning the last fighter or workspace body. */
+  clearScene(): void {
+    if (!this.world) return;
+    this.clearDiscoDancers();
+    this.h2h = null;
+    this.h2hFinished = null;
+    this.restoreControllerRateAfterBoxing();
+    this.boxing = null;
+    this.boxingFinished = null;
+    this.boxingLive = null;
+    this.clearJoustingState();
+    this.joustingLive = null;
+    this.clearCohort();
+    this.live = null;
+    this.soloWatch = null;
+    this.clearBrain();
+    if (this.creature) {
+      destroyCreature(this.world, this.creature);
+      this.creature = null;
+    }
+    this.manualDrives = [];
+    this.brainDrives = [];
+    this.time = 0;
+    this.accumulator = 0;
+    this.brainAccumulator = 0;
+    this.running = true;
   }
 
   /** H2 — switch disco puppet feel; re-tunes staged dancers / solo disco body. */
@@ -1839,6 +1931,14 @@ export class Simulation {
     ) {
       throw new Error('Both designs need muscles or wheels for head-to-head');
     }
+    for (const entry of [a, b]) {
+      const eligibility = raceEligibility(entry.design, options.divisionId);
+      if (!eligibility.eligible) {
+        throw new Error(
+          `${entry.design.name} is not eligible for ${options.divisionId} racing: ${eligibility.reasons.join(' ')}`,
+        );
+      }
+    }
 
     this.clearDiscoDancers();
     this.clearCohort();
@@ -1913,6 +2013,11 @@ export class Simulation {
       task: options.task,
       episodeT: 0,
       episodeDuration: options.episodeSeconds ?? EPISODE_SECONDS,
+      roundIndex: 1,
+      roundCount: clampCombatRounds(options.roundCount ?? 1),
+      totalFitness: [0, 0],
+      heatWins: [0, 0],
+      entries: [a, b],
       onProgress: options.onProgress,
       onFinished: options.onFinished,
     };
@@ -2042,10 +2147,15 @@ export class Simulation {
       divisionId: options.divisionId,
       episodeT: 0,
       episodeDuration: options.episodeSeconds ?? BOXING_MATCH_SECONDS,
+      roundIndex: 1,
+      roundCount: clampCombatRounds(options.roundCount ?? 1),
+      entries: [a, b],
       score: createBoxingMatchScore(options.divisionId),
       probes: probes as [BoxingProbeSet, BoxingProbeSet],
       hitTracker: createBoxingHitTracker(),
       behavior: createBoxingBehaviorMetrics(),
+      clocks: [createBoxingFighterClock(), createBoxingFighterClock()],
+      tkoAttacker: null,
       onProgress: options.onProgress,
       onFinished: options.onFinished,
     };
@@ -2271,10 +2381,10 @@ export class Simulation {
       throw new Error('Both jousters need muscles');
     }
     for (const entry of [a, b]) {
-      const eligibility = joustingEligibility(entry.design);
+      const eligibility = joustingEligibility(entry.design, options.divisionId);
       if (!eligibility.eligible) {
         throw new Error(
-          `${entry.design.name} is not eligible for jousting: ${eligibility.reasons.join(' ')}`,
+          `${entry.design.name} is not eligible for ${options.divisionId}: ${eligibility.reasons.join(' ')}`,
         );
       }
     }
@@ -2336,9 +2446,14 @@ export class Simulation {
     const pass = createJoustPassState();
     const maxSeconds = options.episodeSeconds ?? JOUST_MAX_SECONDS;
     this.jousting = {
+      divisionId: options.divisionId,
       episodeT: 0,
       episodeDuration: maxSeconds + JOUST_AFTERMATH_SECONDS,
-      scorecard: createJoustScorecard(pass),
+      roundIndex: 1,
+      roundCount: clampCombatRounds(options.roundCount ?? 1),
+      entries: [a, b],
+      accumulated: [emptyJoustFighterCard(), emptyJoustFighterCard()],
+      scorecard: createJoustScorecard(pass, options.divisionId),
       probes: probes as [JoustProbeSet, JoustProbeSet],
       hitTracker: createJoustHitTracker(),
       pass,
@@ -2370,24 +2485,206 @@ export class Simulation {
     this.accumulator = 0;
   }
 
+  private spawnBoxingExhibitionPair(
+    a: BoxingMatchEntry,
+    b: BoxingMatchEntry,
+  ): [BoxingProbeSet, BoxingProbeSet] {
+    if (!this.world) throw new Error('Simulation not initialized');
+    this.clearCohort();
+    const spawn = resolveSpawn(this.environment);
+    const matchDesigns: [CreatureDesign, CreatureDesign] = [
+      cloneDesign(a.design),
+      mirrorBoxingDesign(b.design),
+    ];
+    const entries: [BoxingMatchEntry, BoxingMatchEntry] = [a, b];
+    const probes: BoxingProbeSet[] = [];
+    for (let i = 0; i < 2; i++) {
+      const entry = entries[i]!;
+      const memberDesign = matchDesigns[i]!;
+      const creature = this.spawnCreatureWithGrip(memberDesign, {
+        x: i === 0 ? -BOXING_SPAWN_X : BOXING_SPAWN_X,
+        y: spawn.y,
+      });
+      enableBoxingOpponentContact(creature, i as BoxingOwner);
+      this.cohort.push({
+        creature,
+        genomeIndex: i,
+        weights: entry.weights,
+        brainDrives: new Array(entry.shape.outputCount).fill(0),
+        brainAccumulator: 0,
+        lastObs: new Float32Array(entry.shape.inputCount),
+        lastHidden: new Float32Array(entry.shape.hiddenCount),
+        startX: avgJointX(creature),
+        fallTime: 0,
+        fell: false,
+        landed: false,
+        footLifts: 0,
+        planted: createFootLiftState(creature.joints.length),
+        muscleVisual: [],
+        peakHeight: 0,
+        airTime: 0,
+        airHeightIntegral: 0,
+        impactSpeed: 0,
+        airborneTravel: 0,
+        prevAvgX: avgJointX(creature),
+        uprightSum: 0,
+        uprightSteps: 0,
+        peakSpeed: 0,
+        peakDistance: 0,
+        regionAccum: emptyScoreRegionAccum(),
+        courseAccum: emptyCourseMarkerAccum([]),
+        stall: createStallTracker(),
+        memberDesign,
+        memberShape: entry.shape,
+      });
+      probes.push(createBoxingProbes(this.world, creature, i as BoxingOwner));
+    }
+    return probes as [BoxingProbeSet, BoxingProbeSet];
+  }
+
+  private beginNextBoxingRound(): void {
+    if (!this.boxing) return;
+    const [a, b] = this.boxing.entries;
+    this.boxing.probes = this.spawnBoxingExhibitionPair(a, b);
+    this.boxing.hitTracker.activePairs.clear();
+    this.boxing.hitTracker.lastHitAt.clear();
+    resetBoxingClockForRound(this.boxing.clocks[0]);
+    resetBoxingClockForRound(this.boxing.clocks[1]);
+    this.boxing.tkoAttacker = null;
+    this.boxing.episodeT = 0;
+    this.boxing.roundIndex += 1;
+    this.time = 0;
+    this.accumulator = 0;
+  }
+
+  private spawnJoustExhibitionPair(
+    a: JoustMatchEntry,
+    b: JoustMatchEntry,
+  ): [JoustProbeSet, JoustProbeSet] {
+    if (!this.world) throw new Error('Simulation not initialized');
+    this.clearCohort();
+    const spawn = resolveSpawn(this.environment);
+    const matchDesigns: [CreatureDesign, CreatureDesign] = [
+      cloneDesign(a.design),
+      mirrorBoxingDesign(b.design),
+    ];
+    const entries: [JoustMatchEntry, JoustMatchEntry] = [a, b];
+    const probes: JoustProbeSet[] = [];
+    for (let i = 0; i < 2; i++) {
+      const entry = entries[i]!;
+      const memberDesign = matchDesigns[i]!;
+      const creature = this.spawnCreatureWithGrip(memberDesign, {
+        x: i === 0 ? -JOUST_SPAWN_X : JOUST_SPAWN_X,
+        y: spawn.y,
+      });
+      enableJoustOpponentContact(creature, i as JoustOwner);
+      this.cohort.push(
+        this.makeBoxingCohortMember(
+          creature,
+          i,
+          entry.weights,
+          entry.shape,
+          memberDesign,
+        ),
+      );
+      probes.push(createJoustProbes(this.world, creature, i as JoustOwner));
+    }
+    return probes as [JoustProbeSet, JoustProbeSet];
+  }
+
+  private beginNextJoustRound(): void {
+    if (!this.jousting) return;
+    const [a, b] = this.jousting.entries;
+    const pass = createJoustPassState();
+    this.jousting.probes = this.spawnJoustExhibitionPair(a, b);
+    this.jousting.pass = pass;
+    this.jousting.scorecard = createJoustScorecard(pass, this.jousting.divisionId);
+    this.jousting.hitTracker = createJoustHitTracker();
+    this.jousting.episodeT = 0;
+    this.jousting.roundIndex += 1;
+    this.time = 0;
+    this.accumulator = 0;
+  }
+
+  private spawnHeadToHeadHeat(
+    a: HeadToHeadEntry,
+    b: HeadToHeadEntry,
+  ): void {
+    if (!this.world) throw new Error('Simulation not initialized');
+    this.clearCohort();
+    const spawn = resolveSpawn(this.environment);
+    const offsets = [-3.5, 3.5];
+    const entries = [a, b];
+    const markers = activeCourseMarkers(this.environment);
+    for (let i = 0; i < 2; i++) {
+      const entry = entries[i]!;
+      const creature = this.spawnCreatureWithGrip(entry.design, {
+        x: offsets[i],
+        y: spawn.y,
+      });
+      this.cohort.push({
+        creature,
+        genomeIndex: i,
+        weights: entry.weights,
+        brainDrives: new Array(entry.shape.outputCount).fill(0),
+        brainAccumulator: 0,
+        lastObs: new Float32Array(entry.shape.inputCount),
+        lastHidden: new Float32Array(entry.shape.hiddenCount),
+        startX: avgJointX(creature),
+        fallTime: 0,
+        fell: false,
+        landed: false,
+        footLifts: 0,
+        planted: createFootLiftState(creature.joints.length),
+        muscleVisual: [],
+        peakHeight: 0,
+        airTime: 0,
+        airHeightIntegral: 0,
+        impactSpeed: 0,
+        airborneTravel: 0,
+        prevAvgX: avgJointX(creature),
+        uprightSum: 0,
+        uprightSteps: 0,
+        peakSpeed: 0,
+        peakDistance: 0,
+        regionAccum: emptyScoreRegionAccum(),
+        courseAccum: emptyCourseMarkerAccum(markers),
+        stall: createStallTracker(),
+        memberDesign: cloneDesign(entry.design),
+        memberShape: entry.shape,
+      });
+    }
+  }
+
+  private beginNextHeadToHeadHeat(): void {
+    if (!this.h2h) return;
+    const [a, b] = this.h2h.entries;
+    this.spawnHeadToHeadHeat(a, b);
+    this.h2h.episodeT = 0;
+    this.h2h.roundIndex += 1;
+    this.time = 0;
+    this.accumulator = 0;
+    this.driveMode = 'brain';
+  }
+
   startJoustingLiveEvolve(options: JoustLiveEvolveOptions): void {
     if (!this.world) throw new Error('Simulation not initialized');
     if (!isFeatureEnabled('joustingMode')) {
       throw new Error('Jousting skill is disabled');
     }
     const design = cloneDesign(options.design);
-    const eligibility = joustingEligibility(design);
+    const eligibility = joustingEligibility(design, options.divisionId);
     if (!eligibility.eligible) {
       throw new Error(
-        `${design.name} is not eligible for jousting: ${eligibility.reasons.join(' ')}`,
+        `${design.name} is not eligible for ${options.divisionId}: ${eligibility.reasons.join(' ')}`,
       );
     }
     if (!designHasActuators(design, includeWheelActuators())) {
       throw new Error('Design has no muscles to control');
     }
     const opponentDesign = cloneDesign(options.opponentDesign);
-    if (!joustingEligibility(opponentDesign).eligible) {
-      throw new Error('Sparring partner is not eligible for jousting');
+    if (!joustingEligibility(opponentDesign, options.divisionId).eligible) {
+      throw new Error('Sparring partner is not eligible for this division');
     }
 
     const popSize = options.populationSize ?? LIVE_POPULATION_SIZE;
@@ -2488,6 +2785,7 @@ export class Simulation {
 
     this.joustingLive = {
       design,
+      divisionId: options.divisionId,
       shape,
       opponentDesign,
       opponentShape,
@@ -3351,7 +3649,15 @@ export class Simulation {
       this.boxing.hitTracker.attempts[0];
     this.boxing.score.fighters[1].attempts =
       this.boxing.hitTracker.attempts[1];
-    for (const event of events) recordBoxingHit(this.boxing.score, event);
+    this.boxing.tkoAttacker = this.applyBoxingHitsAndClocks(
+      events,
+      this.boxing.clocks,
+      this.boxing.score,
+      this.cohort[0].creature,
+      this.cohort[1].creature,
+      dt,
+      this.boxing.tkoAttacker,
+    );
 
     updateBoxingBehaviorMetrics(
       this.boxing.behavior,
@@ -3372,9 +3678,20 @@ export class Simulation {
         this.antiScoot,
         i === 0 ? 1 : -1,
       );
-      member.uprightSum += instantUprightQuality(member.creature);
+      member.uprightSum += this.boxing.clocks[i].upright;
       member.uprightSteps++;
     }
+
+    const points = this.boxing.score.fighters.map((fighter) => fighter.points) as [
+      number,
+      number,
+    ];
+    const stop = resolveBoxingStop(
+      this.boxing.clocks,
+      this.boxing.tkoAttacker,
+      points,
+    );
+    const earlyStop = stop.reason === 'tko' || stop.reason === 'count-out';
 
     const progress = this.boxingSnapshot();
     // ~4 Hz HUD refresh (same cadence as live evolve) — every-step React
@@ -3384,18 +3701,18 @@ export class Simulation {
     if (progress && tickHz !== prevTickHz) {
       this.boxing.onProgress?.(progress);
     }
-    if (this.boxing.episodeT < this.boxing.episodeDuration) return;
+    if (!earlyStop && this.boxing.episodeT < this.boxing.episodeDuration) {
+      return;
+    }
+    if (!earlyStop && this.boxing.roundIndex < this.boxing.roundCount) {
+      this.beginNextBoxingRound();
+      return;
+    }
 
-    const points = this.boxing.score.fighters.map((fighter) => fighter.points) as [
-      number,
-      number,
-    ];
-    const winner: BoxingOwner | null =
-      points[0] === points[1] ? null : points[0] > points[1] ? 0 : 1;
     const result: BoxingMatchResult = {
       score: this.boxing.score,
-      winner,
-      reason: winner === null ? 'draw' : 'points',
+      winner: stop.winner,
+      reason: stop.reason,
       episodeDuration: this.boxing.episodeDuration,
       upright: [
         this.cohort[0].uprightSteps > 0
@@ -3405,7 +3722,13 @@ export class Simulation {
           ? this.cohort[1].uprightSum / this.cohort[1].uprightSteps
           : 0,
       ],
+      fallen: [this.boxing.clocks[0].fallen, this.boxing.clocks[1].fallen],
+      knockdowns: [
+        this.boxing.clocks[0].knockdowns,
+        this.boxing.clocks[1].knockdowns,
+      ],
       behavior: this.boxing.behavior,
+      roundCount: this.boxing.roundCount,
     };
     const onProgress = this.boxing.onProgress;
     const onFinished = this.boxing.onFinished;
@@ -3416,6 +3739,36 @@ export class Simulation {
     // Keep driveMode 'brain' so chained training spars stay actuated; App
     // clears drive on finishBoxingLiveEvolve / abort.
     onFinished?.(result);
+  }
+
+  private applyBoxingHitsAndClocks(
+    events: BoxingHitEvent[],
+    clocks: [BoxingFighterClock, BoxingFighterClock],
+    score: BoxingMatchScore,
+    own: SpawnedCreature,
+    opponent: SpawnedCreature,
+    dt: number,
+    tkoAttacker: BoxingOwner | null,
+  ): BoxingOwner | null {
+    let nextTko = tkoAttacker;
+    if (nextTko === null) {
+      for (const event of events) {
+        if (clocks[event.defender].down || clocks[event.defender].countedOut) {
+          continue;
+        }
+        if (clocks[event.attacker].countedOut) continue;
+        recordBoxingHit(score, event);
+        if (isBoxingTkoHit(event)) nextTko = event.attacker;
+      }
+    }
+    const terrain = this.activeTerrain();
+    const creatures: [SpawnedCreature, SpawnedCreature] = [own, opponent];
+    for (let i = 0; i < 2; i++) {
+      const stance = measureBoxingStance(creatures[i], terrain);
+      updateBoxingFighterClock(clocks[i]!, stance.upright, stance.fallen, dt);
+      score.fighters[i]!.knockdowns = clocks[i]!.knockdowns;
+    }
+    return nextTko;
   }
 
   private makeBoxingCohortMember(
@@ -3524,6 +3877,8 @@ export class Simulation {
         hitTracker: createBoxingHitTracker(),
         score: createBoxingMatchScore(live.divisionId),
         behavior: createBoxingBehaviorMetrics(),
+        clocks: [createBoxingFighterClock(), createBoxingFighterClock()],
+        stop: null,
       });
     }
 
@@ -3597,7 +3952,32 @@ export class Simulation {
       );
       pair.score.fighters[0].attempts = pair.hitTracker.attempts[0];
       pair.score.fighters[1].attempts = pair.hitTracker.attempts[1];
-      for (const event of events) recordBoxingHit(pair.score, event);
+      if (!pair.stop) {
+        const tko = this.applyBoxingHitsAndClocks(
+          events,
+          pair.clocks,
+          pair.score,
+          pair.trainee.creature,
+          pair.sparring.creature,
+          dt,
+          null,
+        );
+        const points = pair.score.fighters.map((f) => f.points) as [
+          number,
+          number,
+        ];
+        const stop = resolveBoxingStop(pair.clocks, tko, points);
+        if (stop.reason === 'tko' || stop.reason === 'count-out') {
+          pair.stop = stop;
+        }
+      } else {
+        for (let i = 0; i < 2; i++) {
+          const creature = i === 0 ? pair.trainee.creature : pair.sparring.creature;
+          const stance = measureBoxingStance(creature, terrain);
+          pair.clocks[i]!.upright = stance.upright;
+          pair.clocks[i]!.fallen = stance.fallen;
+        }
+      }
       updateBoxingBehaviorMetrics(
         pair.behavior,
         pair.trainee.creature,
@@ -3605,10 +3985,10 @@ export class Simulation {
         pair.hitTracker.attempts,
         dt,
       );
-      for (const [member, forwardX] of [
-        [pair.trainee, 1],
-        [pair.sparring, -1],
-      ] as const) {
+      for (const [member, forwardX, clock] of [
+        [pair.trainee, 1, pair.clocks[0]] as const,
+        [pair.sparring, -1, pair.clocks[1]] as const,
+      ]) {
         applyPlantSlideBrake(
           member.creature,
           terrain,
@@ -3617,7 +3997,7 @@ export class Simulation {
           this.antiScoot,
           forwardX,
         );
-        member.uprightSum += instantUprightQuality(member.creature);
+        member.uprightSum += clock.upright;
         member.uprightSteps++;
       }
     }
@@ -3699,11 +4079,13 @@ export class Simulation {
         number,
         number,
       ];
-      const winner: BoxingOwner | null =
-        points[0] === points[1] ? null : points[0] > points[1] ? 0 : 1;
+      const stop =
+        pair.stop ??
+        resolveBoxingStop(pair.clocks, null, points);
       const result = {
         score: pair.score,
-        winner,
+        winner: stop.winner,
+        reason: stop.reason,
         upright: [uprightTrainee, uprightSpar] as [number, number],
         behavior: pair.behavior,
         episodeDuration: live.episodeDuration,
@@ -3915,12 +4297,28 @@ export class Simulation {
     if (!done && this.jousting.episodeT < this.jousting.episodeDuration) return;
 
     freezeJoustScorecard(this.jousting.scorecard, this.jousting.priorities);
+    this.jousting.accumulated = [
+      addJoustFighterCards(
+        this.jousting.accumulated[0],
+        this.jousting.scorecard.fighters[0],
+      ),
+      addJoustFighterCards(
+        this.jousting.accumulated[1],
+        this.jousting.scorecard.fighters[1],
+      ),
+    ];
+    if (this.jousting.roundIndex < this.jousting.roundCount) {
+      this.beginNextJoustRound();
+      return;
+    }
+    this.jousting.scorecard.fighters = this.jousting.accumulated;
     const winner = joustWinner(this.jousting.scorecard);
     const result: JoustMatchResult = {
       scorecard: this.jousting.scorecard,
       winner,
       reason: winner === null ? 'draw' : (this.jousting.pass.clashReason ?? 'draw'),
       episodeDuration: this.jousting.episodeT,
+      roundCount: this.jousting.roundCount,
     };
     const onProgress = this.jousting.onProgress;
     const onFinished = this.jousting.onFinished;
@@ -3995,7 +4393,7 @@ export class Simulation {
         sparring,
         probes,
         hitTracker: createJoustHitTracker(),
-        scorecard: createJoustScorecard(pass),
+        scorecard: createJoustScorecard(pass, live.divisionId),
         pass,
         frozen: false,
       });
@@ -4484,7 +4882,10 @@ export class Simulation {
       );
     }
 
-    this.h2h.onProgress?.(this.h2h.episodeT, this.h2h.episodeDuration);
+    this.h2h.onProgress?.(this.h2h.episodeT, this.h2h.episodeDuration, {
+      index: this.h2h.roundIndex,
+      count: this.h2h.roundCount,
+    });
 
     // End early only when landings are in play (do not change fall-only timing).
     const h2hAllSettled =
@@ -4529,9 +4930,24 @@ export class Simulation {
       metrics[i] = result;
     }
 
+    this.h2h.totalFitness[0] += fitness[0];
+    this.h2h.totalFitness[1] += fitness[1];
+    if (fitness[0] > fitness[1]) this.h2h.heatWins[0] += 1;
+    else if (fitness[1] > fitness[0]) this.h2h.heatWins[1] += 1;
+
+    if (this.h2h.roundIndex < this.h2h.roundCount) {
+      this.beginNextHeadToHeadHeat();
+      return;
+    }
+
     const onFinished = this.h2h.onFinished;
     const episodeDuration = this.h2h.episodeDuration;
-    const finished: HeadToHeadResult = { fitness, metrics };
+    const finished: HeadToHeadResult = {
+      fitness: this.h2h.totalFitness,
+      metrics,
+      roundCount: this.h2h.roundCount,
+      heatWins: this.h2h.heatWins,
+    };
     this.lastEpisodeMetrics = metrics[0];
     this.h2h = null;
     this.h2hFinished = finished;
@@ -5460,23 +5876,41 @@ export class Simulation {
       this.cohort[1]?.memberDesign?.name ?? 'B',
     ];
     if (this.boxing) {
+      const clocks = this.boxing.clocks;
+      const points: [number, number] = [
+        this.boxing.score.fighters[0].points,
+        this.boxing.score.fighters[1].points,
+      ];
+      const stop = resolveBoxingStop(
+        clocks,
+        this.boxing.tkoAttacker,
+        points,
+      );
       return {
         episodeT: this.boxing.episodeT,
         episodeDuration: this.boxing.episodeDuration,
         divisionId: this.boxing.divisionId,
         ruleVersion: 1,
         names,
-        points: [
-          this.boxing.score.fighters[0].points,
-          this.boxing.score.fighters[1].points,
-        ],
+        points,
         hits: [
           this.boxing.score.fighters[0].hits,
           this.boxing.score.fighters[1].hits,
         ],
         lastHit: this.boxing.score.hits.at(-1) ?? null,
         finished: false,
-        winner: null,
+        winner: stop.reason === 'points' || stop.reason === 'draw' ? null : stop.winner,
+        reason: stop.reason === 'points' || stop.reason === 'draw' ? null : stop.reason,
+        upright: [clocks[0].upright, clocks[1].upright],
+        fallen: [clocks[0].fallen, clocks[1].fallen],
+        down: [clocks[0].down, clocks[1].down],
+        countRemaining: [
+          boxingCountRemaining(clocks[0]),
+          boxingCountRemaining(clocks[1]),
+        ],
+        knockdowns: [clocks[0].knockdowns, clocks[1].knockdowns],
+        roundIndex: this.boxing.roundIndex,
+        roundCount: this.boxing.roundCount,
       };
     }
     if (!this.boxingFinished) return null;
@@ -5497,6 +5931,14 @@ export class Simulation {
       lastHit: this.boxingFinished.score.hits.at(-1) ?? null,
       finished: true,
       winner: this.boxingFinished.winner,
+      reason: this.boxingFinished.reason,
+      upright: this.boxingFinished.upright,
+      fallen: this.boxingFinished.fallen,
+      down: [this.boxingFinished.fallen[0], this.boxingFinished.fallen[1]],
+      countRemaining: [0, 0],
+      knockdowns: this.boxingFinished.knockdowns,
+      roundIndex: this.boxingFinished.roundCount ?? 1,
+      roundCount: this.boxingFinished.roundCount ?? 1,
     };
   }
 
@@ -5536,8 +5978,10 @@ export class Simulation {
         episodeDuration: this.jousting.episodeDuration,
         names,
         totals: [
-          this.jousting.scorecard.fighters[0].total,
-          this.jousting.scorecard.fighters[1].total,
+          this.jousting.accumulated[0].total +
+            this.jousting.scorecard.fighters[0].total,
+          this.jousting.accumulated[1].total +
+            this.jousting.scorecard.fighters[1].total,
         ],
         hits: [
           this.jousting.scorecard.hits[0].hits,
@@ -5548,6 +5992,8 @@ export class Simulation {
         lastHit: this.jousting.scorecard.events.at(-1) ?? null,
         finished: false,
         winner: null,
+        roundIndex: this.jousting.roundIndex,
+        roundCount: this.jousting.roundCount,
       };
     }
     if (!this.joustingFinished) return null;
@@ -5568,6 +6014,8 @@ export class Simulation {
       lastHit: this.joustingFinished.scorecard.events.at(-1) ?? null,
       finished: true,
       winner: this.joustingFinished.winner,
+      roundIndex: this.joustingFinished.roundCount ?? 1,
+      roundCount: this.joustingFinished.roundCount ?? 1,
     };
   }
 
@@ -5790,6 +6238,8 @@ export class Simulation {
           lastHit: focusedCard.events.at(-1) ?? null,
           finished: focusedPair.frozen,
           winner: null,
+          roundIndex: 1,
+          roundCount: 1,
         },
         hideMuscles: this.hideMuscles,
         hideBones: this.hideBones,
@@ -5921,7 +6371,27 @@ export class Simulation {
           ],
           lastHit: focusedScore.hits.at(-1) ?? null,
           finished: false,
-          winner: null,
+          winner: focusedPair.stop?.winner ?? null,
+          reason: focusedPair.stop?.reason ?? null,
+          upright: [
+            focusedPair.clocks[0].upright,
+            focusedPair.clocks[1].upright,
+          ],
+          fallen: [
+            focusedPair.clocks[0].fallen,
+            focusedPair.clocks[1].fallen,
+          ],
+          down: [focusedPair.clocks[0].down, focusedPair.clocks[1].down],
+          countRemaining: [
+            boxingCountRemaining(focusedPair.clocks[0]),
+            boxingCountRemaining(focusedPair.clocks[1]),
+          ],
+          knockdowns: [
+            focusedPair.clocks[0].knockdowns,
+            focusedPair.clocks[1].knockdowns,
+          ],
+          roundIndex: 1,
+          roundCount: 1,
         },
         jousting: null,
         hideMuscles: this.hideMuscles,

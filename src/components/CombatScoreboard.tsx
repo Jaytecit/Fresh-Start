@@ -10,14 +10,26 @@ interface Props {
     episodeT: number;
     episodeDuration: number;
     points: [number, number];
+    countRemaining?: [number, number];
+    down?: [boolean, boolean];
+    reason?: string | null;
+    roundIndex?: number;
+    roundCount?: number;
   } | null;
   joustingProgress: {
     episodeT: number;
     episodeDuration: number;
     totals: [number, number];
     phase: string;
+    roundIndex?: number;
+    roundCount?: number;
   } | null;
-  raceProgress: { episodeT: number; episodeDuration: number } | null;
+  raceProgress: {
+    episodeT: number;
+    episodeDuration: number;
+    roundIndex?: number;
+    roundCount?: number;
+  } | null;
   lastBoxing: BoxingMatchResult | null;
   lastJoust: JoustMatchResult | null;
   lastRace: HeadToHeadResult | null;
@@ -49,12 +61,20 @@ export function CombatScoreboard({
         : 'Train bodies in Train. Race two trained brains here.';
 
   let live: string | null = null;
+  const roundBit = (index?: number, count?: number) =>
+    index && count && count > 1 ? `R${index}/${count} · ` : '';
   if (mode === 'boxing' && boxingRunning && boxingProgress) {
-    live = `${boxingProgress.episodeT.toFixed(1)} / ${boxingProgress.episodeDuration.toFixed(0)}s · A ${boxingProgress.points[0]}–${boxingProgress.points[1]} B`;
+    const count = boxingProgress.countRemaining;
+    const down = boxingProgress.down;
+    const countBit =
+      down && count && (down[0] || down[1])
+        ? ` · count ${down[0] ? `A ${count[0]}` : ''}${down[0] && down[1] ? ' / ' : ''}${down[1] ? `B ${count[1]}` : ''}`
+        : '';
+    live = `${roundBit(boxingProgress.roundIndex, boxingProgress.roundCount)}${boxingProgress.episodeT.toFixed(1)} / ${boxingProgress.episodeDuration.toFixed(0)}s · A ${boxingProgress.points[0]}–${boxingProgress.points[1]} B${countBit}`;
   } else if (mode === 'joust' && joustingRunning && joustingProgress) {
-    live = `${joustingProgress.phase} · ${joustingProgress.episodeT.toFixed(1)}s · A ${joustingProgress.totals[0].toFixed(1)} · B ${joustingProgress.totals[1].toFixed(1)}`;
+    live = `${roundBit(joustingProgress.roundIndex, joustingProgress.roundCount)}${joustingProgress.phase} · ${joustingProgress.episodeT.toFixed(1)}s · A ${joustingProgress.totals[0].toFixed(1)} · B ${joustingProgress.totals[1].toFixed(1)}`;
   } else if (mode === 'race' && raceRunning && raceProgress) {
-    live = `${raceProgress.episodeT.toFixed(1)}s / ${raceProgress.episodeDuration.toFixed(0)}s`;
+    live = `${roundBit(raceProgress.roundIndex, raceProgress.roundCount)}${raceProgress.episodeT.toFixed(1)}s / ${raceProgress.episodeDuration.toFixed(0)}s`;
   }
 
   const boxingIdle = mode === 'boxing' && lastBoxing && !boxingRunning;
@@ -84,10 +104,19 @@ export function CombatScoreboard({
               A {lastBoxing.score.fighters[0].points}–
               {lastBoxing.score.fighters[1].points} B ·{' '}
               {winnerLine(lastBoxing.winner)}
+              {lastBoxing.reason === 'tko'
+                ? ' · TKO'
+                : lastBoxing.reason === 'count-out'
+                  ? ' · count-out'
+                  : ''}
             </li>
             <li>
               Hits {lastBoxing.score.fighters[0].hits}–
               {lastBoxing.score.fighters[1].hits}
+            </li>
+            <li>
+              Knockdowns {lastBoxing.knockdowns[0]}–
+              {lastBoxing.knockdowns[1]}
             </li>
           </ul>
         </>

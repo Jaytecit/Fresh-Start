@@ -12,6 +12,7 @@ export interface BoxingHitCandidate {
   gloveJointId: number;
   targetJointId: number;
   targetValue: number;
+  targetIsHead: boolean;
   gloveMass: number;
   closingSpeed: number;
   relativeSpeed: number;
@@ -33,6 +34,7 @@ export interface BoxingFighterScore {
   totalPower: number;
   peakPower: number;
   totalAccuracy: number;
+  knockdowns: number;
 }
 
 export interface BoxingMatchScore {
@@ -50,6 +52,7 @@ export function emptyFighterScore(): BoxingFighterScore {
     totalPower: 0,
     peakPower: 0,
     totalAccuracy: 0,
+    knockdowns: 0,
   };
 }
 

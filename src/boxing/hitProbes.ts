@@ -172,6 +172,7 @@ export function detectBoxingHits(
           gloveJointId: glove.joint.id,
           targetJointId: target.joint.id,
           targetValue: target.targetValue,
+          targetIsHead: target.joint.isHead === true,
           gloveMass: glove.joint.body.mass(),
           closingSpeed,
           relativeSpeed: Math.hypot(relativeVelocityX, relativeVelocityY),

@@ -1,4 +1,4 @@
-import { JOUSTING_RULE_VERSION } from './eligibility';
+import { JOUSTING_RULE_VERSION, type JoustingDivisionId } from './eligibility';
 import { aftermathUpright, type JoustPassState } from './pass';
 import {
   meanHitAccuracy,
@@ -18,6 +18,7 @@ export interface JoustFighterCard {
 }
 
 export interface JoustScorecard {
+  divisionId: JoustingDivisionId;
   ruleVersion: 1;
   fighters: [JoustFighterCard, JoustFighterCard];
   hits: [JoustFighterHits, JoustFighterHits];
@@ -76,8 +77,26 @@ export function emptyJoustFighterCard(): JoustFighterCard {
   };
 }
 
-export function createJoustScorecard(pass: JoustPassState): JoustScorecard {
+export function addJoustFighterCards(
+  a: JoustFighterCard,
+  b: JoustFighterCard,
+): JoustFighterCard {
   return {
+    hitQuality: a.hitQuality + b.hitQuality,
+    stayUp: a.stayUp + b.stayUp,
+    unhorse: a.unhorse + b.unhorse,
+    knockback: a.knockback + b.knockback,
+    commit: a.commit + b.commit,
+    total: a.total + b.total,
+  };
+}
+
+export function createJoustScorecard(
+  pass: JoustPassState,
+  divisionId: JoustingDivisionId = 'mounted',
+): JoustScorecard {
+  return {
+    divisionId,
     ruleVersion: JOUSTING_RULE_VERSION,
     fighters: [emptyJoustFighterCard(), emptyJoustFighterCard()],
     hits: [

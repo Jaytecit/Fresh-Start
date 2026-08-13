@@ -55,11 +55,11 @@ export const SKILL_BUILD_HINTS: Record<SkillId, SkillBuildHints> = {
   },
   jousting: {
     essentials: [
-      'Mark one lance tip (or reuse a Boxing glove) and at least one hit target or head.',
-      'Mark feet for gait; no wheels or aero in v1.',
+      'Mark a rider: a Head that is also a Hit Target, at the highest point on the creature.',
+      'Mark one lance tip (or reuse a Boxing glove). Feet as required by the division; no wheels or aero.',
       'Build facing right (+X). The far jouster is mirrored automatically.',
     ],
-    tip: 'Train a charge first — commit and stay up still score if the lances miss.',
+    tip: 'Train a charge first — commit and stay up still score if the lances miss. Keep the rider head above the lance.',
   },
   disco: {
     essentials: [

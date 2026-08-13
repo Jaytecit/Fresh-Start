@@ -23,8 +23,8 @@ import type {
 import type { TrainTelemetrySession } from "../brain/trainTelemetry";
 import type { CreatureDesign } from "../creature/types";
 import {
-  JOUST_SPARRING_OPPONENTS,
   joustSparringOpponentLabel,
+  joustSparringOpponentsForDivision,
   type JoustSparringId,
 } from "../jousting/sparringOpponents";
 import {
@@ -33,6 +33,8 @@ import {
   type SparringOpponentId,
 } from "../boxing/sparringOpponents";
 import type { BoxingDivisionId } from "../boxing/divisions";
+import type { JoustingDivisionId } from "../jousting/eligibility";
+import { JOUSTING_DIVISIONS } from "../jousting/eligibility";
 import { ANTI_SCOOT_MAX } from "../physics/constants";
 import { isFeatureEnabled } from "../port/featureFlags";
 import type { DriveMode, HeadToHeadResult } from "../sim/simulation";
@@ -113,6 +115,8 @@ export interface TrainDockProps {
   boxingDivisionId: BoxingDivisionId;
   joustingSparringId: JoustSparringId;
   setJoustingSparringId: (id: JoustSparringId) => void;
+  joustingDivisionId: JoustingDivisionId;
+  setJoustingDivisionId: (id: JoustingDivisionId) => void;
   gaKnobs: GaKnobSet;
   savedModels: SavedModel[];
 }
@@ -282,6 +286,8 @@ export function TrainDock(props: TrainDockProps) {
     boxingDivisionId,
     joustingSparringId,
     setJoustingSparringId,
+    joustingDivisionId,
+    setJoustingDivisionId,
     gaKnobs,
     savedModels,
   } = props;
@@ -752,22 +758,45 @@ export function TrainDock(props: TrainDockProps) {
                   </label>
                 )}
                 {activeTask === "jousting" && isFeatureEnabled("joustingMode") && (
-                  <label className="field-row">
-                    <span>Sparring</span>
-                    <select
-                      value={joustingSparringId}
-                      disabled={evolveProgress.running}
-                      onChange={(e) =>
-                        setJoustingSparringId(e.target.value as JoustSparringId)
-                      }
-                    >
-                      {JOUST_SPARRING_OPPONENTS.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          Level {item.level} · {joustSparringOpponentLabel(item.id, design.name)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <>
+                    <label className="field-row">
+                      <span>Division</span>
+                      <select
+                        value={joustingDivisionId}
+                        disabled={evolveProgress.running}
+                        onChange={(e) =>
+                          setJoustingDivisionId(
+                            e.target.value as JoustingDivisionId,
+                          )
+                        }
+                      >
+                        {JOUSTING_DIVISIONS.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field-row">
+                      <span>Sparring</span>
+                      <select
+                        value={joustingSparringId}
+                        disabled={evolveProgress.running}
+                        onChange={(e) =>
+                          setJoustingSparringId(e.target.value as JoustSparringId)
+                        }
+                      >
+                        {joustSparringOpponentsForDivision(joustingDivisionId).map(
+                          (item) => (
+                            <option key={item.id} value={item.id}>
+                              Level {item.level} ·{" "}
+                              {joustSparringOpponentLabel(item.id, design.name)}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                  </>
                 )}
               {isFeatureEnabled("trainRecipes") && (
                   <TrainingSetupPanel

@@ -25,6 +25,12 @@ import {
 } from '../src/boxing/referenceFighters.ts';
 import { scoreBoxingHit, emptyFighterScore } from '../src/boxing/scoring.ts';
 import {
+  createBoxingFighterClock,
+  isBoxingTkoHit,
+  resolveBoxingStop,
+  updateBoxingFighterClock,
+} from '../src/boxing/knockdown.ts';
+import {
   BOXING_ENGAGE_MAX,
   BOXING_ENGAGE_MIN,
   boxingEngageBand,
@@ -49,7 +55,19 @@ import {
 import { BOXOBOT } from '../src/creature/boxoBot.ts';
 import { cloneDesign } from '../src/creature/types.ts';
 import { boxingRingEnv } from '../src/env/boxingRingEnv.ts';
-import { FIXED_DT, JOINT_RADIUS } from '../src/physics/constants.ts';
+import {
+  clampCombatRounds,
+  clampRoundSeconds,
+  defaultRoundSeconds,
+  roundLengthLabel,
+} from '../src/combat/format.ts';
+import { EPISODE_SECONDS } from '../src/brain/constants.ts';
+import {
+  BOXING_MATCH_SECONDS,
+  FIXED_DT,
+  JOINT_RADIUS,
+  JOUST_MAX_SECONDS,
+} from '../src/physics/constants.ts';
 import { encodeGroups, spawnCreature } from '../src/physics/spawn.ts';
 import { createWorld, initRapier } from '../src/physics/world.ts';
 import { featureFlags } from '../src/port/featureFlags.ts';
@@ -60,6 +78,21 @@ import { shapeForBoxingDesign, Simulation } from '../src/sim/simulation.ts';
 
 function ok(condition: boolean, message: string): void {
   assert.equal(condition, true, message);
+}
+
+function assertCombatFormat(): void {
+  assert.equal(clampCombatRounds(0), 1);
+  assert.equal(clampCombatRounds(99), 12);
+  assert.equal(clampCombatRounds(3.4), 3);
+  assert.equal(defaultRoundSeconds('boxing'), BOXING_MATCH_SECONDS);
+  assert.equal(defaultRoundSeconds('joust'), JOUST_MAX_SECONDS);
+  assert.equal(defaultRoundSeconds('race'), EPISODE_SECONDS);
+  assert.equal(clampRoundSeconds('boxing', 45), 45);
+  assert.equal(clampRoundSeconds('boxing', 50), 45);
+  assert.equal(clampRoundSeconds('joust', 11), 12);
+  assert.equal(roundLengthLabel('boxing'), 'Round length');
+  assert.equal(roundLengthLabel('joust'), 'Pass length');
+  assert.equal(roundLengthLabel('race'), 'Heat length');
 }
 
 function assertDivisions(): void {
@@ -357,6 +390,7 @@ function assertOwnerAndThresholdFilters(): void {
     gloveJointId: 1,
     targetJointId: 2,
     targetValue: 1,
+    targetIsHead: false,
     gloveMass: 1,
     closingSpeed: 2,
     relativeSpeed: 2,
@@ -833,10 +867,125 @@ async function assertWorkspaceCornerMatch(): Promise<void> {
   }
 }
 
+async function assertTwoRoundBoxingMatch(): Promise<void> {
+  const shape = shapeForBoxingDesign(UPRIGHT_FIGHTER);
+  const simulation = new Simulation();
+  await simulation.init();
+  try {
+    simulation.setEnvironment(boxingRingEnv());
+    simulation.startBoxingMatch({
+      entries: [
+        {
+          design: cloneDesign(UPRIGHT_FIGHTER),
+          shape,
+          weights: new Float32Array(shape.weightCount),
+        },
+        {
+          design: cloneDesign(UPRIGHT_FIGHTER),
+          shape,
+          weights: new Float32Array(shape.weightCount),
+        },
+      ],
+      divisionId: 'upright',
+      episodeSeconds: 0.25,
+      roundCount: 2,
+    });
+    let sawRound2 = false;
+    const steps = Math.ceil(0.9 / FIXED_DT) + 8;
+    for (let i = 0; i < steps; i++) {
+      const snap = simulation.step(FIXED_DT);
+      if (snap.boxing && snap.boxing.roundIndex === 2 && !snap.boxing.finished) {
+        sawRound2 = true;
+      }
+    }
+    const snap = simulation.snapshot();
+    ok(sawRound2, 'bell starts the second boxing round');
+    assert.equal(snap.boxing?.roundCount, 2);
+  } finally {
+    simulation.world?.free();
+    simulation.world = null;
+  }
+}
+
+function assertKnockdownAndTko(): void {
+  const downed = createBoxingFighterClock();
+  updateBoxingFighterClock(downed, 0.1, true, 0);
+  ok(downed.down, 'collapse starts the 10-count');
+  assert.equal(downed.knockdowns, 1);
+  updateBoxingFighterClock(downed, 0.1, true, 9.9);
+  ok(!downed.countedOut, 'still counting at 9.9s');
+  updateBoxingFighterClock(downed, 0.1, true, 0.2);
+  ok(downed.countedOut, 'counted out from 10');
+
+  const recovered = createBoxingFighterClock();
+  updateBoxingFighterClock(recovered, 0.2, true, 0);
+  updateBoxingFighterClock(recovered, 0.7, false, 1);
+  ok(!recovered.down, 'beating the count resets down');
+  ok(!recovered.countedOut, 'recovery is not a count-out');
+
+  const head = scoreBoxingHit({
+    attacker: 0,
+    defender: 1,
+    gloveJointId: 1,
+    targetJointId: 2,
+    targetValue: 3,
+    targetIsHead: true,
+    gloveMass: 10,
+    closingSpeed: 5,
+    relativeSpeed: 5.2,
+    centreDistance: 0.1,
+    combinedRadius: 1,
+    time: 1,
+  });
+  ok(!!head && isBoxingTkoHit(head), 'hard accurate head shot is a TKO');
+  const body = scoreBoxingHit({
+    attacker: 0,
+    defender: 1,
+    gloveJointId: 1,
+    targetJointId: 2,
+    targetValue: 3,
+    targetIsHead: false,
+    gloveMass: 10,
+    closingSpeed: 5,
+    relativeSpeed: 5.2,
+    centreDistance: 0.1,
+    combinedRadius: 1,
+    time: 1,
+  });
+  ok(!!body && !isBoxingTkoHit(body), 'same punch to the body is not a TKO');
+  const weakHead = scoreBoxingHit({
+    attacker: 0,
+    defender: 1,
+    gloveJointId: 1,
+    targetJointId: 2,
+    targetValue: 3,
+    targetIsHead: true,
+    gloveMass: 1,
+    closingSpeed: 2,
+    relativeSpeed: 2,
+    centreDistance: 0.1,
+    combinedRadius: 1,
+    time: 1,
+  });
+  ok(!!weakHead && !isBoxingTkoHit(weakHead), 'light head tap is not a TKO');
+
+  const a = createBoxingFighterClock();
+  const b = createBoxingFighterClock();
+  b.countedOut = true;
+  const counted = resolveBoxingStop([a, b], null, [3, 12]);
+  assert.equal(counted.winner, 0);
+  assert.equal(counted.reason, 'count-out');
+  const tko = resolveBoxingStop([a, b], 0, [3, 12]);
+  assert.equal(tko.reason, 'tko');
+  assert.equal(tko.winner, 0);
+}
+
 async function main(): Promise<void> {
   await initRapier();
+  assertCombatFormat();
   assertDivisions();
   assertOwnerAndThresholdFilters();
+  assertKnockdownAndTko();
   assertRewardShaping();
   assertCornerSymmetry();
   assertOpponentSolidSeparation();
@@ -846,6 +995,7 @@ async function main(): Promise<void> {
   await assertBoxingLiveBatch();
   await assertBoxingV2TSparringLoads();
   await assertWorkspaceCornerMatch();
+  await assertTwoRoundBoxingMatch();
   await assertBoxingTrainingFitnessMoves();
   const first = await scriptedHit();
   const second = await scriptedHit();

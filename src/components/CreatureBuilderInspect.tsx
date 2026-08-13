@@ -707,8 +707,12 @@ export function CreatureBuilderInspector(props: CreatureBuilderInspectProps) {
                                 )
                               }
                             />
-                            Joust hit target
+                            Rider / hit target
                           </label>
+                          <p className="hint muted">
+                            The rider must be a Head that is also a Hit Target,
+                            and the highest joint on the creature.
+                          </p>
                         </>
                       )}
                       {isFeatureEnabled("googlyEyes") && (

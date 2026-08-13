@@ -54,6 +54,7 @@ export interface JoustingTrainingResult {
 
 export interface JoustingTrainingOptions {
   design: CreatureDesign;
+  divisionId?: import('../jousting/divisions').JoustingDivisionId;
   opponentId?: JoustSparringId;
   generations?: number;
   populationSize?: number;
@@ -91,6 +92,7 @@ export async function evaluateJoustingGenome(options: {
   opponentShape: NetworkShape;
   opponentWeights: Float32Array;
   episodeSeconds: number;
+  divisionId?: import('../jousting/divisions').JoustingDivisionId;
   priorities?: JoustingPriorities;
 }): Promise<JoustMatchResult> {
   const simulation = new Simulation();
@@ -112,6 +114,7 @@ export async function evaluateJoustingGenome(options: {
         },
       ],
       episodeSeconds: options.episodeSeconds,
+      divisionId: options.divisionId ?? 'mounted',
       priorities: options.priorities,
       onFinished: (finished) => {
         result = finished;
@@ -150,6 +153,7 @@ export async function evolveJoustingBrain(
     options.design,
     options.opponentId ?? DEFAULT_JOUST_SPARRING_ID,
     options.seed ?? 1,
+    options.divisionId ?? 'mounted',
   );
   const seedGenome =
     options.seedGenome &&
@@ -193,6 +197,7 @@ export async function evolveJoustingBrain(
         opponentShape: opponent.shape,
         opponentWeights: opponent.weights,
         episodeSeconds,
+        divisionId: options.divisionId ?? 'mounted',
         priorities,
       });
       const breakdown = computeJoustingFitness(

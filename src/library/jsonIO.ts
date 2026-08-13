@@ -116,10 +116,18 @@ function isBoxingModelMeta(v: unknown): v is BoxingModelMeta {
 function isJoustingModelMeta(v: unknown): v is JoustingModelMeta {
   if (!v || typeof v !== 'object') return false;
   const meta = v as Partial<JoustingModelMeta>;
+  if (
+    meta.ruleVersion !== 1 ||
+    meta.obsPackVersion !== 1 ||
+    meta.brainHz !== 30
+  ) {
+    return false;
+  }
+  if (meta.divisionId === undefined) return true;
   return (
-    meta.ruleVersion === 1 &&
-    meta.obsPackVersion === 1 &&
-    meta.brainHz === 30
+    meta.divisionId === 'mounted' ||
+    meta.divisionId === 'grounded' ||
+    meta.divisionId === 'open-frame'
   );
 }
 

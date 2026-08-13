@@ -40,6 +40,21 @@ export const BOXING_RING_HALF_WIDTH = 27.5;
 export const BOXING_RING_WALL_WIDTH = 1.75;
 export const BOXING_RING_WALL_HEIGHT = 17.5;
 export const BOXING_MATCH_SECONDS = 45;
+/** Instant upright below this counts as down (knockdown clock). */
+export const BOXING_DOWN_UPRIGHT = 0.35;
+/** Instant upright at/above this (and not fallen) beats the count. */
+export const BOXING_RECOVER_UPRIGHT = 0.5;
+/** Joint clearance below this counts as fallen / on the canvas. */
+export const BOXING_DOWN_CLEARANCE = 0.12;
+/** Referee 10-count length (seconds) while a fighter is down. */
+export const BOXING_COUNT_SECONDS = 10;
+/**
+ * Rare TKO: head hit must be this hard (gloveMass × closingSpeed, cap BOXING_MAX_POWER).
+ * Typical scored punches sit well below this; only committed, heavy shots qualify.
+ */
+export const BOXING_TKO_MIN_POWER = 40;
+/** Rare TKO: fraction of relative speed aimed at the head centre. */
+export const BOXING_TKO_MIN_ACCURACY = 0.88;
 /** Lateral gap between parallel training pairs (spatial isolation). */
 export const BOXING_TRAIN_PAIR_GAP = 80;
 

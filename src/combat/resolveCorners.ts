@@ -9,6 +9,7 @@ import {
   resolveJoustSparringOpponent,
   type JoustSparringId,
 } from '../jousting/sparringOpponents';
+import type { JoustingDivisionId } from '../jousting/divisions';
 import {
   modelToSeed,
   shapesCompatible,
@@ -87,6 +88,7 @@ export function resolveJoustCorner(
     pool: Parameters<typeof resolveDesignForModel>[1];
     traineeDesign: CreatureDesign;
     seed: number;
+    divisionId: JoustingDivisionId;
   },
 ): ResolvedFighter | null {
   if (corner.kind === 'workspace') {
@@ -106,6 +108,7 @@ export function resolveJoustCorner(
     opts.traineeDesign,
     corner.id as JoustSparringId,
     opts.seed,
+    opts.divisionId,
   );
   return {
     design: cloneDesign(sparring.design),

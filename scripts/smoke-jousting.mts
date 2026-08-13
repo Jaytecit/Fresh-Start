@@ -3,8 +3,13 @@
  */
 import assert from 'node:assert/strict';
 import { JOUSTBOT } from '../src/creature/joustBot.ts';
+import { raceEligibility } from '../src/race/divisions.ts';
+import { DART_STRIDER, MOTOR_CART, SIMPLE_HOPPER } from '../src/creature/presets.ts';
 import { cloneDesign, type CreatureDesign } from '../src/creature/types.ts';
-import { joustingEligibility } from '../src/jousting/eligibility.ts';
+import {
+  JOUSTING_DIVISIONS,
+  joustingEligibility,
+} from '../src/jousting/eligibility.ts';
 import {
   createJoustHitTracker,
   createJoustProbes,
@@ -19,9 +24,11 @@ import {
 import { jointIsLance } from '../src/jousting/marks.ts';
 import { scoreJoustHit } from '../src/jousting/scoring.ts';
 import {
+  addJoustFighterCards,
   computeJoustingFitness,
   createJoustScorecard,
   DEFAULT_JOUSTING_PRIORITIES,
+  emptyJoustFighterCard,
   freezeJoustScorecard,
   joustWinner,
 } from '../src/jousting/scorecard.ts';
@@ -77,17 +84,22 @@ const STICK_JOUSTER: CreatureDesign = {
 
 function assertEligibility(): void {
   ok(featureFlags.joustingMode, 'joustingMode flag on');
-  const result = joustingEligibility(JOUSTBOT);
-  ok(result.eligible, `JoustBot eligible: ${result.reasons.join(' ')}`);
+  const result = joustingEligibility(JOUSTBOT, 'mounted');
+  ok(result.eligible, `JoustBot mounted eligible: ${result.reasons.join(' ')}`);
   ok(result.metrics.lances >= 1, 'JoustBot has a lance');
-  ok(result.metrics.targets >= 1, 'JoustBot has a target');
+  ok(result.metrics.riderHeads >= 1, 'JoustBot has a rider head');
+  ok(result.metrics.riderIsHighest, 'JoustBot rider is the highest joint');
+  ok(
+    JOUSTING_DIVISIONS.every((division) => division.ruleVersion === 1),
+    'joust v1 rules',
+  );
 
   const gloveFallback = cloneDesign(JOUSTBOT);
   const lance = gloveFallback.joints.find((j) => j.isLance);
   ok(!!lance, 'JoustBot lance joint');
   delete lance!.isLance;
   lance!.isGlove = true;
-  ok(joustingEligibility(gloveFallback).eligible, 'isGlove counts as lance');
+  ok(joustingEligibility(gloveFallback, 'mounted').eligible, 'isGlove counts as lance');
   ok(jointIsLance(lance!), 'jointIsLance sees glove fallback');
 
   const missing = cloneDesign(JOUSTBOT);
@@ -95,14 +107,52 @@ function assertEligibility(): void {
     delete joint.isLance;
     delete joint.isGlove;
   }
-  const rejected = joustingEligibility(missing);
+  const rejected = joustingEligibility(missing, 'mounted');
   ok(!rejected.eligible, 'missing lance rejected');
   ok(
     rejected.reasons.some((reason) => reason.includes('lance')),
     'eligibility explains missing lance',
   );
 
-  const dummy = resolveJoustSparringOpponent(JOUSTBOT, 'dummy', 1);
+  const noRider = cloneDesign(JOUSTBOT);
+  for (const joint of noRider.joints) {
+    delete joint.isHead;
+    delete joint.isHitTarget;
+  }
+  const noRiderResult = joustingEligibility(noRider, 'mounted');
+  ok(!noRiderResult.eligible, 'missing rider rejected');
+  ok(
+    noRiderResult.reasons.some((reason) => reason.includes('rider')),
+    'eligibility explains missing rider',
+  );
+
+  const lowRider = cloneDesign(JOUSTBOT);
+  const rider = lowRider.joints.find((j) => j.isHead && j.isHitTarget)!;
+  const tip = lowRider.joints.find((j) => j.isLance)!;
+  tip.y = rider.y + 1;
+  const low = joustingEligibility(lowRider, 'mounted');
+  ok(!low.eligible, 'lance above rider rejected');
+  ok(
+    low.reasons.some((reason) => reason.includes('highest')),
+    'eligibility explains rider must be highest',
+  );
+
+  const grounded = cloneDesign(JOUSTBOT);
+  grounded.name = 'Grounded Jouster';
+  grounded.joints.push(
+    { id: 9, x: 0.15, y: 0.2, isFoot: true },
+    { id: 10, x: 4.55, y: 0.2, isFoot: true },
+  );
+  ok(
+    joustingEligibility(grounded, 'grounded').eligible,
+    `grounded jouster eligible: ${joustingEligibility(grounded, 'grounded').reasons.join(' ')}`,
+  );
+  ok(
+    !joustingEligibility(JOUSTBOT, 'grounded').eligible,
+    'two-foot JoustBot is not grounded',
+  );
+
+  const dummy = resolveJoustSparringOpponent(JOUSTBOT, 'dummy', 1, 'mounted');
   assert.equal(dummy.design.name, JOUSTBOT.name);
   assert.equal(dummy.trained, false);
   const bot = resolveJoustSparringOpponent(JOUSTBOT, 'joustbot', 1);
@@ -219,6 +269,13 @@ function assertOpponentSolidSeparation(): void {
 }
 
 function assertScorecardRules(): void {
+  const summed = addJoustFighterCards(
+    { ...emptyJoustFighterCard(), total: 2, hitQuality: 1 },
+    { ...emptyJoustFighterCard(), total: 3, hitQuality: 2 },
+  );
+  assert.equal(summed.total, 5);
+  assert.equal(summed.hitQuality, 3);
+
   const rejected = scoreJoustHit({
     attacker: 0,
     defender: 0,
@@ -297,6 +354,7 @@ async function runSeededMatch(
           weights: randomWeights(shape, createRng(seedB)),
         },
       ],
+      divisionId: 'mounted',
       episodeSeconds,
       onFinished: (result) => {
         finished = true;
@@ -401,6 +459,7 @@ async function assertWorkspaceCornerPass(): Promise<void> {
       pool: [JOUSTBOT],
       traineeDesign: JOUSTBOT,
       seed: 1,
+      divisionId: 'mounted',
     },
   );
   const fighterB = resolveJoustCorner(
@@ -411,6 +470,7 @@ async function assertWorkspaceCornerPass(): Promise<void> {
       pool: [JOUSTBOT],
       traineeDesign: JOUSTBOT,
       seed: 2,
+      divisionId: 'mounted',
     },
   );
   ok(fighterA !== null, 'joust workspace corner resolves without saveModel');
@@ -432,6 +492,7 @@ async function assertWorkspaceCornerPass(): Promise<void> {
           weights: fighterB!.weights,
         },
       ],
+      divisionId: 'mounted',
       episodeSeconds: 2,
     });
     for (let i = 0; i < 8; i++) simulation.step(FIXED_DT);
@@ -442,9 +503,33 @@ async function assertWorkspaceCornerPass(): Promise<void> {
   }
 }
 
+function assertRaceDivisions(): void {
+  ok(
+    raceEligibility(DART_STRIDER, 'upright').eligible,
+    `Dart Strider upright race: ${raceEligibility(DART_STRIDER, 'upright').reasons.join(' ')}`,
+  );
+  ok(
+    !raceEligibility(SIMPLE_HOPPER, 'upright').eligible,
+    'squat hopper is not an upright racer',
+  );
+  ok(
+    raceEligibility(SIMPLE_HOPPER, 'open-frame').eligible,
+    'hopper is open-frame eligible',
+  );
+  ok(
+    raceEligibility(MOTOR_CART, 'open-frame').eligible,
+    'wheeled cart is open-frame eligible',
+  );
+  ok(
+    !raceEligibility(MOTOR_CART, 'upright').eligible,
+    'wheels are not upright-race legal',
+  );
+}
+
 async function main(): Promise<void> {
   await initRapier();
   assertEligibility();
+  assertRaceDivisions();
   await scriptedHit(0);
   await scriptedHit(1);
   assertOpponentSolidSeparation();

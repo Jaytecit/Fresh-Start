@@ -8,6 +8,7 @@ import { createRng, makeShape, randomWeights } from '../brain/network';
 import type { NetworkShape } from '../brain/types';
 import { JOUSTBOT } from '../creature/joustBot';
 import { cloneDesign, type CreatureDesign } from '../creature/types';
+import type { JoustingDivisionId } from './divisions';
 
 export type JoustSparringId = 'dummy' | 'joustbot';
 
@@ -16,6 +17,7 @@ export interface JoustSparringDef {
   level: 1 | 2;
   shortLabel: string;
   description: string;
+  divisions: readonly JoustingDivisionId[];
 }
 
 export const DEFAULT_JOUST_SPARRING_ID: JoustSparringId = 'dummy';
@@ -27,12 +29,14 @@ export const JOUST_SPARRING_OPPONENTS: readonly JoustSparringDef[] = [
     shortLabel: 'Dummy',
     description:
       'Random-weight mirror of your body. Learn to charge, aim the lance, and stay up.',
+    divisions: ['mounted', 'grounded', 'open-frame'],
   },
   {
     id: 'joustbot',
     level: 2,
     shortLabel: 'JoustBot',
     description: 'Bundled lance body with a random-weight brain that still charges.',
+    divisions: ['mounted', 'open-frame'],
   },
 ] as const;
 
@@ -71,12 +75,32 @@ export interface ResolvedJoustSparring {
   weights: Float32Array;
 }
 
+export function joustSparringOpponentsForDivision(
+  divisionId: JoustingDivisionId,
+): readonly JoustSparringDef[] {
+  return JOUST_SPARRING_OPPONENTS.filter((item) =>
+    item.divisions.includes(divisionId),
+  );
+}
+
+export function normalizeJoustSparringId(
+  divisionId: JoustingDivisionId,
+  id: JoustSparringId,
+): JoustSparringId {
+  if (joustSparringOpponentsForDivision(divisionId).some((item) => item.id === id)) {
+    return id;
+  }
+  return DEFAULT_JOUST_SPARRING_ID;
+}
+
 export function resolveJoustSparringOpponent(
   traineeDesign: CreatureDesign,
   opponentId: JoustSparringId = DEFAULT_JOUST_SPARRING_ID,
   seed = 1,
+  divisionId: JoustingDivisionId = 'mounted',
 ): ResolvedJoustSparring {
-  if (opponentId === 'joustbot') {
+  const id = normalizeJoustSparringId(divisionId, opponentId);
+  if (id === 'joustbot') {
     const design = cloneDesign(JOUSTBOT);
     const shape = joustShapeFor(design);
     return {

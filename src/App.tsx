@@ -13,7 +13,6 @@ import {
 } from "./brain/constants";
 import {
   boxingEligibility,
-  getBoxingDivision,
   type BoxingDivisionId,
 } from "./boxing/divisions";
 import {
@@ -28,10 +27,15 @@ import {
 } from "./boxing/rewards";
 import {
   DEFAULT_JOUST_SPARRING_ID,
+  normalizeJoustSparringId,
   resolveJoustSparringOpponent,
   type JoustSparringId,
 } from "./jousting/sparringOpponents";
-import { joustingEligibility } from "./jousting/eligibility";
+import {
+  joustingEligibility,
+  type JoustingDivisionId,
+} from "./jousting/eligibility";
+import { raceEligibility, type RaceDivisionId } from "./race/divisions";
 import {
   DEFAULT_JOUSTING_PRIORITIES,
   type JoustingPriorities,
@@ -165,12 +169,25 @@ import {
   type CombatMode,
 } from "./combat/types";
 import {
+  COMBAT_ROUNDS_DEFAULT,
+  clampCombatRounds,
+  clampRoundSeconds,
+  defaultRoundSeconds,
+} from "./combat/format";
+import {
   bodyFileName,
   displayNameForTrained,
   goalTitleForTask,
   trainedFileName,
   unnamedBodyReason,
 } from "./library/fileVocabulary";
+import {
+  bodyIsUnsaved,
+  combatCornerLoadsIntoScene,
+  explicitLoadDenialReason,
+  trainSceneBody,
+  unsavedLeaveNotice,
+} from "./library/tabScenePolicy";
 import {
   SandboxShell,
   SandboxTabRail,
@@ -596,6 +613,8 @@ export default function App() {
   const [h2hProgress, setH2hProgress] = useState<{
     episodeT: number;
     episodeDuration: number;
+    roundIndex?: number;
+    roundCount?: number;
   } | null>(null);
   const [h2hResult, setH2hResult] = useState<HeadToHeadResult | null>(null);
   const [boxingRunning, setBoxingRunning] = useState(false);
@@ -603,6 +622,11 @@ export default function App() {
     episodeT: number;
     episodeDuration: number;
     points: [number, number];
+    countRemaining?: [number, number];
+    down?: [boolean, boolean];
+    reason?: string | null;
+    roundIndex?: number;
+    roundCount?: number;
   } | null>(null);
   const [boxingResult, setBoxingResult] = useState<BoxingMatchResult | null>(
     null,
@@ -622,16 +646,26 @@ export default function App() {
     episodeDuration: number;
     totals: [number, number];
     phase: string;
+    roundIndex?: number;
+    roundCount?: number;
   } | null>(null);
   const [joustingResult, setJoustingResult] = useState<JoustMatchResult | null>(
     null,
   );
   const [joustingSparringId, setJoustingSparringId] =
     useState<JoustSparringId>(DEFAULT_JOUST_SPARRING_ID);
+  const [joustingDivisionId, setJoustingDivisionId] =
+    useState<JoustingDivisionId>("mounted");
+  const [raceDivisionId, setRaceDivisionId] =
+    useState<RaceDivisionId>("upright");
   const joustingLiveMetaRef = useRef<{
     design: CreatureDesign;
   } | null>(null);
   const [combatMode, setCombatMode] = useState<CombatMode>("boxing");
+  const [combatRounds, setCombatRounds] = useState(COMBAT_ROUNDS_DEFAULT);
+  const [combatRoundSeconds, setCombatRoundSeconds] = useState(() =>
+    defaultRoundSeconds("boxing"),
+  );
   const [combatCornerA, setCombatCornerA] = useState<CombatCornerValue>({
     kind: "workspace",
   });
@@ -710,6 +744,10 @@ export default function App() {
   const designRef = useRef(design);
   const sandboxTabRef = useRef(sandboxTab);
   const bestGenomeRef = useRef(bestGenome);
+  const savedBrainLabelRef = useRef(savedBrainLabel);
+  const designBaselineRef = useRef(
+    `${LANDING_PRESET.name}\n${bodyFingerprint(LANDING_PRESET)}`,
+  );
   const trainTelemetryOnRef = useRef(trainTelemetryOn);
   trainTelemetryOnRef.current = trainTelemetryOn;
   const trainTelemetrySessionRef = useRef<TrainTelemetrySession | null>(null);
@@ -726,6 +764,7 @@ export default function App() {
   designRef.current = design;
   sandboxTabRef.current = sandboxTab;
   bestGenomeRef.current = bestGenome;
+  savedBrainLabelRef.current = savedBrainLabel;
   driveModeRef.current = driveMode;
   discoGainsRef.current = discoGains;
   discoMotionRef.current = discoMotion;
@@ -1007,10 +1046,7 @@ export default function App() {
 
   const returnToEdit = useCallback(() => {
     const elite = captureLiveElite();
-    if (simulation.isHeadToHead) simulation.abortHeadToHead();
-    simulation.abortBoxingMatch();
-    simulation.abortJoustMatch();
-    simulation.clearDiscoDancers();
+    simulation.clearScene();
     setH2hRunning(false);
     setH2hProgress(null);
     setBoxingRunning(false);
@@ -1974,6 +2010,12 @@ export default function App() {
     );
   }, [boxingDivisionId]);
 
+  useEffect(() => {
+    setJoustingSparringId((id) =>
+      normalizeJoustSparringId(joustingDivisionId, id),
+    );
+  }, [joustingDivisionId]);
+
   const enterBoxingSkill = useCallback(() => {
     captureLiveElite();
     if (simulation.isHeadToHead) simulation.abortHeadToHead();
@@ -1987,23 +2029,19 @@ export default function App() {
     setJoustingProgress(null);
     simulation.clearDiscoDancers();
     applyBoxingEnvironment();
-    const body = designRef.current;
-    if (body.joints.length === 0) {
-      setError(
-        "No creature loaded — build or load a fighter that meets the selected Boxing division rules before training.",
-      );
-    } else {
-      const eligibility = boxingEligibility(body, boxingDivisionId);
-      if (!eligibility.eligible) {
-        const division = getBoxingDivision(boxingDivisionId);
-        setError(
-          `Current creature is not suitable for ${division.name} training: ${eligibility.reasons.join(" ")} Your design was kept — adjust the body or pick another division.`,
-        );
-      } else {
-        setError(null);
-      }
-      simulation.loadDesign(body);
+    const scene = cloneDesign(
+      trainSceneBody(
+        designRef.current,
+        "boxing",
+        boxingDivisionId,
+        joustingDivisionId,
+      ),
+    );
+    if (scene.joints.length > 0) {
+      simulation.loadDesign(scene);
       simulation.setTask("boxing");
+    } else {
+      simulation.clearScene();
     }
     setDriveMode("idle");
     driveModeRef.current = "idle";
@@ -2013,6 +2051,7 @@ export default function App() {
     applyBoxingEnvironment,
     boxingDivisionId,
     captureLiveElite,
+    joustingDivisionId,
     simulation,
   ]);
 
@@ -2036,28 +2075,31 @@ export default function App() {
     setJoustingProgress(null);
     simulation.clearDiscoDancers();
     applyJoustingEnvironment();
-    const body = designRef.current;
-    if (body.joints.length === 0) {
-      setError(
-        "No creature loaded — mark a lance and a target (or head) before training.",
-      );
-    } else {
-      const eligibility = joustingEligibility(body);
-      if (!eligibility.eligible) {
-        setError(
-          `Current creature is not suitable for jousting: ${eligibility.reasons.join(" ")} Your design was kept — mark a lance tip and a target.`,
-        );
-      } else {
-        setError(null);
-      }
-      simulation.loadDesign(body);
+    const scene = cloneDesign(
+      trainSceneBody(
+        designRef.current,
+        "jousting",
+        boxingDivisionId,
+        joustingDivisionId,
+      ),
+    );
+    if (scene.joints.length > 0) {
+      simulation.loadDesign(scene);
       simulation.setTask("jousting");
+    } else {
+      simulation.clearScene();
     }
     setDriveMode("idle");
     driveModeRef.current = "idle";
     simulation.driveMode = "idle";
     setMode("sim");
-  }, [applyJoustingEnvironment, captureLiveElite, simulation]);
+  }, [
+    applyJoustingEnvironment,
+    boxingDivisionId,
+    captureLiveElite,
+    joustingDivisionId,
+    simulation,
+  ]);
 
   const leaveJoustingSkill = useCallback((restoreEnvironment = true) => {
     simulation.abortJoustMatch();
@@ -2440,11 +2482,212 @@ export default function App() {
     // Free-task goals share the same obs/actuator layout — keep the elite brain.
     captureLiveElite();
   };
+
+  const markDesignBaseline = (body: CreatureDesign) => {
+    designBaselineRef.current = `${body.name}\n${bodyFingerprint(body)}`;
+  };
+
+  const denyLoad = (message: string) => {
+    setFlashNotice(message);
+  };
+
+  const flagUnsavedOnLeave = (fromTab: SandboxTabId) => {
+    const body = designRef.current;
+    const notice = unsavedLeaveNotice({
+      fromTab,
+      bodyUnsaved: bodyIsUnsaved(
+        body,
+        designBaselineRef.current,
+        `${body.name}\n${bodyFingerprint(body)}`,
+      ),
+      brainUnsaved: !!bestGenomeRef.current && !savedBrainLabelRef.current,
+    });
+    if (notice) setFlashNotice(notice);
+  };
+
+  const combatWorkspaceElite = () =>
+    bestGenome
+      ? {
+          design,
+          shape: bestGenome.shape,
+          weights: bestGenome.genome.weights,
+        }
+      : null;
+
+  const resolveCombatCornerFighter = (
+    corner: CombatCornerValue,
+    mode: CombatMode,
+  ) => {
+    const pool = designCandidatePool(packages, BUNDLED_MODELS, design);
+    const workspace = combatWorkspaceElite();
+    if (mode === "boxing") {
+      return resolveBoxingCorner(corner, {
+        workspace,
+        models: savedModels,
+        pool,
+        divisionId: boxingDivisionId,
+        seed: runSeed,
+      });
+    }
+    if (mode === "joust") {
+      return resolveJoustCorner(corner, {
+        workspace,
+        models: savedModels,
+        pool,
+        traineeDesign: design,
+        seed: runSeed,
+        divisionId: joustingDivisionId,
+      });
+    }
+    if (corner.kind === "workspace") {
+      if (!workspace) return null;
+      return {
+        design: cloneDesign(workspace.design),
+        shape: workspace.shape,
+        weights: workspace.weights,
+      };
+    }
+    if (corner.kind === "saved") {
+      const model = savedModels.find((m) => m.id === corner.modelId);
+      if (!model) return null;
+      const body = resolveDesignForModel(model, pool);
+      if (!body) return null;
+      const seed = modelToSeed(model);
+      return {
+        design: cloneDesign(body),
+        shape: seed.shape,
+        weights: seed.weights,
+      };
+    }
+    return null;
+  };
+
+  const combatCornerDenial = (
+    corner: CombatCornerValue,
+    mode: CombatMode,
+  ): string | null => {
+    const fighter = resolveCombatCornerFighter(corner, mode);
+    if (!fighter) {
+      if (corner.kind === "workspace") {
+        return "Train a brain for this workspace before loading it into Combat.";
+      }
+      return "Could not load that Combat selection.";
+    }
+    if (mode === "boxing") {
+      const eligibility = boxingEligibility(fighter.design, boxingDivisionId);
+      if (!eligibility.eligible) {
+        return `${fighter.design.name} is not valid for ${boxingDivisionId}: ${eligibility.reasons.join(" ")}`;
+      }
+    } else if (mode === "joust") {
+      const eligibility = joustingEligibility(fighter.design, joustingDivisionId);
+      if (!eligibility.eligible) {
+        return `${fighter.design.name} is not valid for ${joustingDivisionId}: ${eligibility.reasons.join(" ")}`;
+      }
+    } else {
+      const eligibility = raceEligibility(fighter.design, raceDivisionId);
+      if (!eligibility.eligible) {
+        return `${fighter.design.name} is not valid for ${raceDivisionId} racing: ${eligibility.reasons.join(" ")}`;
+      }
+    }
+    return null;
+  };
+
+  const previewCombatCorner = (corner: CombatCornerValue, mode: CombatMode) => {
+    const workspaceReady = !!bestGenome && design.joints.length > 0;
+    if (!combatCornerLoadsIntoScene(corner, workspaceReady)) {
+      simulation.clearScene();
+      return;
+    }
+    const fighter = resolveCombatCornerFighter(corner, mode);
+    if (!fighter) {
+      simulation.clearScene();
+      return;
+    }
+    simulation.loadDesign(fighter.design);
+    setDriveMode("idle");
+    driveModeRef.current = "idle";
+    simulation.driveMode = "idle";
+  };
+
+  const enterCombatArena = (
+    mode: CombatMode,
+    previewCorner: CombatCornerValue = combatCornerA,
+  ) => {
+    captureLiveElite();
+    setEditPhysics(false);
+    setH2hRunning(false);
+    setH2hProgress(null);
+    setBoxingRunning(false);
+    setBoxingProgress(null);
+    setJoustingRunning(false);
+    setJoustingProgress(null);
+    if (mode === "boxing") {
+      if (skill === "disco") leaveDiscoSkill(false);
+      if (skill === "jousting") leaveJoustingSkill(false);
+      setSkill("boxing");
+      saveActiveSkill("boxing");
+      const next = defaultGoalForSkill("boxing");
+      setGoalId(next.id);
+      saveActiveGoalId(next.id);
+      applyBoxingEnvironment();
+      simulation.setTask("boxing");
+    } else if (mode === "joust") {
+      if (skill === "disco") leaveDiscoSkill(false);
+      if (skill === "boxing") leaveBoxingSkill(false);
+      setSkill("jousting");
+      saveActiveSkill("jousting");
+      const next = defaultGoalForSkill("jousting");
+      setGoalId(next.id);
+      saveActiveGoalId(next.id);
+      applyJoustingEnvironment();
+      simulation.setTask("jousting");
+    } else {
+      if (skill === "disco") leaveDiscoSkill(true);
+      if (skill === "boxing") leaveBoxingSkill(true);
+      if (skill === "jousting") leaveJoustingSkill(true);
+      simulation.setTask(getGoal(combatRaceGoalId).task);
+    }
+    simulation.clearScene();
+    setDriveMode("idle");
+    driveModeRef.current = "idle";
+    simulation.driveMode = "idle";
+    setMode("sim");
+    setSandboxTab("h2h");
+    if (previewCorner.kind === "workspace") return;
+    const workspaceReady = !!bestGenome && design.joints.length > 0;
+    if (combatCornerLoadsIntoScene(previewCorner, workspaceReady)) {
+      const denied = combatCornerDenial(previewCorner, mode);
+      if (!denied) previewCombatCorner(previewCorner, mode);
+    }
+  };
+
+  const onCombatCornerAChange = (value: CombatCornerValue) => {
+    const denied = combatCornerDenial(value, combatMode);
+    if (denied) {
+      denyLoad(denied);
+      return;
+    }
+    setCombatCornerA(value);
+    if (sandboxTabRef.current === "h2h") {
+      previewCombatCorner(value, combatMode);
+    }
+  };
+
+  const onCombatCornerBChange = (value: CombatCornerValue) => {
+    const denied = combatCornerDenial(value, combatMode);
+    if (denied) {
+      denyLoad(denied);
+      return;
+    }
+    setCombatCornerB(value);
+  };
+
   const selectSkill = (id: SkillId) => {
     if (id === "disco" && !isFeatureEnabled("discoMode")) return;
     if (id === "boxing" && !isFeatureEnabled("boxingMode")) return;
     if (id === "jousting" && !isFeatureEnabled("joustingMode")) return;
     const prev = skill;
+    const tab = sandboxTabRef.current;
     if (prev === "disco" && id !== "disco") {
       leaveDiscoSkill(id !== "boxing" && id !== "jousting");
     }
@@ -2464,14 +2707,34 @@ export default function App() {
       const next = defaultGoalForSkill(id);
       setGoalId(next.id);
       saveActiveGoalId(next.id);
-      enterBoxingSkill();
+      if (tab === "h2h") {
+        setCombatMode("boxing");
+        enterCombatArena("boxing");
+        return;
+      }
+      if (tab === "train") {
+        enterBoxingSkill();
+        return;
+      }
+      applyBoxingEnvironment();
+      simulation.setTask(next.task);
       return;
     }
     if (id === "jousting") {
       const next = defaultGoalForSkill(id);
       setGoalId(next.id);
       saveActiveGoalId(next.id);
-      enterJoustingSkill();
+      if (tab === "h2h") {
+        setCombatMode("joust");
+        enterCombatArena("joust");
+        return;
+      }
+      if (tab === "train") {
+        enterJoustingSkill();
+        return;
+      }
+      applyJoustingEnvironment();
+      simulation.setTask(next.task);
       return;
     }
     const next = defaultGoalForSkill(id);
@@ -2527,14 +2790,14 @@ export default function App() {
       }
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      denyLoad(err instanceof Error ? err.message : String(err));
       return false;
     }
   };
 
   const startEditPhysics = () => {
     if (design.joints.length === 0) {
-      setError("Add at least one joint before enabling physics.");
+      denyLoad("Add at least one joint before enabling physics.");
       return;
     }
     if (syncDesignToSim(design)) {
@@ -2562,6 +2825,7 @@ export default function App() {
     if (syncDesignToSim(next)) setSandboxTab("train");
   };
   const onSandboxTabChange = (tab: SandboxTabId) => {
+    if (tab !== sandboxTab) flagUnsavedOnLeave(sandboxTab);
     if (tab === "edit") {
       if (skill === "disco") leaveDiscoSkill();
       if (skill === "boxing") leaveBoxingSkill();
@@ -2583,10 +2847,6 @@ export default function App() {
       return;
     }
     if (tab === "train") {
-      if (design.joints.length === 0) {
-        returnToEdit();
-        return;
-      }
       setEditPhysics(false);
       if (!simulation.world) {
         setSandboxTab("train");
@@ -2594,11 +2854,6 @@ export default function App() {
       }
       if (simulation.isEvolving) {
         setSandboxTab("train");
-        return;
-      }
-      if (simulation.isHeadToHead) {
-        setSandboxTab("train");
-        setMode("sim");
         return;
       }
       if (skill === "disco" && isFeatureEnabled("discoMode")) {
@@ -2616,11 +2871,34 @@ export default function App() {
         setSandboxTab("train");
         return;
       }
+      if (design.joints.length === 0) {
+        const scene = cloneDesign(
+          trainSceneBody(
+            design,
+            skill,
+            boxingDivisionId,
+            joustingDivisionId,
+          ),
+        );
+        if (scene.joints.length > 0) {
+          simulation.loadDesign(scene);
+          simulation.setTask(getGoal(goalId).task);
+          setDriveMode("idle");
+          driveModeRef.current = "idle";
+          simulation.driveMode = "idle";
+          setMode("sim");
+          setSandboxTab("train");
+          return;
+        }
+        returnToEdit();
+        return;
+      }
       startSim();
       return;
     }
     if (tab === "h2h") {
-      setSandboxTab("h2h");
+      if (skill === "disco") leaveDiscoSkill(true);
+      enterCombatArena(combatMode);
       return;
     }
     if (tab === "skill") {
@@ -2680,10 +2958,24 @@ export default function App() {
 
   const loadPreset = (preset: CreatureDesign, creatureKey?: string) => {
     const next = ensureAppearance(cloneDesign(preset));
+    const tab = sandboxTabRef.current;
+    if (tab === "train" && (skill === "boxing" || skill === "jousting")) {
+      const denied = explicitLoadDenialReason(
+        next,
+        skill,
+        boxingDivisionId,
+        joustingDivisionId,
+      );
+      if (denied) {
+        denyLoad(denied);
+        return;
+      }
+    }
     commitDesign(next);
+    markDesignBaseline(next);
     setSaveName(next.name || "Custom");
     if (creatureKey !== undefined) setSelectedCreatureKey(creatureKey);
-    // Keep the sim viewport in sync when picking a body while already simulating.
+    if (tab === "h2h") return;
     if (mode === "sim" && !simulation.isEvolving) {
       if (syncDesignToSim(next) && editPhysics) {
         setSandboxTab("edit");
@@ -2706,6 +2998,14 @@ export default function App() {
     },
     opts: { persistToLibrary: boolean },
   ) => {
+    if (m.task === "boxing" && (!m.boxingMeta || !isFeatureEnabled("boxingMode"))) {
+      denyLoad("Imported Boxing model is incompatible or Boxing is disabled.");
+      return;
+    }
+    if (m.task === "jousting" && (!m.joustingMeta || !isFeatureEnabled("joustingMode"))) {
+      denyLoad("Imported Jousting model is incompatible or Jousting is disabled.");
+      return;
+    }
     loadPreset(m.design, "custom");
     setGoalId(m.task as GoalId);
     saveActiveGoalId(m.task as GoalId);
@@ -2714,14 +3014,6 @@ export default function App() {
       shape: m.shape,
       genome: { weights: m.weights, fitness: m.fitness },
     });
-    if (m.task === "boxing" && (!m.boxingMeta || !isFeatureEnabled("boxingMode"))) {
-      setError("Imported Boxing model is incompatible or Boxing is disabled.");
-      return;
-    }
-    if (m.task === "jousting" && (!m.joustingMeta || !isFeatureEnabled("joustingMode"))) {
-      setError("Imported Jousting model is incompatible or Jousting is disabled.");
-      return;
-    }
     if (opts.persistToLibrary && isFeatureEnabled("savedModels")) {
       saveModel({
         name: m.name,
@@ -2741,9 +3033,11 @@ export default function App() {
       setSkill("boxing");
       saveActiveSkill("boxing");
       applyBoxingEnvironment();
-      simulation.loadDesign(m.design);
-      simulation.setTask("boxing");
-      setMode("sim");
+      if (sandboxTabRef.current !== "h2h") {
+        simulation.loadDesign(m.design);
+        simulation.setTask("boxing");
+        setMode("sim");
+      }
       return;
     }
     if (m.task === "jousting") {
@@ -2751,12 +3045,14 @@ export default function App() {
       setSkill("jousting");
       saveActiveSkill("jousting");
       applyJoustingEnvironment();
-      simulation.loadDesign(m.design);
-      simulation.setTask("jousting");
-      setMode("sim");
+      if (sandboxTabRef.current !== "h2h") {
+        simulation.loadDesign(m.design);
+        simulation.setTask("jousting");
+        setMode("sim");
+      }
       return;
     }
-    if (mode === "sim" && !simulation.isEvolving) {
+    if (mode === "sim" && !simulation.isEvolving && sandboxTabRef.current !== "h2h") {
       try {
         const body = ensureAppearance(cloneDesign(m.design));
         simulation.loadDesign(body);
@@ -2827,6 +3123,7 @@ export default function App() {
             ruleVersion: 1,
             obsPackVersion: 1,
             brainHz: 30,
+            divisionId: joustingDivisionId,
           } as const)
         : undefined;
     const json = exportModelJson({
@@ -2946,6 +3243,12 @@ export default function App() {
       muscles: [],
       appearance: emptyAppearance(),
     });
+    markDesignBaseline({
+      name: "Custom",
+      joints: [],
+      bones: [],
+      muscles: [],
+    });
     setSaveName("Custom");
     setSelectedCreatureKey("custom");
     setBestGenome(null);
@@ -2998,7 +3301,7 @@ export default function App() {
             ? shapeForJoustingDesign(design)
             : shapeForDesign(design, shapeOpts);
       if (!shapesCompatible(model.shape, expected) || model.task !== activeTask) {
-        setError(
+        setFlashNotice(
           "Saved brain shape/task mismatch — pick a matching creature and goal first.",
         );
         return undefined;
@@ -3017,7 +3320,7 @@ export default function App() {
       const divisionId = divisionOverride ?? boxingDivisionId;
       const eligibility = boxingEligibility(trainingDesign, divisionId);
       if (!eligibility.eligible) {
-        setError(
+        setFlashNotice(
           `Not eligible for ${divisionId}: ${eligibility.reasons.join(" ")}`,
         );
         return;
@@ -3174,9 +3477,9 @@ export default function App() {
   const startJoustingLiveEvolve = useCallback(
     (seedFrom?: { shape: NetworkShape; weights: Float32Array }) => {
       const trainingDesign = cloneDesign(designRef.current);
-      const eligibility = joustingEligibility(trainingDesign);
+      const eligibility = joustingEligibility(trainingDesign, joustingDivisionId);
       if (!eligibility.eligible) {
-        setError(`Not eligible for jousting: ${eligibility.reasons.join(" ")}`);
+        setFlashNotice(`Not eligible for ${joustingDivisionId}: ${eligibility.reasons.join(" ")}`);
         return;
       }
       if (!designHasActuators(trainingDesign, isFeatureEnabled("motorWheels"))) {
@@ -3200,6 +3503,7 @@ export default function App() {
         trainingDesign,
         joustingSparringId,
         runSeed,
+        joustingDivisionId,
       );
 
       let resolvedSeed = seedFrom;
@@ -3238,6 +3542,7 @@ export default function App() {
       try {
         simulation.startJoustingLiveEvolve({
           design: trainingDesign,
+          divisionId: joustingDivisionId,
           opponentDesign: opponent.design,
           opponentWeights: opponent.weights,
           populationSize: popSize,
@@ -3309,6 +3614,7 @@ export default function App() {
     [
       episodeSeconds,
       gaKnobs,
+      joustingDivisionId,
       joustingPriorities,
       joustingSparringId,
       observeSpeed,
@@ -3588,7 +3894,7 @@ export default function App() {
           : null;
     const body = embedded ?? resolveDesignForModel(model, pool);
     if (!body) {
-      setError("Could not find the body bound to that trained creature.");
+      denyLoad("Could not find the body bound to that trained creature.");
       return;
     }
     const seed = modelToSeed(model);
@@ -3599,11 +3905,11 @@ export default function App() {
         model.boxingMeta.obsPackVersion !== 2 ||
         model.boxingMeta.brainHz !== 30
       ) {
-        setError("Saved Boxing model uses incompatible division or brain metadata.");
+        denyLoad("Saved Boxing model uses incompatible division or brain metadata.");
         return;
       }
       if (!shapesCompatible(seed.shape, shapeForBoxingDesign(body))) {
-        setError("Saved Boxing model shape does not match its fighter body.");
+        denyLoad("Saved Boxing model shape does not match its fighter body.");
         return;
       }
       if (skill === "disco") leaveDiscoSkill(false);
@@ -3633,11 +3939,11 @@ export default function App() {
         model.joustingMeta.obsPackVersion !== 1 ||
         model.joustingMeta.brainHz !== 30
       ) {
-        setError("Saved Jousting model uses incompatible brain metadata.");
+        denyLoad("Saved Jousting model uses incompatible brain metadata.");
         return;
       }
       if (!shapesCompatible(seed.shape, shapeForJoustingDesign(body))) {
-        setError("Saved Jousting model shape does not match its body.");
+        denyLoad("Saved Jousting model shape does not match its body.");
         return;
       }
       if (skill === "disco") leaveDiscoSkill(false);
@@ -3648,6 +3954,9 @@ export default function App() {
       saveActiveSkill("jousting");
       setGoalId("jousting");
       saveActiveGoalId("jousting");
+      if (model.joustingMeta.divisionId) {
+        setJoustingDivisionId(model.joustingMeta.divisionId);
+      }
       setBestGenome({
         shape: seed.shape,
         genome: { weights: seed.weights, fitness: model.fitness },
@@ -3664,7 +3973,7 @@ export default function App() {
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     });
     if (!shapesCompatible(model.shape, expected)) {
-      setError(
+      denyLoad(
         "Saved brain does not fit that body — use Fit from the Train dock, or pick a matching trained creature.",
       );
       return;
@@ -3738,7 +4047,7 @@ export default function App() {
         seed: runSeed + 1,
       });
       if (!fighterA || !fighterB) {
-        setError("Could not resolve both Boxing fighter designs.");
+        denyLoad("Could not resolve both Boxing fighter designs.");
         return;
       }
       const expectedA = shapeForBoxingDesign(fighterA.design);
@@ -3747,7 +4056,7 @@ export default function App() {
         !shapesCompatible(fighterA.shape, expectedA) ||
         !shapesCompatible(fighterB.shape, expectedB)
       ) {
-        setError("A Boxing brain does not match its fighter body.");
+        denyLoad("A Boxing brain does not match its fighter body.");
         return;
       }
       try {
@@ -3768,12 +4077,18 @@ export default function App() {
             },
           ],
           divisionId: opts.divisionId,
-          episodeSeconds,
+          episodeSeconds: combatRoundSeconds,
+          roundCount: combatRounds,
           onProgress: (snapshot) => {
             setBoxingProgress({
               episodeT: snapshot.episodeT,
               episodeDuration: snapshot.episodeDuration,
               points: snapshot.points,
+              countRemaining: snapshot.countRemaining,
+              down: snapshot.down,
+              reason: snapshot.reason,
+              roundIndex: snapshot.roundIndex,
+              roundCount: snapshot.roundCount,
             });
           },
           onFinished: (result) => {
@@ -3790,19 +4105,25 @@ export default function App() {
         setBoxingResult(null);
         setBoxingProgress({
           episodeT: 0,
-          episodeDuration: episodeSeconds,
+          episodeDuration: combatRoundSeconds,
           points: [0, 0],
+          countRemaining: [0, 0],
+          down: [false, false],
+          reason: null,
+          roundIndex: 1,
+          roundCount: combatRounds,
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        denyLoad(err instanceof Error ? err.message : String(err));
       }
     },
     [
       applyBoxingEnvironment,
       bestGenome,
       captureLiveElite,
+      combatRoundSeconds,
+      combatRounds,
       design,
-      episodeSeconds,
       packages,
       runSeed,
       savedModels,
@@ -3811,7 +4132,11 @@ export default function App() {
   );
 
   const startJoustMatch = useCallback(
-    (opts: { cornerA: CombatCornerValue; cornerB: CombatCornerValue }) => {
+    (opts: {
+      cornerA: CombatCornerValue;
+      cornerB: CombatCornerValue;
+      divisionId: JoustingDivisionId;
+    }) => {
       const pool = designCandidatePool(packages, BUNDLED_MODELS, design);
       const workspace =
         bestGenome
@@ -3827,6 +4152,7 @@ export default function App() {
         pool,
         traineeDesign: design,
         seed: runSeed,
+        divisionId: opts.divisionId,
       });
       const fighterB = resolveJoustCorner(opts.cornerB, {
         workspace,
@@ -3834,9 +4160,10 @@ export default function App() {
         pool,
         traineeDesign: fighterA?.design ?? design,
         seed: runSeed + 1,
+        divisionId: opts.divisionId,
       });
       if (!fighterA || !fighterB) {
-        setError("Could not resolve both Jousting designs.");
+        denyLoad("Could not resolve both Jousting designs.");
         return;
       }
       const expectedA = shapeForJoustingDesign(fighterA.design);
@@ -3845,7 +4172,7 @@ export default function App() {
         !shapesCompatible(fighterA.shape, expectedA) ||
         !shapesCompatible(fighterB.shape, expectedB)
       ) {
-        setError("A Jousting brain does not match its body.");
+        denyLoad("A Jousting brain does not match its body.");
         return;
       }
       try {
@@ -3864,7 +4191,9 @@ export default function App() {
               weights: fighterB.weights,
             },
           ],
-          episodeSeconds: JOUST_MAX_SECONDS,
+          episodeSeconds: combatRoundSeconds,
+          roundCount: combatRounds,
+          divisionId: opts.divisionId,
           priorities: joustingPriorities,
           onProgress: (snapshot) => {
             setJoustingProgress({
@@ -3872,6 +4201,8 @@ export default function App() {
               episodeDuration: snapshot.episodeDuration,
               totals: snapshot.totals,
               phase: snapshot.phase,
+              roundIndex: snapshot.roundIndex,
+              roundCount: snapshot.roundCount,
             });
           },
           onFinished: (result) => {
@@ -3888,18 +4219,22 @@ export default function App() {
         setJoustingResult(null);
         setJoustingProgress({
           episodeT: 0,
-          episodeDuration: JOUST_MAX_SECONDS,
+          episodeDuration: combatRoundSeconds,
           totals: [0, 0],
           phase: "charge",
+          roundIndex: 1,
+          roundCount: combatRounds,
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        denyLoad(err instanceof Error ? err.message : String(err));
       }
     },
     [
       applyJoustingEnvironment,
       bestGenome,
       captureLiveElite,
+      combatRoundSeconds,
+      combatRounds,
       design,
       joustingPriorities,
       packages,
@@ -3922,6 +4257,7 @@ export default function App() {
       startJoustMatch({
         cornerA: combatCornerA,
         cornerB: combatCornerB,
+        divisionId: joustingDivisionId,
       });
       return;
     }
@@ -3946,7 +4282,23 @@ export default function App() {
     const a = entryOf(combatCornerA);
     const b = entryOf(combatCornerB);
     if (!a || !b) {
-      setError("Pick two trained creatures (this workspace or the library).");
+      denyLoad("Pick two trained creatures (this workspace or the library).");
+      return;
+    }
+    const raceA = raceEligibility(a.design, raceDivisionId);
+    const raceB = raceEligibility(b.design, raceDivisionId);
+    if (!raceA.eligible || !raceB.eligible) {
+      const reasons = [
+        ...(!raceA.eligible
+          ? [`${a.design.name}: ${raceA.reasons.join(" ")}`]
+          : []),
+        ...(!raceB.eligible
+          ? [`${b.design.name}: ${raceB.reasons.join(" ")}`]
+          : []),
+      ];
+      denyLoad(
+        `Both racers must meet ${raceDivisionId} division rules. ${reasons.join(" ")}`,
+      );
       return;
     }
     try {
@@ -3964,9 +4316,16 @@ export default function App() {
       simulation.startHeadToHead({
         entries: [a, b],
         task,
-        episodeSeconds,
-        onProgress: (episodeT, episodeDuration) => {
-          setH2hProgress({ episodeT, episodeDuration });
+        divisionId: raceDivisionId,
+        episodeSeconds: combatRoundSeconds,
+        roundCount: combatRounds,
+        onProgress: (episodeT, episodeDuration, round) => {
+          setH2hProgress({
+            episodeT,
+            episodeDuration,
+            roundIndex: round?.index,
+            roundCount: round?.count,
+          });
         },
         onFinished: (result) => {
           setH2hResult(result);
@@ -3980,9 +4339,14 @@ export default function App() {
       simulation.driveMode = "brain";
       setH2hRunning(true);
       setH2hResult(null);
-      setH2hProgress({ episodeT: 0, episodeDuration: episodeSeconds });
+      setH2hProgress({
+        episodeT: 0,
+        episodeDuration: combatRoundSeconds,
+        roundIndex: 1,
+        roundCount: combatRounds,
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      denyLoad(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -3994,14 +4358,16 @@ export default function App() {
 
   const onCombatModeChange = (mode: CombatMode) => {
     setCombatMode(mode);
+    setCombatRoundSeconds(defaultRoundSeconds(mode));
+    setCombatCornerA({ kind: "workspace" });
     if (mode === "boxing") {
       setCombatCornerB({ kind: "house", id: DEFAULT_SPARRING_OPPONENT_ID });
-      selectSkill("boxing");
     } else if (mode === "joust") {
       setCombatCornerB({ kind: "house", id: "dummy" });
-      selectSkill("jousting");
+    } else {
+      setCombatCornerB({ kind: "workspace" });
     }
-    setSandboxTab("h2h");
+    enterCombatArena(mode, { kind: "workspace" });
   };
 
   const persistTrained = (opts: { download: boolean; kind: "brain" | "trained" }) => {
@@ -4040,6 +4406,7 @@ export default function App() {
             ruleVersion: 1,
             obsPackVersion: 1,
             brainHz: 30,
+            divisionId: joustingDivisionId,
           } as const)
         : undefined;
     saveModel({
@@ -4053,6 +4420,7 @@ export default function App() {
       ...(joustingMeta ? { joustingMeta } : {}),
     });
     setSavedBrainLabel(name);
+    markDesignBaseline(design);
     if (opts.download) {
       downloadText(
         trainedFileName(design.name, activeTask),
@@ -4169,6 +4537,7 @@ export default function App() {
       (p) => p.displayName.toLowerCase() === name.toLowerCase(),
     );
     if (saved) setSelectedCreatureKey(`pkg:${saved.id}`);
+    markDesignBaseline({ ...design, name });
   };
   const saveCurrentEnv = () => {
     const result = saveNewEnvironmentPackage(envDesign, {
@@ -4317,6 +4686,9 @@ export default function App() {
             design={design}
             goalId={goalId}
             boxingDivisionId={boxingDivisionId}
+            joustingDivisionId={joustingDivisionId}
+            onBoxingDivisionChange={setBoxingDivisionId}
+            onJoustingDivisionChange={setJoustingDivisionId}
             feelNotesOpen={feelNotesOpen}
             onFeelNotesToggle={() => setFeelNotesOpen((v) => !v)}
           />
@@ -4557,6 +4929,8 @@ export default function App() {
             boxingDivisionId={boxingDivisionId}
             joustingSparringId={joustingSparringId}
             setJoustingSparringId={setJoustingSparringId}
+            joustingDivisionId={joustingDivisionId}
+            setJoustingDivisionId={setJoustingDivisionId}
             gaKnobs={gaKnobs}
             savedModels={savedModels}
           />
@@ -5181,8 +5555,8 @@ export default function App() {
             onModeChange={onCombatModeChange}
             cornerA={combatCornerA}
             cornerB={combatCornerB}
-            onCornerAChange={setCombatCornerA}
-            onCornerBChange={setCombatCornerB}
+            onCornerAChange={onCombatCornerAChange}
+            onCornerBChange={onCombatCornerBChange}
             workspaceReady={!!bestGenome && hasCreature}
             workspaceLabel={design.name || "unnamed"}
             boxingModels={boxingModels}
@@ -5190,6 +5564,10 @@ export default function App() {
             raceModels={raceModels}
             divisionId={boxingDivisionId}
             onDivisionChange={setBoxingDivisionId}
+            joustingDivisionId={joustingDivisionId}
+            onJoustingDivisionChange={setJoustingDivisionId}
+            raceDivisionId={raceDivisionId}
+            onRaceDivisionChange={setRaceDivisionId}
             raceGoalId={combatRaceGoalId}
             onRaceGoalChange={setCombatRaceGoalId}
             useCurrentEnv={combatUseCurrentEnv}
@@ -5205,6 +5583,12 @@ export default function App() {
             lastBoxing={boxingResult}
             lastJoust={joustingResult}
             lastRace={h2hResult}
+            rounds={combatRounds}
+            onRoundsChange={(n) => setCombatRounds(clampCombatRounds(n))}
+            roundSeconds={combatRoundSeconds}
+            onRoundSecondsChange={(n) =>
+              setCombatRoundSeconds(clampRoundSeconds(combatMode, n))
+            }
             onStart={startCombat}
             onStop={stopCombat}
             collapsed={dockCollapsed}

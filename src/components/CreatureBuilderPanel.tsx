@@ -1,9 +1,13 @@
-import { boxingEligibility, type BoxingDivisionId } from "../boxing/divisions";
+import { BOXING_DIVISIONS, boxingEligibility, type BoxingDivisionId } from "../boxing/divisions";
 import { buildHintsForSkill } from "../creature/buildHints";
 import type { CreatureDesign } from "../creature/types";
 import { GoalInfoCard } from "./GoalInfoCard";
 import { getGoal, type GoalId } from "../goals/catalog";
-import { joustingEligibility } from "../jousting/eligibility";
+import {
+  JOUSTING_DIVISIONS,
+  joustingEligibility,
+  type JoustingDivisionId,
+} from "../jousting/eligibility";
 import { isFeatureEnabled } from "../port/featureFlags";
 import { SKILLS, type SkillId } from "../skills/skills";
 import { CollapsiblePanel } from "./CollapsiblePanel";
@@ -13,6 +17,9 @@ interface Props {
   design: CreatureDesign;
   goalId: GoalId;
   boxingDivisionId: BoxingDivisionId;
+  joustingDivisionId: JoustingDivisionId;
+  onBoxingDivisionChange: (id: BoxingDivisionId) => void;
+  onJoustingDivisionChange: (id: JoustingDivisionId) => void;
   feelNotesOpen: boolean;
   onFeelNotesToggle: () => void;
 }
@@ -23,6 +30,9 @@ export function CreatureBuilderPanel({
   design,
   goalId,
   boxingDivisionId,
+  joustingDivisionId,
+  onBoxingDivisionChange,
+  onJoustingDivisionChange,
   feelNotesOpen,
   onFeelNotesToggle,
 }: Props) {
@@ -33,7 +43,7 @@ export function CreatureBuilderPanel({
       : null;
   const joustLine =
     skill === "jousting" && isFeatureEnabled("joustingMode")
-      ? joustingEligibility(design)
+      ? joustingEligibility(design, joustingDivisionId)
       : null;
 
   return (
@@ -52,6 +62,40 @@ export function CreatureBuilderPanel({
             Building for: <strong>{SKILLS[skill].title}</strong>
           </p>
           <p className="hint muted">{SKILLS[skill].description}</p>
+          {skill === "boxing" && isFeatureEnabled("boxingMode") && (
+            <label className="field-row" style={{ marginTop: "0.4rem" }}>
+              <span>Division</span>
+              <select
+                value={boxingDivisionId}
+                onChange={(e) =>
+                  onBoxingDivisionChange(e.target.value as BoxingDivisionId)
+                }
+              >
+                {BOXING_DIVISIONS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {skill === "jousting" && isFeatureEnabled("joustingMode") && (
+            <label className="field-row" style={{ marginTop: "0.4rem" }}>
+              <span>Division</span>
+              <select
+                value={joustingDivisionId}
+                onChange={(e) =>
+                  onJoustingDivisionChange(e.target.value as JoustingDivisionId)
+                }
+              >
+                {JOUSTING_DIVISIONS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <p className="subhead" style={{ margin: "0.45rem 0 0.25rem" }}>
             Build essentials
           </p>
@@ -71,8 +115,8 @@ export function CreatureBuilderPanel({
           {joustLine && (
             <p className="hint">
               {joustLine.eligible
-                ? `Joust ready · ${joustLine.metrics.lances} lance · ${joustLine.metrics.targets} targets`
-                : `Joust gaps: ${joustLine.reasons[0] ?? "check marks"}`}
+                ? `Division ready · rider head at the top · ${joustLine.metrics.lances} lance`
+                : `Division gaps: ${joustLine.reasons[0] ?? "check marks"}`}
             </p>
           )}
         </div>

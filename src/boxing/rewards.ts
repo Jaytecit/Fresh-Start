@@ -108,6 +108,7 @@ export function boxingPriorityScale(priority: number): number {
 export interface BoxingFitnessInput {
   score: BoxingMatchScore;
   winner: BoxingOwner | null;
+  reason?: 'points' | 'draw' | 'count-out' | 'tko';
   upright: [number, number];
   behavior: BoxingBehaviorMetrics;
   episodeDuration: number;
@@ -333,7 +334,10 @@ export function computeBoxingTrainingFitness(
   const precision = (own.attempts > 0 ? hitRate * 8 : 0) * sp;
   const engagement = engagementFrac * 6 * se;
   const stance = upright * 4 * ss;
-  const winBonus = (result.winner === 0 ? 5 : 0) * so;
+  const winBonus =
+    (result.winner === 0
+      ? 5 + (result.reason === 'tko' ? 8 : result.reason === 'count-out' ? 6 : 0)
+      : 0) * so;
 
   const damageTaken = rival.points * 6 * sd;
   let inactivity = 0;
@@ -350,6 +354,14 @@ export function computeBoxingTrainingFitness(
       : 0) * sp;
   const camp = farFrac * 8 * se;
   const collapse = (upright < 0.45 ? (0.45 - upright) * 20 : 0) * ss;
+  const countedOut =
+    result.reason === 'count-out' && result.winner !== 0
+      ? 18 * ss
+      : result.reason === 'tko' && result.winner !== 0
+        ? 22 * ss
+        : 0;
+  const knockdownsTaken = (own.knockdowns ?? 0) * 3 * ss;
+  const knockdownsLanded = (rival.knockdowns ?? 0) * 2 * so;
   const clinch =
     (clinchFrac > 0.4 && own.hits === 0 ? (clinchFrac - 0.4) * 10 : 0) * se;
 
@@ -359,12 +371,15 @@ export function computeBoxingTrainingFitness(
     precision +
     engagement +
     stance +
-    winBonus -
+    winBonus +
+    knockdownsLanded -
     damageTaken -
     inactivity -
     whiffSpam -
     camp -
     collapse -
+    countedOut -
+    knockdownsTaken -
     clinch;
 
   return {

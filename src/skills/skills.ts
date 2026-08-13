@@ -85,7 +85,7 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     title: 'Jousting',
     shortLabel: 'Joust',
     description:
-      'Single-pass charges from opposite ends of a long lane. Scorecard: lance hit, stay up, unhorse, knockback.',
+      'Division-matched single-pass charges. A rider head (Hit Target) must sit at the highest point. Scorecard: lance hit, stay up, unhorse, knockback.',
     accent: '#c4a35a',
     defaultTask: 'jousting',
   },
