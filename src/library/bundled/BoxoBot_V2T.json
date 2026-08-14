@@ -274,7 +274,7 @@
   "boxingMeta": {
     "divisionId": "upright",
     "ruleVersion": 1,
-    "obsPackVersion": 2,
+    "obsPackVersion": 3,
     "brainHz": 30
   }
 }

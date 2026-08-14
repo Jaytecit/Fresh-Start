@@ -1709,6 +1709,10 @@ export class Simulation {
     return { terrain: undefined, timeSec, phaseClockHz };
   }
 
+  private skillObsContext(episodeTime: number): ObservationContext {
+    return { ...this.observationContext(), timeSec: episodeTime };
+  }
+
   private syncEnvironmentGeometry(): void {
     if (!this.world) return;
     destroyObstacles(this.world, this.envObstacles);
@@ -4096,6 +4100,7 @@ export class Simulation {
         1 - episodeT / episodeDuration,
         episodeT,
         this.obsBuf,
+        this.skillObsContext(episodeT),
       );
       const outs = evaluateNetwork(
         shape,
@@ -4605,6 +4610,7 @@ export class Simulation {
         1 - episodeT / episodeDuration,
         episodeT,
         this.obsBuf,
+        this.skillObsContext(episodeT),
       );
       const outs = evaluateNetwork(
         shape,
@@ -4797,6 +4803,7 @@ export class Simulation {
         1 - this.jousting.episodeT / this.jousting.episodeDuration,
         this.jousting.episodeT,
         this.obsBuf,
+        this.skillObsContext(this.jousting.episodeT),
       );
       const outs = evaluateNetwork(
         shape,
@@ -5550,6 +5557,7 @@ export class Simulation {
         1 - this.boxing.episodeT / this.boxing.episodeDuration,
         this.boxing.episodeT,
         this.obsBuf,
+        this.skillObsContext(this.boxing.episodeT),
       );
       const outs = evaluateNetwork(
         shape,

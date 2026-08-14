@@ -26,7 +26,8 @@
     "smoke:jousting": "tsx scripts/smoke-jousting.mts",
     "smoke:skill-categories": "tsx scripts/smoke-skill-categories.mts",
     "smoke:tab-scene": "tsx scripts/smoke-tab-scene.mts",
-    "smoke:all": "npm run smoke:firewall && npm run smoke:feel && npm run smoke:evolve && npm run smoke:tasks && npm run smoke:disco-dance && npm run smoke:train-recipes && npm run smoke:structure-morph && npm run smoke:editor-selection && npm run smoke:raycast && npm run smoke:rigid-struts && npm run smoke:cloth && npm run smoke:share && npm run smoke:boxing && npm run smoke:jousting && npm run smoke:skill-categories && npm run smoke:tab-scene",
+    "smoke:skill-transfer": "tsx scripts/smoke-skill-transfer.mts",
+    "smoke:all": "npm run smoke:firewall && npm run smoke:feel && npm run smoke:evolve && npm run smoke:tasks && npm run smoke:disco-dance && npm run smoke:train-recipes && npm run smoke:structure-morph && npm run smoke:editor-selection && npm run smoke:raycast && npm run smoke:rigid-struts && npm run smoke:cloth && npm run smoke:share && npm run smoke:boxing && npm run smoke:jousting && npm run smoke:skill-categories && npm run smoke:tab-scene && npm run smoke:skill-transfer",
     "package:itch": "tsx scripts/package-itch.mts"
   },
   "dependencies": {

@@ -70,6 +70,16 @@ export function isMotorTask(task: TaskId): boolean {
   );
 }
 
+/** Observation-pack family — transfer is prefix-expand from loco, never a pack swap. */
+export type ObsPackFamily = 'loco' | 'boxing' | 'jousting' | 'dance';
+
+export function obsPackFamily(task: TaskId): ObsPackFamily {
+  if (task === 'boxing') return 'boxing';
+  if (task === 'jousting') return 'jousting';
+  if (task === 'dance') return 'dance';
+  return 'loco';
+}
+
 export interface NetworkShape {
   inputCount: number;
   hiddenCount: number;

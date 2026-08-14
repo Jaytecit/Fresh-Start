@@ -6,6 +6,7 @@ Porting from the old sandbox is finished. This is the only open-work list.
 
 - Progressive limits: after a clear, auto-raise course difficulty (taller tower, wider gap, rougher terrain) for climb and rough-terrain goals.
 - Optional extras: **Copy my demo** (seed a pack from a short manual/sine recording) and **Mix goals** (temporary reward blend on the active goal). Race-your-record and messy bodies already ship.
+- Cross-skill leftovers: Boxing ↔ Joust suffix transfer, shrinking a combat brain back to Walk, auto recipes that name a Walk-then-Box path without running it as one evolve. Retrain bundled BoxoBot V2T on boxing obs pack v3 (metadata bumped; weights are still the v2 layout).
 
 
 

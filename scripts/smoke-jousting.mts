@@ -387,7 +387,7 @@ async function assertMatchObsAndTraining(): Promise<void> {
     const b = spawnCreature(world, JOUSTBOT, { x: 4, y: 0 });
     const obs = buildJoustObservations(a, b, 0, 0, 0, 1, 0);
     assert.equal(obs.length, JOUST_OBS_COUNT);
-    assert.equal(JOUST_OBS_PACK_VERSION, 1);
+    assert.equal(JOUST_OBS_PACK_VERSION, 2);
     ok(obs.every((v) => Number.isFinite(v)), 'obs finite');
   } finally {
     world.free();
@@ -434,13 +434,13 @@ function assertModelJson(): void {
     weights,
     fitness: 1,
     design: JOUSTBOT,
-    joustingMeta: { ruleVersion: 1, obsPackVersion: 1, brainHz: 30 },
+    joustingMeta: { ruleVersion: 1, obsPackVersion: 2, brainHz: 30 },
   });
   const parsed = importModelJson(json);
   ok(parsed.ok, parsed.ok ? 'ok' : parsed.error);
   if (parsed.ok) {
     assert.equal(parsed.value.task, 'jousting');
-    assert.equal(parsed.value.joustingMeta?.obsPackVersion, 1);
+    assert.equal(parsed.value.joustingMeta?.obsPackVersion, 2);
   }
 }
 

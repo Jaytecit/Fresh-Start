@@ -6,10 +6,17 @@ import {
   jointIsLance,
 } from '../jousting/marks';
 import { creatureCom } from '../jousting/pass';
+import { OBS_COUNT } from './constants';
+import {
+  buildObservations,
+  type ObservationContext,
+} from './observations';
 
 /** Jousting observation pack version — bump when channel layout changes. */
-export const JOUST_OBS_PACK_VERSION = 1;
-export const JOUST_OBS_COUNT = 20;
+export const JOUST_OBS_PACK_VERSION = 2;
+/** Opponent / lance suffix after the locomotion prefix. */
+export const JOUST_OBS_SUFFIX = 14;
+export const JOUST_OBS_COUNT = OBS_COUNT + JOUST_OBS_SUFFIX;
 
 function writeRelative(
   out: Float32Array,
@@ -88,7 +95,11 @@ function lanceClosingSpeed(
   return best;
 }
 
-/** L6 — opponent-relative observation pack; separate from locomotion / boxing. */
+/**
+ * Joust pack v2: locomotion prefix (OBS_COUNT) + opponent/lance suffix.
+ * 12–15 opponent relative pose/vel · 16–17 aim · 18–19 threat
+ * 20 score · 21 phase · 22 time · 23 opponent upright · 24 range · 25 closing
+ */
 export function buildJoustObservations(
   own: SpawnedCreature,
   opponent: SpawnedCreature,
@@ -98,18 +109,21 @@ export function buildJoustObservations(
   timeRemaining01: number,
   episodeTime: number,
   out = new Float32Array(JOUST_OBS_COUNT),
+  ctx?: ObservationContext,
 ): Float32Array {
+  const buf =
+    out.length >= JOUST_OBS_COUNT ? out : new Float32Array(JOUST_OBS_COUNT);
+  buf.fill(0);
+  buildObservations(own, buf, ctx ?? { timeSec: episodeTime });
+
   const a = creatureCom(own);
   const b = creatureCom(opponent);
   const facing = b.x >= a.x ? 1 : -1;
-  out.fill(0);
-  out[0] = Math.max(-1, Math.min(1, a.y / 8));
-  out[1] = Math.max(-1, Math.min(1, (a.vx * facing) / 24));
-  out[2] = Math.max(-1, Math.min(1, a.vy / 20));
-  out[3] = Math.max(-1, Math.min(1, ((b.x - a.x) * facing) / 60));
-  out[4] = Math.max(-1, Math.min(1, (b.y - a.y) / 8));
-  out[5] = Math.max(-1, Math.min(1, ((b.vx - a.vx) * facing) / 24));
-  out[6] = Math.max(-1, Math.min(1, (b.vy - a.vy) / 20));
+  const s = OBS_COUNT;
+  buf[s] = Math.max(-1, Math.min(1, ((b.x - a.x) * facing) / 60));
+  buf[s + 1] = Math.max(-1, Math.min(1, (b.y - a.y) / 8));
+  buf[s + 2] = Math.max(-1, Math.min(1, ((b.vx - a.vx) * facing) / 24));
+  buf[s + 3] = Math.max(-1, Math.min(1, (b.vy - a.vy) / 20));
 
   const ownLance = rolePositions(own, 'lance');
   const oppTarget = rolePositions(opponent, 'target');
@@ -117,17 +131,17 @@ export function buildJoustObservations(
   const ownTarget = rolePositions(own, 'target');
   const aim = nearest(ownLance, oppTarget);
   const threat = nearest(oppLance, ownTarget);
-  writeRelative(out, 7, aim.from, aim.to, facing);
-  writeRelative(out, 9, threat.from, threat.to, facing);
+  writeRelative(buf, s + 4, aim.from, aim.to, facing);
+  writeRelative(buf, s + 6, threat.from, threat.to, facing);
 
-  out[11] = Math.max(-1, Math.min(1, (ownTotal - opponentTotal) / 30));
-  out[12] = Math.max(0, Math.min(1, phase01));
-  out[13] = Math.max(0, Math.min(1, timeRemaining01));
-  out[14] = Math.max(0, Math.min(1, instantUprightQuality(own)));
-  out[15] = Math.max(0, Math.min(1, instantUprightQuality(opponent)));
-  out[16] = Math.max(0, Math.min(1, Math.hypot(b.x - a.x, b.y - a.y) / 80));
-  out[17] = Math.max(-1, Math.min(1, lanceClosingSpeed(own, opponent) / 16));
-  out[18] = Math.sin(episodeTime * Math.PI * 2);
-  out[19] = Math.cos(episodeTime * Math.PI * 2);
-  return out;
+  buf[s + 8] = Math.max(-1, Math.min(1, (ownTotal - opponentTotal) / 30));
+  buf[s + 9] = Math.max(0, Math.min(1, phase01));
+  buf[s + 10] = Math.max(0, Math.min(1, timeRemaining01));
+  buf[s + 11] = Math.max(0, Math.min(1, instantUprightQuality(opponent)));
+  buf[s + 12] = Math.max(
+    0,
+    Math.min(1, Math.hypot(b.x - a.x, b.y - a.y) / 80),
+  );
+  buf[s + 13] = Math.max(-1, Math.min(1, lanceClosingSpeed(own, opponent) / 16));
+  return buf;
 }

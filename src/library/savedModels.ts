@@ -22,13 +22,13 @@ export interface DanceCurriculumMeta {
 export interface BoxingModelMeta {
   divisionId: BoxingDivisionId;
   ruleVersion: 1;
-  obsPackVersion: 2;
+  obsPackVersion: 3;
   brainHz: 30;
 }
 
 export interface JoustingModelMeta {
   ruleVersion: 1;
-  obsPackVersion: 1;
+  obsPackVersion: 2;
   brainHz: 30;
   divisionId?: JoustingDivisionId;
 }

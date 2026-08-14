@@ -61,7 +61,7 @@ import {
   defaultRoundSeconds,
   roundLengthLabel,
 } from '../src/combat/format.ts';
-import { EPISODE_SECONDS } from '../src/brain/constants.ts';
+import { EPISODE_SECONDS, OBS_COUNT } from '../src/brain/constants.ts';
 import {
   BOXING_MATCH_SECONDS,
   FIXED_DT,
@@ -305,7 +305,7 @@ function assertCornerSymmetry(): void {
     const b = spawnCreature(world, mirrorDesign(UPRIGHT_FIGHTER), { x: 3, y: 0 });
     const fromA = buildBoxingObservations(a, b, 7, 3, 0.5, 0.25);
     const fromB = buildBoxingObservations(b, a, 7, 3, 0.5, 0.25);
-    for (let i = 0; i < BOXING_OBS_COUNT; i++) {
+    for (let i = OBS_COUNT; i < BOXING_OBS_COUNT; i++) {
       assert.ok(
         Math.abs(fromA[i] - fromB[i]) < 1e-6,
         `corner-normalized observation ${i}`,
@@ -359,21 +359,21 @@ function assertBoxingModelCompatibility(): void {
     boxingMeta: {
       divisionId: 'upright',
       ruleVersion: 1,
-      obsPackVersion: 2,
+      obsPackVersion: 3,
       brainHz: 30,
     },
   });
   const imported = importModelJson(raw);
   ok(imported.ok, 'compatible Boxing metadata imports');
   if (imported.ok) {
-    assert.equal(imported.value.boxingMeta?.obsPackVersion, 2);
+    assert.equal(imported.value.boxingMeta?.obsPackVersion, 3);
     assert.equal(imported.value.boxingMeta?.brainHz, 30);
   }
   const stale = JSON.parse(raw);
-  stale.boxingMeta.obsPackVersion = 1;
+  stale.boxingMeta.obsPackVersion = 2;
   ok(
     !importModelJson(JSON.stringify(stale)).ok,
-    'obs pack v1 Boxing metadata rejected',
+    'obs pack v2 Boxing metadata rejected',
   );
   const incompatible = JSON.parse(raw);
   delete incompatible.boxingMeta.brainHz;
@@ -460,7 +460,7 @@ function fixtureResult(opts: {
 }
 
 function assertRewardShaping(): void {
-  assert.equal(BOXING_OBS_PACK_VERSION, 2, 'obs pack v2');
+  assert.equal(BOXING_OBS_PACK_VERSION, 3, 'obs pack v3');
   assert.equal(boxingRangeQuality(3), 1, 'mid-range engagement quality');
   assert.ok(boxingRangeQuality(9) < 0.5, 'far camp quality drops');
   assert.ok(boxingRangeQuality(0.2) < 0.5, 'clinch quality drops');
@@ -1002,7 +1002,8 @@ async function main(): Promise<void> {
   assert.deepEqual(first, second, 'fixed-step hit metrics reproducible');
   const shape = shapeForBoxingDesign(UPRIGHT_FIGHTER);
   assert.equal(shape.inputCount, BOXING_OBS_COUNT, 'Boxing shape uses dedicated obs');
-  assert.equal(BOXING_OBS_COUNT, 24, 'Boxing obs pack v2 has 24 channels');
+  assert.equal(BOXING_OBS_COUNT, 24, 'Boxing obs pack v3 has 24 channels');
+  assert.equal(BOXING_OBS_PACK_VERSION, 3, 'obs pack v3');
   console.log(
     `boxing OK points=${first.points} power=${first.power.toFixed(3)} accuracy=${first.accuracy.toFixed(3)} inputs=${shape.inputCount}`,
   );

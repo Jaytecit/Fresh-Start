@@ -9,6 +9,8 @@ import {
   TOURNAMENT_SIZE,
   EPISODE_SECONDS,
   BRAIN_HZ,
+  OBS_COUNT,
+  RAYCAST_OBS_COUNT,
   type BrainHz,
 } from "./brain/constants";
 import {
@@ -62,6 +64,7 @@ import {
   defaultGaKnobSet,
   loadGaKnobSet,
   saveGaKnobSet,
+  applyRecipe,
   type GaKnobSet,
 } from "./brain/trainingRecipes";
 import {
@@ -77,13 +80,16 @@ import {
   fitImitation,
   imitationFitness,
 } from "./brain/imitate";
-import type {
-  EvolutionProgress,
-  Genome,
-  NetworkShape,
-  TaskId,
+import {
+  obsPackFamily,
+  type EvolutionProgress,
+  type Genome,
+  type NetworkShape,
+  type TaskId,
 } from "./brain/types";
 import { adaptEliteToDesign } from "./brain/adaptElite";
+import { BOXING_OBS_PACK_VERSION } from "./brain/boxingObs";
+import { JOUST_OBS_PACK_VERSION } from "./brain/joustObs";
 import {
   analyzeTrainTelemetry,
   appendTrainTelemetryGen,
@@ -183,6 +189,7 @@ import {
   unnamedBodyReason,
 } from "./library/fileVocabulary";
 import {
+  bodyFitsSkill,
   bodyIsUnsaved,
   combatCornerLoadsIntoScene,
   explicitLoadDenialReason,
@@ -1066,6 +1073,7 @@ export default function App() {
       : null;
     if (promoted) {
       setBestGenome(promoted);
+      bestGenomeRef.current = promoted;
       setEvolveProgress((prev) => ({
         ...prev,
         running: false,
@@ -2722,11 +2730,68 @@ export default function App() {
     setCombatCornerB(value);
   };
 
+  const maybeTransferWorkspaceElite = (fromTask: TaskId, toTask: TaskId) => {
+    if (!isFeatureEnabled("crossSkillTransfer")) return;
+    if (fromTask === toTask) return;
+    const elite = bestGenomeRef.current;
+    if (!elite) return;
+    const destFamily = obsPackFamily(toTask);
+    if (destFamily === "boxing" || destFamily === "jousting") {
+      const destSkill = destFamily === "boxing" ? "boxing" : "jousting";
+      if (
+        !bodyFitsSkill(
+          designRef.current,
+          destSkill,
+          boxingDivisionId,
+          joustingDivisionId,
+        )
+      ) {
+        return;
+      }
+    }
+    const adapted = adaptEliteToDesign(elite, designRef.current, {
+      task: toTask,
+      sourceTask: fromTask,
+      raycast:
+        destFamily === "loco" &&
+        isFeatureEnabled("raycastObservations") &&
+        raycastObservationsOn,
+    });
+    if (adapted && adapted !== elite) {
+      setBestGenome(adapted);
+      bestGenomeRef.current = adapted;
+      setSavedBrainLabel(null);
+      if (toTask === "dance") {
+        setDanceGenome({
+          shape: adapted.shape,
+          genome: adapted.genome,
+        });
+      }
+      setGaKnobs((k) => applyRecipe("fine_tune", k));
+      const destLabel = goalTitleForTask(toTask);
+      setEvolveProgress((prev) => ({
+        ...prev,
+        running: false,
+        status:
+          toTask === "dance"
+            ? `${goalTitleForTask(fromTask)} brain adapted for ${destLabel} — Refine in the Disco dock`
+            : `${goalTitleForTask(fromTask)} brain adapted for ${destLabel} — Keep training to refine`,
+      }));
+      return;
+    }
+    if (!adapted && obsPackFamily(fromTask) !== destFamily) {
+      setFlashNotice(
+        `That ${goalTitleForTask(fromTask)} brain cannot seed ${goalTitleForTask(toTask)}. Save it, then Evolve fresh.`,
+      );
+    }
+  };
+
   const selectSkill = (id: SkillId) => {
     if (id === "disco" && !isFeatureEnabled("discoMode")) return;
     if (id === "boxing" && !isFeatureEnabled("boxingMode")) return;
     if (id === "jousting" && !isFeatureEnabled("joustingMode")) return;
     const prev = skill;
+    const fromTask = activeTaskRef.current;
     const tab = sandboxTabRef.current;
     if (prev === "disco" && id !== "disco") {
       leaveDiscoSkill(id !== "boxing" && id !== "jousting");
@@ -2741,6 +2806,7 @@ export default function App() {
     saveActiveSkill(id);
     if (id === "disco") {
       enterDiscoSkill();
+      maybeTransferWorkspaceElite(fromTask, "dance");
       return;
     }
     if (id === "boxing") {
@@ -2750,14 +2816,17 @@ export default function App() {
       if (tab === "h2h") {
         setCombatMode("boxing");
         enterCombatArena("boxing");
+        maybeTransferWorkspaceElite(fromTask, "boxing");
         return;
       }
       if (tab === "train") {
         enterBoxingSkill();
+        maybeTransferWorkspaceElite(fromTask, "boxing");
         return;
       }
       applyBoxingEnvironment();
       simulation.setTask(next.task);
+      maybeTransferWorkspaceElite(fromTask, "boxing");
       return;
     }
     if (id === "jousting") {
@@ -2767,14 +2836,17 @@ export default function App() {
       if (tab === "h2h") {
         setCombatMode("joust");
         enterCombatArena("joust");
+        maybeTransferWorkspaceElite(fromTask, "jousting");
         return;
       }
       if (tab === "train") {
         enterJoustingSkill();
+        maybeTransferWorkspaceElite(fromTask, "jousting");
         return;
       }
       applyJoustingEnvironment();
       simulation.setTask(next.task);
+      maybeTransferWorkspaceElite(fromTask, "jousting");
       return;
     }
     const next = defaultGoalForSkill(id);
@@ -2782,6 +2854,7 @@ export default function App() {
     saveActiveGoalId(next.id);
     simulation.setTask(next.task);
     captureLiveElite();
+    maybeTransferWorkspaceElite(fromTask, next.task);
   };
   /** Spawn `next` (or the current design) in the sim without changing tabs. */
   const syncDesignToSim = (designOverride?: CreatureDesign) => {
@@ -3151,7 +3224,7 @@ export default function App() {
         ? ({
             divisionId: boxingDivisionId,
             ruleVersion: 1,
-            obsPackVersion: 2,
+            obsPackVersion: BOXING_OBS_PACK_VERSION,
             brainHz: 30,
           } as const)
         : undefined;
@@ -3159,7 +3232,7 @@ export default function App() {
       activeTask === "jousting"
         ? ({
             ruleVersion: 1,
-            obsPackVersion: 1,
+            obsPackVersion: JOUST_OBS_PACK_VERSION,
             brainHz: 30,
             divisionId: joustingDivisionId,
           } as const)
@@ -3386,13 +3459,39 @@ export default function App() {
           : activeTask === "jousting"
             ? shapeForJoustingDesign(design)
             : shapeForDesign(design, shapeOpts);
-      if (!shapesCompatible(model.shape, expected) || model.task !== activeTask) {
-        setFlashNotice(
-          "Saved brain shape/task mismatch — pick a matching creature and goal first.",
-        );
-        return undefined;
+      if (shapesCompatible(model.shape, expected)) {
+        return modelToSeed(model);
       }
-      return modelToSeed(model);
+      if (isFeatureEnabled("crossSkillTransfer")) {
+        const seed = modelToSeed(model);
+        const adapted = adaptEliteToDesign(
+          {
+            shape: seed.shape,
+            genome: {
+              weights: seed.weights,
+              fitness: model.fitness,
+              morph: seed.morph,
+            },
+          },
+          design,
+          {
+            task: activeTask,
+            sourceTask: model.task,
+            raycast: shapeOpts.raycast,
+          },
+        );
+        if (adapted) {
+          return {
+            shape: adapted.shape,
+            weights: adapted.genome.weights,
+            morph: adapted.genome.morph,
+          };
+        }
+      }
+      setFlashNotice(
+        "Saved brain shape/task mismatch — pick a matching creature and goal first.",
+      );
+      return undefined;
     }
     return undefined;
   };
@@ -3719,9 +3818,19 @@ export default function App() {
         setError("Boxing skill is disabled.");
         return;
       }
+      const resolved = resolveEvolveSeed(seedFrom);
+      if (
+        !seedFrom &&
+        isFeatureEnabled("trainStartFrom") &&
+        gaKnobs.startFrom === "saved" &&
+        gaKnobs.savedModelId &&
+        !resolved
+      ) {
+        return;
+      }
       startBoxingLiveEvolve(
-        seedFrom
-          ? { shape: seedFrom.shape, weights: seedFrom.weights }
+        resolved
+          ? { shape: resolved.shape, weights: resolved.weights }
           : undefined,
       );
       return;
@@ -3731,9 +3840,19 @@ export default function App() {
         setError("Jousting skill is disabled.");
         return;
       }
+      const resolved = resolveEvolveSeed(seedFrom);
+      if (
+        !seedFrom &&
+        isFeatureEnabled("trainStartFrom") &&
+        gaKnobs.startFrom === "saved" &&
+        gaKnobs.savedModelId &&
+        !resolved
+      ) {
+        return;
+      }
       startJoustingLiveEvolve(
-        seedFrom
-          ? { shape: seedFrom.shape, weights: seedFrom.weights }
+        resolved
+          ? { shape: resolved.shape, weights: resolved.weights }
           : undefined,
       );
       return;
@@ -3916,32 +4035,46 @@ export default function App() {
       return;
     }
     if (activeTask === "boxing") {
-      if (
-        !shapesCompatible(bestGenome.shape, shapeForBoxingDesign(design))
-      ) {
+      const locoSized =
+        bestGenome.shape.inputCount === OBS_COUNT ||
+        bestGenome.shape.inputCount === RAYCAST_OBS_COUNT;
+      const adapted = adaptEliteToDesign(bestGenome, design, {
+        task: "boxing",
+        sourceTask: locoSized ? "run" : "boxing",
+        raycast: false,
+      });
+      if (!adapted) {
         setError(
           "Brain layout mismatch — the creature changed too much to continue.",
         );
         return;
       }
+      if (adapted !== bestGenome) setBestGenome(adapted);
       startBoxingLiveEvolve({
-        shape: bestGenome.shape,
-        weights: bestGenome.genome.weights,
+        shape: adapted.shape,
+        weights: adapted.genome.weights,
       });
       return;
     }
     if (activeTask === "jousting") {
-      if (
-        !shapesCompatible(bestGenome.shape, shapeForJoustingDesign(design))
-      ) {
+      const locoSized =
+        bestGenome.shape.inputCount === OBS_COUNT ||
+        bestGenome.shape.inputCount === RAYCAST_OBS_COUNT;
+      const adapted = adaptEliteToDesign(bestGenome, design, {
+        task: "jousting",
+        sourceTask: locoSized ? "run" : "jousting",
+        raycast: false,
+      });
+      if (!adapted) {
         setError(
           "Brain layout mismatch — the creature changed too much to continue.",
         );
         return;
       }
+      if (adapted !== bestGenome) setBestGenome(adapted);
       startJoustingLiveEvolve({
-        shape: bestGenome.shape,
-        weights: bestGenome.genome.weights,
+        shape: adapted.shape,
+        weights: adapted.genome.weights,
       });
       return;
     }
@@ -3985,7 +4118,7 @@ export default function App() {
       if (
         !model.boxingMeta ||
         model.boxingMeta.ruleVersion !== 1 ||
-        model.boxingMeta.obsPackVersion !== 2 ||
+        model.boxingMeta.obsPackVersion !== BOXING_OBS_PACK_VERSION ||
         model.boxingMeta.brainHz !== 30
       ) {
         denyLoad("Saved Boxing model uses incompatible division or brain metadata.");
@@ -4019,7 +4152,7 @@ export default function App() {
       if (
         !model.joustingMeta ||
         model.joustingMeta.ruleVersion !== 1 ||
-        model.joustingMeta.obsPackVersion !== 1 ||
+        model.joustingMeta.obsPackVersion !== JOUST_OBS_PACK_VERSION ||
         model.joustingMeta.brainHz !== 30
       ) {
         denyLoad("Saved Jousting model uses incompatible brain metadata.");
@@ -4479,7 +4612,7 @@ export default function App() {
         ? ({
             divisionId: boxingDivisionId,
             ruleVersion: 1,
-            obsPackVersion: 2,
+            obsPackVersion: BOXING_OBS_PACK_VERSION,
             brainHz: 30,
           } as const)
         : undefined;
@@ -4487,7 +4620,7 @@ export default function App() {
       activeTask === "jousting"
         ? ({
             ruleVersion: 1,
-            obsPackVersion: 1,
+            obsPackVersion: JOUST_OBS_PACK_VERSION,
             brainHz: 30,
             divisionId: joustingDivisionId,
           } as const)

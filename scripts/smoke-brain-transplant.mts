@@ -12,7 +12,11 @@ import {
 const from = makeShape(2);
 const to = makeShape(4);
 assert.equal(canTransplantShapes(from, to), true);
-assert.equal(canTransplantShapes(from, makeShape(2, from.inputCount + 1)), false);
+assert.equal(canTransplantShapes(from, makeShape(2, from.inputCount + 1)), true);
+assert.equal(
+  canTransplantShapes(makeShape(2, from.inputCount + 1), from),
+  false,
+);
 
 const src = new Float32Array(from.weightCount);
 for (let i = 0; i < src.length; i++) src[i] = i + 1;

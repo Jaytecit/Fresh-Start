@@ -164,6 +164,11 @@ export const featureFlags = {
   boxingMode: true,
   /** Dedicated Jousting skill (single-pass scorecard). */
   joustingMode: true,
+  /**
+   * Prefix-transplant a loco elite onto boxing / joust / dance when switching
+   * skill or starting from a saved brain of another goal.
+   */
+  crossSkillTransfer: true,
 } as const;
 
 export type FeatureFlag = keyof typeof featureFlags;

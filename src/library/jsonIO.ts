@@ -3,6 +3,8 @@
  */
 import { cloneAppearance } from '../appearance/types';
 import type { NetworkShape, TaskId } from '../brain/types';
+import { BOXING_OBS_PACK_VERSION } from '../brain/boxingObs';
+import { JOUST_OBS_PACK_VERSION } from '../brain/joustObs';
 import { cloneDesign, type CreatureDesign } from '../creature/types';
 import { isAeroType } from '../editor/aeroValidation';
 import { clampTerrain } from '../env/terrainMath';
@@ -109,7 +111,7 @@ function isBoxingModelMeta(v: unknown): v is BoxingModelMeta {
       meta.divisionId === 'grounded' ||
       meta.divisionId === 'open-frame') &&
     meta.ruleVersion === 1 &&
-    meta.obsPackVersion === 2 &&
+    meta.obsPackVersion === BOXING_OBS_PACK_VERSION &&
     meta.brainHz === 30
   );
 }
@@ -119,7 +121,7 @@ function isJoustingModelMeta(v: unknown): v is JoustingModelMeta {
   const meta = v as Partial<JoustingModelMeta>;
   if (
     meta.ruleVersion !== 1 ||
-    meta.obsPackVersion !== 1 ||
+    meta.obsPackVersion !== JOUST_OBS_PACK_VERSION ||
     meta.brainHz !== 30
   ) {
     return false;
