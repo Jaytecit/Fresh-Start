@@ -5,6 +5,7 @@ import {
 } from '../boxing/referenceFighters';
 import { BOXOBOT_V2 } from '../boxing/sparringOpponents';
 import { BOXOBOT } from './boxoBot';
+import { QUARTER_ROD_TRAIN } from './couplingRodTrain';
 import { JOUSTBOT } from './joustBot';
 import type { CreatureDesign } from './types';
 
@@ -284,4 +285,5 @@ export const PRESETS: CreatureDesign[] = [
   GROUNDED_FIGHTER,
   OPEN_FRAME_FIGHTER,
   JOUSTBOT,
+  QUARTER_ROD_TRAIN,
 ];

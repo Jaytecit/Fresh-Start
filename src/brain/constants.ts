@@ -11,8 +11,25 @@ export const BRAIN_DT = 1 / BRAIN_HZ;
  * · 9 head height · 10–11 sin/cos phase clock (rhythmic prior for flapping/gait)
  */
 export const OBS_COUNT = 12;
-/** Open-loop phase frequency for obs[10]/11] (Hz). */
+/** Default open-loop phase frequency for obs[10]/11] (Hz). Train slider may override. */
 export const PHASE_CLOCK_HZ = 2.5;
+/** 0 = clock off (obs 10–11 stay 0). Max stays well below Nyquist at BRAIN_HZ. */
+export const PHASE_CLOCK_HZ_MIN = 0;
+export const PHASE_CLOCK_HZ_MAX = 8;
+
+/** Clamp Train rhythm (phase clock) into the slider range; invalid → default. */
+export function clampPhaseClockHz(hz: number | null | undefined): number {
+  if (hz == null || !Number.isFinite(hz)) return PHASE_CLOCK_HZ;
+  const stepped = Math.round(hz * 10) / 10;
+  return Math.min(PHASE_CLOCK_HZ_MAX, Math.max(PHASE_CLOCK_HZ_MIN, stepped));
+}
+
+/** Dock / HUD label for the phase-clock slider. */
+export function formatPhaseClockHz(hz: number): string {
+  const v = clampPhaseClockHz(hz);
+  if (v <= 0) return 'off';
+  return `${v.toFixed(1)} Hz`;
+}
 
 /**
  * Optional raycast whiskers appended after OBS_COUNT when enabled.
@@ -123,11 +140,14 @@ export const FLIGHT_LANDING_REWARD_MULT = 1.75;
  */
 export const COURSE_MARKER_DEFAULT_W = 3;
 export const COURSE_MARKER_DEFAULT_H = 15;
-/** Sprint finish: base bonus for crossing finish (armed + checkpoints). */
+/**
+ * Flat finish bonus when an env has both start and finish and the creature
+ * completes the course (any goal). Sprint also adds a time-scale bonus.
+ */
 export const SPRINT_FINISH_BONUS = 8;
-/** Sprint finish: bonus scale / finishTimeSeconds (faster → higher). */
+/** Sprint-only: bonus scale / finishTimeSeconds (faster → higher). */
 export const SPRINT_FINISH_TIME_SCALE = 40;
-/** Sprint: fitness per ordered checkpoint reached. */
+/** Fitness per ordered checkpoint on any start+finish course. */
 export const SPRINT_CHECKPOINT_BONUS = 1.5;
 /** Sprint: fitness per meter of peak forward progress (not end pose). */
 export const SPRINT_DIST_SCALE = 0.15;

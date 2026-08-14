@@ -10,7 +10,7 @@ import {
   GROUND_CONTACT_Y,
   HEIGHT_SCALE,
   OBS_COUNT,
-  PHASE_CLOCK_HZ,
+  clampPhaseClockHz,
   VEL_SCALE,
 } from './constants';
 
@@ -39,6 +39,8 @@ export interface ObservationContext {
   terrain?: EnvTerrain | null;
   /** Simulated time (s) for phase clock obs. */
   timeSec?: number;
+  /** Open-loop clock rate (Hz). Omit → PHASE_CLOCK_HZ; 0 freezes obs 10–11 at 0. */
+  phaseClockHz?: number;
 }
 
 /**
@@ -53,8 +55,8 @@ export interface ObservationContext {
  * 7 footClearance   — mean (footY - surfaceY) / FOOT_CLEARANCE_SCALE
  * 8 terrainGrade    — local slope / TERRAIN_GRADE_SCALE
  * 9 headHeight      — marked head Y / HEIGHT_SCALE (0 if unmarked)
- * 10 phaseSin       — sin(2π · PHASE_CLOCK_HZ · t)
- * 11 phaseCos       — cos(2π · PHASE_CLOCK_HZ · t)
+ * 10 phaseSin       — sin(2π · phaseClockHz · t) (0 when clock is off)
+ * 11 phaseCos       — cos(2π · phaseClockHz · t) (0 when clock is off)
  */
 export function buildObservations(
   creature: SpawnedCreature,
@@ -124,9 +126,15 @@ export function buildObservations(
   obs[9] = headY === null ? 0 : headY / HEIGHT_SCALE;
 
   const t = ctx?.timeSec ?? 0;
-  const phase = 2 * Math.PI * PHASE_CLOCK_HZ * t;
-  obs[10] = Math.sin(phase);
-  obs[11] = Math.cos(phase);
+  const clockHz = clampPhaseClockHz(ctx?.phaseClockHz);
+  if (clockHz <= 0) {
+    obs[10] = 0;
+    obs[11] = 0;
+  } else {
+    const phase = 2 * Math.PI * clockHz * t;
+    obs[10] = Math.sin(phase);
+    obs[11] = Math.cos(phase);
+  }
 
   return obs;
 }

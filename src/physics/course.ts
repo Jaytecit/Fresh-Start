@@ -2,8 +2,13 @@
  * Climb step course (static boxes). Authored world obstacles live in obstacles.ts.
  * Rough course reuses heightfield spawn.
  */
-import type { EnvTerrain } from '../env/types';
+import {
+  environmentHasAuthoredWorld,
+  type EnvironmentDesign,
+  type EnvTerrain,
+} from '../env/types';
 import { makeSineTerrain } from '../env/terrainMath';
+import type { ObstacleVisual } from './obstacles';
 import {
   GROUND_RESTITUTION,
   ROUGH_COURSE_AMPLITUDE,
@@ -22,6 +27,7 @@ import { clampWorldGrip, groundCollisionGroups, RAPIER } from './world';
 
 export interface CourseHandle {
   bodies: RAPIER.RigidBody[];
+  visuals: ObstacleVisual[];
 }
 
 export interface RoughCourseHandle {
@@ -35,9 +41,11 @@ function spawnFixedCuboids(
   parts: { x: number; y: number; hx: number; hy: number; rot?: number }[],
 ): CourseHandle {
   const bodies: RAPIER.RigidBody[] = [];
+  const visuals: ObstacleVisual[] = [];
   const groups = groundCollisionGroups();
   const grip = clampWorldGrip(worldGrip);
   for (const s of parts) {
+    const rot = s.rot ?? 0;
     const desc = RAPIER.RigidBodyDesc.fixed().setTranslation(s.x, s.y);
     if (s.rot != null) desc.setRotation(s.rot);
     const body = world.createRigidBody(desc);
@@ -51,8 +59,17 @@ function spawnFixedCuboids(
       body,
     );
     bodies.push(body);
+    visuals.push({
+      kind: 'box',
+      x: s.x,
+      y: s.y,
+      hx: s.hx,
+      hy: s.hy,
+      rot,
+      taskCourse: true,
+    });
   }
-  return { bodies };
+  return { bodies, visuals };
 }
 
 export function spawnClimbCourse(
@@ -131,12 +148,24 @@ export function applyWorldGripToCourse(
   }
 }
 
+/**
+ * Built-in climb / motor / bar cuboids are only for empty Studio worlds.
+ * Authored obstacles / terrain / tower already are the course — stacking a
+ * second physical track (historically undrawn) reads as an invisible hump.
+ */
+export function shouldSpawnTaskCourse(
+  env: Pick<EnvironmentDesign, 'obstacles' | 'terrain' | 'tower'>,
+): boolean {
+  return !environmentHasAuthoredWorld(env);
+}
+
 export function destroyCourse(world: RAPIER.World, course: CourseHandle | null): void {
   if (!course) return;
   for (const b of course.bodies) {
     world.removeRigidBody(b);
   }
   course.bodies.length = 0;
+  course.visuals.length = 0;
 }
 
 /** Deterministic sine hills for the Rough goal. */

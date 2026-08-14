@@ -16,7 +16,7 @@ Author start, checkpoint, and finish markers in Environment Studio so timed cour
 - **Checkpoint:** ordered by `order` (0-based); must hit in sequence while armed
 - **Finish:** grants completion when armed and all prior checkpoints hit; records `finishTime` as **race elapsed** (`simTime − startTime`), not absolute episode time
 - Live HUD / Stats show READY until start, then a running race timer
-- Scoring: course-aware tasks (e.g. Sprint) use **peak** forward progress + checkpoint progress + finish-time bonus; fall keeps a progress floor so mid-episode climbs are not wiped by later tumbles; other tasks ignore markers
+- Scoring: any env that authors **both** a start and a finish pays checkpoint + flat finish bonuses on **every** goal (via `applyCourseScore`). Sprint / Motor sprint also keep a finish-time bonus. Fall keeps a progress floor on sprint travel so mid-episode climbs are not wiped by later tumbles. Finish-only or start-only layouts do not pay the shared bonus.
 - Course curriculum (`courseCurriculum` flag): progressive finish windows on Gauntlet **or Studio-authored** `environment.curriculum` stages keep full geometry while moving spawn/finish
 - No Rapier bodies, sensors, or collision-group changes
 - Visual overlays only (editor + sim snapshot)
@@ -32,7 +32,7 @@ Author start, checkpoint, and finish markers in Environment Studio so timed cour
 
 - File: `scripts/smoke-tasks.mts` — `assertCourseMarkers`
 - npm script: `npm run smoke:tasks` / `smoke:all`
-- Pass criteria: ordered checkpoints gate finish; finish time recorded; import validates kinds; flag off ignores markers
+- Pass criteria: ordered checkpoints gate finish; finish time recorded; start+finish pays checkpoint/finish bonuses on non-sprint goals; finish-only does not; import validates kinds; flag off ignores markers
 
 ## Rollback
 

@@ -473,8 +473,8 @@ function buildChapters(
       body: (
         <>
           <p>
-            Evolve tries many brains at once. Improvement is uneven — that is
-            normal. A few pointers when you want them:
+            Evolve fresh starts a new search with random brains. Improvement is
+            uneven — that is normal. A few pointers when you want them:
           </p>
           <ul>
             <li>
@@ -483,12 +483,13 @@ function buildChapters(
             </li>
             <li>
               <strong>Play best</strong> is for watching;{' '}
-              <strong>Keep training</strong> continues from the elite of the
-              current run.
+              <strong>Keep training</strong> continues from the best brain of
+              this run.
             </li>
             <li>
               Trained creatures live under Library. Train’s “Start
-              from” can warm-start from a saved brain once you have one.
+              from” can copy a saved brain, then use{' '}
+              <strong>Evolve from saved</strong>.
             </li>
             <li>
               Disco, flight, and wheeled goals need matching body bits (music
@@ -660,7 +661,8 @@ function buildChapters(
           <p>
             The Course tab has scoring tools beyond terrain: penalty
             zones (lose points per second inside), reward zones (touch-once
-            bonus), start / checkpoint / finish markers for timed sprints, and
+            bonus), start / checkpoint / finish markers (bonuses on every goal
+            when both start and finish are placed), and
             launch pads + landing zones for flight goals.
           </p>
           <div className="tutorial-actions">

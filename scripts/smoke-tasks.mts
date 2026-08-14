@@ -36,6 +36,7 @@ import {
   LAUNCH_PAD_APEX_MAX,
   LAUNCH_PAD_APEX_MIN,
   RAMP_FRICTION_MAX,
+  WHEEL_RADIUS_MAX,
 } from '../src/physics/constants.ts';
 import {
   destroyCourse,
@@ -186,6 +187,41 @@ async function assertClimbCourse(): Promise<void> {
   assert(course.bodies.length >= 3, 'expected climb steps');
   destroyCourse(sim.world, course);
   console.log('climb course OK');
+}
+
+async function assertTaskCourseNotInvisible(): Promise<void> {
+  const sim = new Simulation();
+  await sim.init();
+  sim.setEnvironment(flatGroundEnv('Empty motor'));
+  sim.setTask('motor_gap');
+  sim.loadDesign(cloneDesign(MOTOR_CART));
+  const emptySnap = sim.snapshot();
+  const courseVis = emptySnap.obstacles.filter((o) => o.taskCourse);
+  assert(
+    courseVis.length === 2,
+    `motor_gap on empty env must draw course (got ${courseVis.length})`,
+  );
+
+  const authored = flatGroundEnv('Pit authored');
+  authored.obstacles = [{ id: 'box1', kind: 'box', x: 20, y: 2, w: 8, h: 4 }];
+  sim.setEnvironment(authored);
+  const authoredSnap = sim.snapshot();
+  assert(
+    authoredSnap.obstacles.every((o) => !o.taskCourse),
+    'authored env must not keep/stack task-course cuboids',
+  );
+  assert(
+    authoredSnap.obstacles.length === 1,
+    `authored env should show only Studio obstacles (got ${authoredSnap.obstacles.length})`,
+  );
+
+  sim.setEnvironment(flatGroundEnv('Empty again'));
+  const restored = sim.snapshot().obstacles.filter((o) => o.taskCourse);
+  assert(
+    restored.length === 2,
+    'empty env after authored must respawn the drawn built-in course',
+  );
+  console.log('task course visibility OK');
 }
 
 async function assertRoughCourse(): Promise<void> {
@@ -1115,6 +1151,71 @@ async function assertMotorTorqueMoves(): Promise<void> {
   console.log('motor torque OK (wheels as brain actuators)');
 }
 
+async function assertWheelRadiusIsPhysical(): Promise<void> {
+  async function restWheelY(radius: number): Promise<{
+    authored: number;
+    collider: number;
+    y: number;
+  }> {
+    const design = cloneDesign(MOTOR_CART);
+    design.muscles = [];
+    design.wheelRadius = radius;
+    const sim = new Simulation();
+    await sim.init();
+    sim.setTask('motor');
+    sim.loadDesign(design);
+    sim.driveMode = 'idle';
+    const wheels = sim.creature!.joints.filter((j) => j.isWheel);
+    assert(wheels.length === 2, 'cart still has 2 wheels');
+    const authored = wheels[0]!.radius;
+    const collider = wheels[0]!.body.collider(0).radius();
+    for (let i = 0; i < 180; i++) sim.step(FIXED_DT);
+    const y =
+      wheels.reduce((s, j) => s + j.body.translation().y, 0) / wheels.length;
+    return { authored, collider, y };
+  }
+
+  const small = await restWheelY(JOINT_RADIUS);
+  const large = await restWheelY(0.84);
+  console.log(
+    `wheel radius small r=${small.authored.toFixed(3)} col=${small.collider.toFixed(3)} y=${small.y.toFixed(3)} ` +
+      `large r=${large.authored.toFixed(3)} col=${large.collider.toFixed(3)} y=${large.y.toFixed(3)}`,
+  );
+  assert(
+    Math.abs(small.authored - JOINT_RADIUS) < 1e-6 &&
+      Math.abs(small.collider - JOINT_RADIUS) < 1e-6,
+    'default wheel collider matches JOINT_RADIUS',
+  );
+  assert(
+    Math.abs(large.authored - 0.84) < 1e-6 &&
+      Math.abs(large.collider - 0.84) < 1e-6,
+    'authored wheelRadius must set the Rapier ball, not just the draw radius',
+  );
+  assert(
+    large.y > small.y + 0.3,
+    `larger wheels should rest higher (Δy=${large.y - small.y})`,
+  );
+
+  const live = cloneDesign(MOTOR_CART);
+  live.muscles = [];
+  const sim = new Simulation();
+  await sim.init();
+  sim.loadDesign(live);
+  sim.setWheelRadius(0.84);
+  const liveWheel = sim.creature!.joints.find((j) => j.isWheel)!;
+  assert(
+    Math.abs(liveWheel.radius - 0.84) < 1e-6 &&
+      Math.abs(liveWheel.body.collider(0).radius() - 0.84) < 1e-6,
+    'setWheelRadius live-retunes the collider',
+  );
+  sim.setWheelRadius(99);
+  assert(
+    Math.abs(liveWheel.body.collider(0).radius() - WHEEL_RADIUS_MAX) < 1e-6,
+    'wheel radius clamps to WHEEL_RADIUS_MAX',
+  );
+  console.log('wheel radius physical OK');
+}
+
 async function assertAeroSlowsFall(): Promise<void> {
   assert(featureFlags.aeroLikeForces, 'aeroLikeForces flag should be on');
   async function fallY(withAero: boolean): Promise<number> {
@@ -1958,6 +2059,64 @@ async function assertCourseMarkers(): Promise<void> {
     flags.courseMarkers = prev;
   }
 
+  async function runGoal(
+    task: 'run' | 'sprint',
+    markers: EnvCourseMarker[],
+  ): Promise<Awaited<ReturnType<typeof evaluateTaskEpisode>>> {
+    const sim = new Simulation();
+    await sim.init();
+    const env = flatGroundEnv('Course Bonus Smoke');
+    env.markers = markers;
+    sim.setEnvironment(env);
+    return evaluateTaskEpisode(
+      sim,
+      cloneDesign(SIMPLE_HOPPER),
+      shape,
+      weights,
+      task,
+      episodeSeconds,
+    );
+  }
+
+  const runBase = await runGoal('run', []);
+  const runFinished = await runGoal('run', startFinish);
+  assert(runFinished.finished, 'run goal still completes start+finish');
+  assert(
+    Math.abs(runFinished.courseBonus - SPRINT_FINISH_BONUS) < 1e-6,
+    `run on start+finish should pay finish bonus ${SPRINT_FINISH_BONUS}, got ${runFinished.courseBonus}`,
+  );
+  assert(
+    runFinished.fitness + 1e-6 >= runBase.fitness + SPRINT_FINISH_BONUS,
+    'run fitness should include the finish bonus',
+  );
+
+  const finishOnly: EnvCourseMarker[] = [
+    {
+      id: 'fo',
+      kind: 'finish',
+      x: 0,
+      y: 1.5,
+      w: 8,
+      h: 4,
+    },
+  ];
+  const runFinishOnly = await runGoal('run', finishOnly);
+  assert(runFinishOnly.finished, 'finish-only still completes (no start gate)');
+  assert(
+    runFinishOnly.courseBonus === 0,
+    'finish-only must not pay the shared course bonus',
+  );
+
+  const runCp = await runGoal('run', withCp);
+  assert(runCp.checkpointsHit >= 1 && runCp.finished, 'run hits CP then finish');
+  assert(
+    Math.abs(
+      runCp.courseBonus -
+        (SPRINT_CHECKPOINT_BONUS + SPRINT_FINISH_BONUS),
+    ) < 1e-6,
+    `run should pay CP+finish, got ${runCp.courseBonus}`,
+  );
+
   // Race clock: delayed start → finishTime is elapsed since arm, not absolute t.
   {
     const sim = new Simulation();
@@ -2324,6 +2483,7 @@ async function main(): Promise<void> {
   await assertScoreRegions();
   await assertCourseMarkers();
   await assertClimbCourse();
+  await assertTaskCourseNotInvisible();
   await assertRoughCourse();
   await assertStaticObstacles();
   await assertRampGrip();
@@ -2335,6 +2495,7 @@ async function main(): Promise<void> {
   await assertJumpTaskScores();
   await assertRoughTaskScores();
   await assertMotorTorqueMoves();
+  await assertWheelRadiusIsPhysical();
   await assertAeroSlowsFall();
   assertWingPairValidation();
   await assertWingFlapClimb();

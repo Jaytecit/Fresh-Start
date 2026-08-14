@@ -32,6 +32,8 @@ export interface ObstacleVisual {
   rot: number;
   /** Pad only — approximate launch apex (ruler units). */
   launchApex?: number;
+  /** Task-owned built-in course cuboid (not placed in Environment Studio). */
+  taskCourse?: boolean;
 }
 
 export interface ObstacleHandle {

@@ -4,9 +4,13 @@
 import { useState, type ReactNode } from 'react';
 import {
   clampEpisodeSeconds,
+  clampPhaseClockHz,
   EPISODE_SECONDS_MAX,
   EPISODE_SECONDS_MIN,
   formatEpisodeSeconds,
+  formatPhaseClockHz,
+  PHASE_CLOCK_HZ_MAX,
+  PHASE_CLOCK_HZ_MIN,
 } from '../brain/constants';
 import {
   BREED_STRICTNESS,
@@ -23,7 +27,6 @@ import {
 interface Props {
   knobs: GaKnobSet;
   disabled: boolean;
-  hasBestOfRun: boolean;
   savedBrainOptions: { id: string; name: string }[];
   onChange: (next: GaKnobSet) => void;
   /** Show schedule toggles. */
@@ -71,7 +74,6 @@ function Field({
 export function TrainingSetupPanel({
   knobs,
   disabled,
-  hasBestOfRun,
   savedBrainOptions,
   onChange,
   showSchedules = true,
@@ -82,6 +84,7 @@ export function TrainingSetupPanel({
   const patch = (partial: Partial<GaKnobSet>) => {
     const next = { ...knobs, ...partial };
     next.batchSize = Math.max(1, Math.min(next.batchSize, next.populationSize));
+    next.phaseClockHz = clampPhaseClockHz(next.phaseClockHz);
     onChange(next);
   };
 
@@ -118,6 +121,7 @@ export function TrainingSetupPanel({
                     1,
                     Math.min(next.batchSize, next.populationSize),
                   );
+                  next.phaseClockHz = clampPhaseClockHz(next.phaseClockHz);
                   onChange(next);
                 }}
               >
@@ -184,6 +188,28 @@ export function TrainingSetupPanel({
               </span>
             </label>
           </Field>
+          <Field
+            label="Rhythm"
+            title="Phase clock the brain sees (sin/cos). 2.5 Hz is a typical walk/flap. 0 turns it off so gaits must come from the body. Brains trained at one rate expect that rate."
+          >
+            <label className="slider-row train-try-slider train-rhythm-slider">
+              <span className="muted">{PHASE_CLOCK_HZ_MIN}</span>
+              <input
+                type="range"
+                min={PHASE_CLOCK_HZ_MIN}
+                max={PHASE_CLOCK_HZ_MAX}
+                step={0.1}
+                disabled={disabled}
+                value={clampPhaseClockHz(knobs.phaseClockHz)}
+                onChange={(e) =>
+                  patch({ phaseClockHz: Number(e.target.value) })
+                }
+              />
+              <span className="val">
+                {formatPhaseClockHz(knobs.phaseClockHz)}
+              </span>
+            </label>
+          </Field>
         </Group>
 
         <Group title="Search">
@@ -214,7 +240,6 @@ export function TrainingSetupPanel({
             {(
               [
                 ['fresh', 'Fresh random'],
-                ['best_of_run', 'Best of this run'],
                 ['saved', 'Saved brain…'],
               ] as const
             ).map(([id, label]) => (
@@ -224,15 +249,12 @@ export function TrainingSetupPanel({
                 className={knobs.startFrom === id ? 'active' : ''}
                 disabled={
                   disabled ||
-                  (id === 'best_of_run' && !hasBestOfRun) ||
                   (id === 'saved' && savedBrainOptions.length === 0)
                 }
                 title={
                   id === 'fresh'
-                    ? 'Discard the current elite and start random brains'
-                    : id === 'best_of_run'
-                      ? 'Continue from this run’s last brain (kept when you leave Edit)'
-                      : 'Copy a trained brain, then keep improving it for this goal'
+                    ? 'Evolve fresh starts random brains. Use Keep training on the dock to improve this run’s best.'
+                    : 'Copy a trained brain from the library, then Evolve from saved'
                 }
                 onClick={() => patch({ startFrom: id as StartFromMode })}
               >

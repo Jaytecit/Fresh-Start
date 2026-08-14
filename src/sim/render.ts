@@ -28,7 +28,7 @@ import {
 import { driveGroupStrokeColor, normalizeDriveGroup } from '../brain/driveGroups';
 import type { CreatureDesign } from '../creature/types';
 import { EDITOR_GRID } from '../editor/grid';
-import { GROUND_Y, JOINT_RADIUS } from '../physics/constants';
+import { GROUND_Y, JOINT_RADIUS, WHEEL_RADIUS_DEFAULT, clampWheelRadius } from '../physics/constants';
 import { isFeatureEnabled } from '../port/featureFlags';
 import {
   type Camera,
@@ -41,12 +41,17 @@ import type { AgentSnapshot, SimulationSnapshot } from './simulation';
 
 /**
  * Drawn joint discs only. Rapier colliders, mass, and probes stay on
- * `JOINT_RADIUS` / `joint.radius`.
+ * `JOINT_RADIUS` / `joint.radius`. Wheels skip this scale (pass 1) so the
+ * disc matches the ball collider and sits on the ground.
  */
 const JOINT_NODE_VISUAL_SCALE = 0.5;
 
-function jointNodeScreenRadius(worldRadius: number, zoom: number): number {
-  return worldRadius * zoom * JOINT_NODE_VISUAL_SCALE;
+function jointNodeScreenRadius(
+  worldRadius: number,
+  zoom: number,
+  visualScale = JOINT_NODE_VISUAL_SCALE,
+): number {
+  return worldRadius * zoom * visualScale;
 }
 
 function jointNodeScreenPx(px: number): number {
@@ -288,11 +293,15 @@ export function drawObstacles(
     ctx.rotate(-o.rot);
     const rw = o.hx * 2 * cam.zoom;
     const rh = o.hy * 2 * cam.zoom;
-    ctx.fillStyle = obstacleFill(o.kind);
+    ctx.fillStyle = o.taskCourse
+      ? 'rgba(190, 150, 70, 0.88)'
+      : obstacleFill(o.kind);
     ctx.strokeStyle =
       o.kind === 'pad'
         ? 'rgba(255, 210, 120, 0.9)'
-        : 'rgba(180, 200, 220, 0.55)';
+        : o.taskCourse
+          ? 'rgba(240, 210, 120, 0.85)'
+          : 'rgba(180, 200, 220, 0.55)';
     ctx.lineWidth = o.kind === 'pad' ? 2 : 1.5;
     ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
     ctx.strokeRect(-rw / 2, -rh / 2, rw, rh);
@@ -746,8 +755,11 @@ function drawAgent(
     for (const joint of agent.joints) {
       writeWorldToScreen(cam, w, h, joint.x, joint.y, _scrA);
       const r =
-        jointNodeScreenRadius(joint.radius, cam.zoom) *
-        (joint.isHead ? HEAD_JOINT_VISUAL_SCALE : 1);
+        jointNodeScreenRadius(
+          joint.radius,
+          cam.zoom,
+          joint.isWheel ? 1 : JOINT_NODE_VISUAL_SCALE,
+        ) * (joint.isHead ? HEAD_JOINT_VISUAL_SCALE : 1);
       ctx.beginPath();
       ctx.arc(_scrA.x, _scrA.y, r, 0, Math.PI * 2);
       ctx.fill();
@@ -779,6 +791,15 @@ function drawAgent(
         ctx.strokeStyle = lance ? '#c4a35a' : '#7ec8e3';
         ctx.beginPath();
         ctx.arc(_scrA.x, _scrA.y, r + jointNodeScreenPx(4), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (joint.isWheel) {
+        ctx.save();
+        ctx.strokeStyle = '#d4a04a';
+        ctx.lineWidth = jointNodeScreenPx(2);
+        ctx.beginPath();
+        ctx.arc(_scrA.x, _scrA.y, r + jointNodeScreenPx(3), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
@@ -1010,9 +1031,15 @@ export function drawDesign(
     const selected =
       selectedJoints.has(joint.id) || opts?.hoverJointId === joint.id;
     const clothPin = clothDraftJoints.has(joint.id);
+    const worldR = joint.isWheel
+      ? clampWheelRadius(design.wheelRadius ?? WHEEL_RADIUS_DEFAULT)
+      : JOINT_RADIUS;
     const r =
-      jointNodeScreenRadius(JOINT_RADIUS, cam.zoom) *
-      (joint.isHead ? HEAD_JOINT_VISUAL_SCALE : 1);
+      jointNodeScreenRadius(
+        worldR,
+        cam.zoom,
+        joint.isWheel ? 1 : JOINT_NODE_VISUAL_SCALE,
+      ) * (joint.isHead ? HEAD_JOINT_VISUAL_SCALE : 1);
     ctx.fillStyle = selected ? '#f0c040' : clothPin ? '#c9a0e8' : '#d8dde6';
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);

@@ -22,6 +22,12 @@ import {
 import { GOAL_CATALOG, type GoalId } from '../goals/catalog';
 import type { SavedModel } from '../library/savedModels';
 import {
+  combatBodyGroupForModel,
+  groupBrainsByTask,
+  groupCombatModelsByBody,
+  pickSuitableBrain,
+} from '../combat/cornerBodies';
+import {
   combatCornerKey,
   parseCombatCornerKey,
   type CombatCornerValue,
@@ -99,6 +105,10 @@ interface Props {
   collapsed?: boolean;
 }
 
+function brainOptionLabel(model: SavedModel): string {
+  return `${model.name} · ${model.fitness.toFixed(1)}`;
+}
+
 function CornerSelect({
   label,
   value,
@@ -107,6 +117,7 @@ function CornerSelect({
   workspaceLabel,
   saved,
   house,
+  preferredTask,
   disabled,
 }: {
   label: string;
@@ -116,36 +127,106 @@ function CornerSelect({
   workspaceLabel: string;
   saved: SavedModel[];
   house: { id: string; label: string }[];
+  preferredTask?: string;
   disabled: boolean;
 }) {
+  const bodies = groupCombatModelsByBody(saved);
+  const selectedGroup =
+    value.kind === 'saved'
+      ? combatBodyGroupForModel(bodies, value.modelId)
+      : undefined;
+  const brains = selectedGroup?.models ?? [];
+  const taskGroups = groupBrainsByTask(brains, preferredTask);
+  const showGoalGroups = taskGroups.length > 1;
+  const bodyValue =
+    value.kind === 'workspace'
+      ? 'workspace'
+      : value.kind === 'house'
+        ? `house:${value.id}`
+        : selectedGroup
+          ? `body:${selectedGroup.key}`
+          : combatCornerKey(value);
+
+  const onBodyChange = (raw: string) => {
+    if (raw.startsWith('body:')) {
+      const group = bodies.find((g) => g.key === raw.slice('body:'.length));
+      const best = group ? pickSuitableBrain(group.models, preferredTask) : undefined;
+      if (best) onChange({ kind: 'saved', modelId: best.id });
+      return;
+    }
+    const next = parseCombatCornerKey(raw);
+    if (next) onChange(next);
+  };
+
   return (
-    <label className="field-row">
-      <span>{label}</span>
-      <select
-        value={combatCornerKey(value)}
-        disabled={disabled}
-        onChange={(e) => {
-          const next = parseCombatCornerKey(e.target.value);
-          if (next) onChange(next);
-        }}
-      >
-        <option value="workspace" disabled={!workspaceReady}>
-          {workspaceReady
-            ? `This workspace · ${workspaceLabel}`
-            : 'This workspace (train a brain first)'}
-        </option>
-        {house.map((h) => (
-          <option key={h.id} value={`house:${h.id}`}>
-            {h.label}
+    <div className="combat-corner-pick">
+      <label className="field-row">
+        <span>{label}</span>
+        <select value={bodyValue} disabled={disabled} onChange={(e) => onBodyChange(e.target.value)}>
+          <option value="workspace" disabled={!workspaceReady}>
+            {workspaceReady
+              ? `This workspace · ${workspaceLabel}`
+              : 'This workspace (train a brain first)'}
           </option>
-        ))}
-        {saved.map((m) => (
-          <option key={m.id} value={`saved:${m.id}`}>
-            {m.name} · {m.fitness.toFixed(2)}
-          </option>
-        ))}
-      </select>
-    </label>
+          {house.length > 0 && (
+            <optgroup label="House">
+              {house.map((h) => (
+                <option key={h.id} value={`house:${h.id}`}>
+                  {h.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {bodies.length > 0 && (
+            <optgroup label="Library bodies">
+              {bodies.map((group) => (
+                <option key={group.key} value={`body:${group.key}`}>
+                  {group.models.length > 1
+                    ? `${group.label} · ${group.models.length} brains`
+                    : group.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {value.kind === 'saved' && !selectedGroup && (
+            <option value={combatCornerKey(value)}>Missing trained creature</option>
+          )}
+        </select>
+      </label>
+      {value.kind === 'saved' && (
+        <label className="field-row">
+          <span>Brain</span>
+          <select
+            value={combatCornerKey(value)}
+            disabled={disabled || brains.length === 0}
+            onChange={(e) => {
+              const next = parseCombatCornerKey(e.target.value);
+              if (next) onChange(next);
+            }}
+          >
+            {brains.length === 0 ? (
+              <option value={combatCornerKey(value)}>No brain for this body</option>
+            ) : showGoalGroups ? (
+              taskGroups.map((group) => (
+                <optgroup key={group.task} label={group.title}>
+                  {group.models.map((m) => (
+                    <option key={m.id} value={`saved:${m.id}`}>
+                      {brainOptionLabel(m)}
+                    </option>
+                  ))}
+                </optgroup>
+              ))
+            ) : (
+              brains.map((m) => (
+                <option key={m.id} value={`saved:${m.id}`}>
+                  {brainOptionLabel(m)}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+      )}
+    </div>
   );
 }
 
@@ -374,26 +455,31 @@ export function CombatDock({
         </div>
         <div className="combat-dock-corners">
           <h3 className="subhead">Corners</h3>
-          <CornerSelect
-            label="Corner A"
-            value={cornerA}
-            onChange={onCornerAChange}
-            workspaceReady={workspaceReady}
-            workspaceLabel={workspaceLabel}
-            saved={saved}
-            house={house}
-            disabled={locked}
-          />
-          <CornerSelect
-            label="Corner B"
-            value={cornerB}
-            onChange={onCornerBChange}
-            workspaceReady={workspaceReady}
-            workspaceLabel={workspaceLabel}
-            saved={saved}
-            house={house}
-            disabled={locked}
-          />
+          <p className="hint muted">Pick a body, then a brain trained for it.</p>
+          <div className="combat-dock-corner-picks">
+            <CornerSelect
+              label="Corner A"
+              value={cornerA}
+              onChange={onCornerAChange}
+              workspaceReady={workspaceReady}
+              workspaceLabel={workspaceLabel}
+              saved={saved}
+              house={house}
+              preferredTask={mode === 'race' ? raceGoalId : undefined}
+              disabled={locked}
+            />
+            <CornerSelect
+              label="Corner B"
+              value={cornerB}
+              onChange={onCornerBChange}
+              workspaceReady={workspaceReady}
+              workspaceLabel={workspaceLabel}
+              saved={saved}
+              house={house}
+              preferredTask={mode === 'race' ? raceGoalId : undefined}
+              disabled={locked}
+            />
+          </div>
         </div>
         <div className="combat-dock-run">
           <h3 className="subhead">Match</h3>

@@ -11,7 +11,17 @@ import {
 import type { CreatureDesign } from '../creature/types';
 import { nextId } from '../creature/types';
 import { isFeatureEnabled } from '../port/featureFlags';
-import { createCamera, screenToWorld, worldToScreen, type Camera } from '../sim/Camera';
+import {
+  WHEEL_RADIUS_DEFAULT,
+  clampWheelRadius,
+} from '../physics/constants';
+import {
+  createCamera,
+  CREATURE_CAM_ZOOM_MIN,
+  screenToWorld,
+  worldToScreen,
+  type Camera,
+} from '../sim/Camera';
 import { clearCanvas, drawDesign, drawGrid, drawGround } from '../sim/render';
 import { deleteBone, deleteJoint, deleteMuscle, moveJoint } from './editOps';
 import { snapToGrid } from './grid';
@@ -321,11 +331,13 @@ export function EditorCanvas({
   };
 
   const hitJoint = (wx: number, wy: number, d: CreatureDesign): number | null => {
+    const wheelR = clampWheelRadius(d.wheelRadius ?? WHEEL_RADIUS_DEFAULT);
     let best: number | null = null;
-    let bestDist = 0.4;
+    let bestDist = Infinity;
     for (const j of d.joints) {
+      const hitR = j.isWheel ? Math.max(0.4, wheelR) : 0.4;
       const dist = Math.hypot(j.x - wx, j.y - wy);
-      if (dist < bestDist) {
+      if (dist < hitR && dist < bestDist) {
         bestDist = dist;
         best = j.id;
       }
@@ -915,7 +927,7 @@ export function EditorCanvas({
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       camRef.current.zoom = Math.max(
-        20,
+        CREATURE_CAM_ZOOM_MIN,
         Math.min(120, camRef.current.zoom * factor),
       );
     };

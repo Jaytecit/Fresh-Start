@@ -42,17 +42,17 @@ That’s a full loop: body → goal → train → enjoy.
 
 ## Training tips
 
-- **Evolve** tries many brains at once. Ghost outlines are the rest of the pack.
+- **Evolve fresh** starts a new search with random brains. Ghost outlines are the rest of the pack.
 - If nothing improves, try a simpler body, a flatter environment, or a shorter try length in Training setup.
-- **Play best** is for watching; **Keep training** continues from the elite of the current run.
-- Trained creatures live under **Library**. Train’s “Start from” can warm-start from a saved brain once you have one. Combat can use **This workspace** without exporting first.
+- **Play best** is for watching; **Keep training** continues from the best brain of this run.
+- Trained creatures live under **Library**. Train’s “Start from” can copy a saved brain, then use **Evolve from saved**. Combat can use **This workspace** without exporting first.
 - Disco, flight, and wheeled goals need matching body bits (aero parts, wheels, etc.). Stick to Walk / Run until that feels natural.
 
 ## Advanced — fine-tuning training
 
 All optional; defaults work. When you want to steer a run:
 
-- **Training setup** — recipe presets plus individual knobs: pack size (**How many try**), on-screen pack (**How many you watch**), **Try length**, **Mutation style** (careful ↔ wild), **Start from** (fresh / best of run / saved brain), elites (**Keep the champions**), breeding strictness, and rounds limit.
+- **Training setup** — recipe presets plus individual knobs: pack size (**How many try**), on-screen pack (**How many you watch**), **Try length**, **Rhythm** (gait/flap clock; 0 = off), **Mutation style** (careful ↔ wild), **Start from** (fresh random / saved brain), elites (**Keep the champions**), breeding strictness, and rounds limit.
 - **Schedules** — settle down over time, short tries first, stop a try after a fall, mix two parents.
 - **Priorities** — sliders that tilt the score mix (not physics). Only sliders relevant to the selected goal are shown. **Train in stages** chains Stay tall → Run → Sprint; **Train course stages** grows a course as fitness clears each step.
 - **More training options** — raycast whisker senses (needs a fresh evolve), race your record (ghost), messy bodies (mass/length jitter), evolve body traits / structure, and a downloadable training log.

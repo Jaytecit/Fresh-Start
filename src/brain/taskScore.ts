@@ -40,7 +40,6 @@ import {
   SPRINT_CHECKPOINT_BONUS,
   SPRINT_DIST_SCALE,
   SPRINT_FALL_PROGRESS_FLOOR,
-  SPRINT_FINISH_BONUS,
   SPRINT_FINISH_TIME_SCALE,
   SPEED_DIST_SCALE,
   SPEED_PEAK_SCALE,
@@ -61,6 +60,7 @@ import {
   type ScoreRegionAccum,
 } from './scoreRegions';
 import {
+  applyCourseScore,
   courseRaceTime,
   emptyCourseMarkerAccum,
   type CourseMarkerAccum,
@@ -95,6 +95,8 @@ export interface TaskEpisodeMetrics extends EpisodeResult {
   raceTime: number | null;
   /** Simulated seconds elapsed when the episode ended (may be early on landing). */
   episodeTime: number;
+  /** Checkpoint + finish bonus when the env has start and finish. */
+  courseBonus: number;
 }
 
 export function emptyMetrics(): TaskEpisodeMetrics {
@@ -116,6 +118,7 @@ export function emptyMetrics(): TaskEpisodeMetrics {
     finishTime: null,
     raceTime: null,
     episodeTime: 0,
+    courseBonus: 0,
   };
 }
 
@@ -139,6 +142,7 @@ function withRegionScore(
   | 'finishTime'
   | 'raceTime'
   | 'episodeTime'
+  | 'courseBonus'
 > {
   return {
     ...base,
@@ -157,6 +161,7 @@ function withCourseMetrics(
     | 'finishTime'
     | 'raceTime'
     | 'episodeTime'
+    | 'courseBonus'
   >,
   courseAccum?: CourseMarkerAccum,
   episodeSimTime = 0,
@@ -170,16 +175,20 @@ function withCourseMetrics(
       finishTime: null,
       raceTime: null,
       episodeTime: episodeSimTime,
+      courseBonus: 0,
     };
   }
+  const scored = applyCourseScore(metrics.fitness, courseAccum);
   return {
     ...metrics,
+    fitness: Math.max(0, scored),
     courseArmed: courseAccum.armed,
     checkpointsHit: courseAccum.checkpointsHit,
     finished: courseAccum.finished,
     finishTime: courseAccum.finishTime,
     raceTime: courseRaceTime(courseAccum, episodeSimTime),
     episodeTime: episodeSimTime,
+    courseBonus: Math.max(0, scored - metrics.fitness),
   };
 }
 
@@ -212,15 +221,10 @@ function scoreSprint(
   const endDistance = avgJointX(creature) - startX;
   // Credit peak progress so a mid-episode climb survives a later tumble.
   const distance = Math.max(0, peakDistance ?? endDistance, endDistance);
-  const progressCredit =
-    course.checkpointsHit * SPRINT_CHECKPOINT_BONUS +
-    distance * SPRINT_DIST_SCALE;
+  const progressCredit = distance * SPRINT_DIST_SCALE;
   let fitness = progressCredit;
   if (course.finished && course.finishTime != null) {
-    const timeBonus =
-      SPRINT_FINISH_BONUS +
-      SPRINT_FINISH_TIME_SCALE / Math.max(0.5, course.finishTime);
-    fitness += timeBonus;
+    fitness += SPRINT_FINISH_TIME_SCALE / Math.max(0.5, course.finishTime);
   }
   if (fell) {
     // Keep a floor of peak progress so fall penalty cannot fully erase a climb.
@@ -270,6 +274,7 @@ export function scoreTaskPerformance(
       | 'finishTime'
       | 'raceTime'
       | 'episodeTime'
+      | 'courseBonus'
     >,
   ): TaskEpisodeMetrics =>
     withCourseMetrics(base, courseAccum, episodeSimTime);
@@ -601,9 +606,7 @@ export function scoreTaskPerformance(
   if (task === 'motor_hurdles') {
     const distance = Math.max(0, peakDistance ?? avgJointX(creature) - startX);
     const base =
-      distance / MOTOR_DIST_SCALE +
-      course.checkpointsHit * SPRINT_CHECKPOINT_BONUS * 0.5 -
-      (fell ? FALL_PENALTY : 0);
+      distance / MOTOR_DIST_SCALE - (fell ? FALL_PENALTY : 0);
     const gated = applyUprightGate(creature, task, Math.max(0, base), uprightMean);
     return finish(
       withRegionScore(
@@ -1117,7 +1120,7 @@ export function explainTaskScore(
       {
         label: 'Checkpoints',
         value: String(metrics.checkpointsHit),
-        note: `× ${SPRINT_CHECKPOINT_BONUS * 0.5}`,
+        note: `× ${SPRINT_CHECKPOINT_BONUS}`,
       },
       { label: 'Upright', value: metrics.uprightQuality.toFixed(2) },
     );
@@ -1193,6 +1196,15 @@ export function explainTaskScore(
           ? `${metrics.checkpointsHit} CP · since start`
           : 'waiting for start',
     });
+    if (metrics.courseBonus > 0) {
+      terms.push({
+        label: 'Course bonus',
+        value: `+${metrics.courseBonus.toFixed(2)}`,
+        note: metrics.finished
+          ? `${metrics.checkpointsHit} CP + finish`
+          : `${metrics.checkpointsHit} CP`,
+      });
+    }
   }
   return terms;
 }
@@ -1200,7 +1212,7 @@ export function explainTaskScore(
 /** Short scoring legend for a goal (B4), without live metrics. */
 export function scoringLegendForTask(task: TaskId): string {
   const zoneNote =
-    ' Env zones: penalty time-in-zone · reward touch-once. Course markers for Sprint.';
+    ' Env zones: penalty time-in-zone · reward touch-once. Start+finish courses pay checkpoint and finish bonuses on every goal.';
   switch (task) {
     case 'run':
       return (

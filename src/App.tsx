@@ -234,10 +234,12 @@ import {
   FOOT_MASS_DEFAULT,
   JOUST_MAX_SECONDS,
   WHEEL_MASS_DEFAULT,
+  WHEEL_RADIUS_DEFAULT,
   ANTI_SCOOT,
   ANTI_SCOOT_MAX,
   clampFootMass,
   clampWheelMass,
+  clampWheelRadius,
   type DiscoPuppetMode,
 } from "./physics/constants";
 import { EnvEditorCanvas } from "./env/EnvEditorCanvas";
@@ -264,6 +266,7 @@ import {
 } from "./goals/catalog";
 import { BUNDLED_MODELS } from "./library/bundledModels";
 import {
+  bodyFpFromModel,
   designCandidatePool,
   resolveDesignForModel,
 } from "./library/resolveModelDesign";
@@ -318,8 +321,11 @@ import { createShare, fetchShare } from "./library/shareApi";
 import { clampCourseMarker } from "./brain/courseMarkers";
 import {
   deleteSavedModel,
+  findSavedModelByName,
   loadSavedModels,
   modelToSeed,
+  renameSavedModel,
+  replaceSavedModel,
   saveModel,
   shapesCompatible,
   type SavedModel,
@@ -788,6 +794,23 @@ export default function App() {
       setSavedModels(loadSavedModels());
     }
   }, []);
+  const persistLibraryModel = useCallback(
+    (opts: Parameters<typeof saveModel>[0]): boolean => {
+      const existing = findSavedModelByName(opts.name);
+      if (existing) {
+        const ok = window.confirm(
+          `A trained creature named "${existing.name}" already exists. Overwrite it?\n\nCancel keeps the old one. Rename it in Library first if you want to keep both.`,
+        );
+        if (!ok) return false;
+        if (!replaceSavedModel(existing.id, opts)) saveModel(opts);
+      } else {
+        saveModel(opts);
+      }
+      refreshModels();
+      return true;
+    },
+    [refreshModels],
+  );
   const refreshEnvPackages = useCallback(() => {
     if (isFeatureEnabled("environmentsRepo")) {
       setEnvPackages(listEnvironmentsForUi());
@@ -1024,17 +1047,11 @@ export default function App() {
   const hasCreature = design.joints.length > 0;
   const footMass = clampFootMass(design.footMass ?? FOOT_MASS_DEFAULT);
   const wheelMass = clampWheelMass(design.wheelMass ?? WHEEL_MASS_DEFAULT);
+  const wheelRadius = clampWheelRadius(
+    design.wheelRadius ?? WHEEL_RADIUS_DEFAULT,
+  );
   const markedFootCount = design.joints.filter((j) => j.isFoot).length;
   const markedWheelCount = design.joints.filter((j) => j.isWheel).length;
-  /** Prefer warm-start from this run’s elite on the next Evolve. */
-  const preferBestOfRun = useCallback(() => {
-    if (!isFeatureEnabled("trainStartFrom")) return;
-    setGaKnobs((prev) =>
-      prev.startFrom === "fresh"
-        ? { ...prev, startFrom: "best_of_run" }
-        : prev,
-    );
-  }, []);
 
   /**
    * If a live evolve is running, abort it and keep the elite brain.
@@ -1049,7 +1066,6 @@ export default function App() {
       : null;
     if (promoted) {
       setBestGenome(promoted);
-      preferBestOfRun();
       setEvolveProgress((prev) => ({
         ...prev,
         running: false,
@@ -1059,7 +1075,7 @@ export default function App() {
       return promoted;
     }
     return bestGenomeRef.current;
-  }, [preferBestOfRun, simulation]);
+  }, [simulation]);
 
   const returnToEdit = useCallback(() => {
     const elite = captureLiveElite();
@@ -1082,7 +1098,6 @@ export default function App() {
             ? prev.status
             : "Paused — brain kept",
       }));
-      preferBestOfRun();
     }
     setLiveBrain(null);
     setEditPhysics(false);
@@ -1090,14 +1105,13 @@ export default function App() {
     setMode("edit");
     setSandboxTab("edit");
     setDockInset(0);
-  }, [captureLiveElite, preferBestOfRun, simulation]);
+  }, [captureLiveElite, simulation]);
   /** World tab — env studio preview on SimCanvas (no train dock). */
   const enterWorld = useCallback(() => {
     const elite = captureLiveElite();
     if (!elite) {
       setEvolveProgress(idleProgress());
     } else {
-      preferBestOfRun();
       setEvolveProgress((prev) => ({
         ...prev,
         running: false,
@@ -1110,7 +1124,7 @@ export default function App() {
     setMode("world");
     setSandboxTab("world");
     setDockInset(0);
-  }, [captureLiveElite, preferBestOfRun, simulation]);
+  }, [captureLiveElite, simulation]);
 
   useEffect(() => {
     if (!hasCreature && mode === "sim") {
@@ -1571,7 +1585,7 @@ export default function App() {
       return;
     }
     const body = activeDiscoDesign();
-    saveModel({
+    persistLibraryModel({
       name: `${body.name || "Dancer"} · dance`,
       task: "dance",
       shape: danceGenome.shape,
@@ -1583,13 +1597,12 @@ export default function App() {
         playlistFingerprint: playlistFingerprint(discoPlaylist),
       },
     });
-    refreshModels();
   }, [
     activeDiscoDesign,
     danceGenome,
     danceStage,
     discoPlaylist,
-    refreshModels,
+    persistLibraryModel,
   ]);
 
   const refreshDiscoSetups = useCallback(() => {
@@ -2193,7 +2206,6 @@ export default function App() {
         const prior = promoted ?? bestGenomeRef.current;
         const transplanted = !!prior && adapted !== prior;
         setBestGenome(adapted);
-        preferBestOfRun();
         setEvolveProgress((prev) => ({
           ...prev,
           running: false,
@@ -2227,7 +2239,7 @@ export default function App() {
         }
       }
     },
-    [preferBestOfRun, raycastObservationsOn, simulation],
+    [raycastObservationsOn, simulation],
   );
 
   const applyFootMass = useCallback(
@@ -2244,6 +2256,15 @@ export default function App() {
       const m = clampWheelMass(mass);
       commitDesign({ ...designRef.current, wheelMass: m });
       simulation.setWheelMass(m);
+    },
+    [commitDesign, simulation],
+  );
+
+  const applyWheelRadius = useCallback(
+    (radius: number) => {
+      const r = clampWheelRadius(radius);
+      commitDesign({ ...designRef.current, wheelRadius: r });
+      simulation.setWheelRadius(r);
     },
     [commitDesign, simulation],
   );
@@ -2267,7 +2288,6 @@ export default function App() {
     );
     if (adapted) {
       setBestGenome(adapted);
-      preferBestOfRun();
     } else {
       setBestGenome(null);
       setEvolveProgress(idleProgress());
@@ -2282,7 +2302,7 @@ export default function App() {
         simulation.driveMode = "idle";
       }
     }
-  }, [preferBestOfRun, raycastObservationsOn, simulation]);
+  }, [raycastObservationsOn, simulation]);
   const commitEnv = useCallback(
     (
       next: EnvironmentDesign,
@@ -2425,6 +2445,9 @@ export default function App() {
   useEffect(() => {
     simulation.setBrainHz(brainHz);
   }, [brainHz, simulation]);
+  useEffect(() => {
+    simulation.setPhaseClockHz(gaKnobs.phaseClockHz);
+  }, [gaKnobs.phaseClockHz, simulation]);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (mode !== "edit" || editPhysics) return;
@@ -2789,7 +2812,6 @@ export default function App() {
       });
       if (adapted) {
         setBestGenome(adapted);
-        preferBestOfRun();
         simulation.setRaycastObservations(raycastObservationsOn);
         simulation.setBrain(adapted.shape, adapted.genome.weights);
         setDriveMode("brain");
@@ -3032,7 +3054,7 @@ export default function App() {
       genome: { weights: m.weights, fitness: m.fitness },
     });
     if (opts.persistToLibrary && isFeatureEnabled("savedModels")) {
-      saveModel({
+      persistLibraryModel({
         name: m.name,
         task: m.task,
         shape: m.shape,
@@ -3042,7 +3064,6 @@ export default function App() {
         ...(m.boxingMeta ? { boxingMeta: m.boxingMeta } : {}),
         ...(m.joustingMeta ? { joustingMeta: m.joustingMeta } : {}),
       });
-      refreshModels();
     }
     setSavedBrainLabel(m.name);
     if (m.task === "boxing") {
@@ -3234,6 +3255,68 @@ export default function App() {
     }
   };
 
+  const applyTrainBrain = (id: string) => {
+    if (id === "__session__") return;
+    if (id === "__none__") {
+      setBestGenome(null);
+      setSavedBrainLabel(null);
+      simulation.clearBrain();
+      setDriveMode("idle");
+      driveModeRef.current = "idle";
+      simulation.driveMode = "idle";
+      return;
+    }
+    const model = savedModels.find((m) => m.id === id);
+    if (!model) return;
+    if (
+      model.task === "dance" ||
+      model.task === "boxing" ||
+      model.task === "jousting"
+    ) {
+      continueFromModel(model);
+      return;
+    }
+    const body = designRef.current;
+    if (bodyFpFromModel(model) !== bodyFingerprint(body)) {
+      denyLoad("That brain is not for this body.");
+      return;
+    }
+    const seed = modelToSeed(model);
+    const expected = shapeForDesign(body, {
+      raycast:
+        isFeatureEnabled("raycastObservations") && raycastObservationsOn,
+    });
+    if (!shapesCompatible(model.shape, expected)) {
+      denyLoad(
+        "Saved brain does not fit that body — use Fit from the Train dock, or pick a matching trained creature.",
+      );
+      return;
+    }
+    if (simulation.isEvolving) simulation.abortLiveEvolve();
+    setGoalId(model.task as GoalId);
+    saveActiveGoalId(model.task as GoalId);
+    setBestGenome({
+      shape: seed.shape,
+      genome: {
+        weights: seed.weights,
+        fitness: model.fitness,
+        morph: seed.morph,
+      },
+    });
+    setSavedBrainLabel(model.name);
+    if (simulation.world) {
+      if (!simulation.creature && body.joints.length > 0) {
+        simulation.loadDesign(body);
+      }
+      simulation.setTask(model.task);
+      simulation.setBrain(seed.shape, seed.weights);
+      setDriveMode("brain");
+      driveModeRef.current = "brain";
+      simulation.driveMode = "brain";
+      setMode("sim");
+    }
+  };
+
   const openCreatureFromBrowser = (key: CreaturesBrowseKey) => {
     loadCreatureByKey(key);
     if (mode !== "edit") {
@@ -3294,20 +3377,6 @@ export default function App() {
       raycast:
         isFeatureEnabled("raycastObservations") && raycastObservationsOn,
     };
-    if (gaKnobs.startFrom === "best_of_run" && bestGenome) {
-      const adapted = adaptEliteToDesign(bestGenome, design, shapeOpts);
-      if (adapted) {
-        return {
-          shape: adapted.shape,
-          weights: adapted.genome.weights,
-          morph: adapted.genome.morph,
-        };
-      }
-      setError(
-        "Brain layout mismatch — cannot continue from last brain. Choose Fresh random or undo body edits.",
-      );
-      return undefined;
-    }
     if (gaKnobs.startFrom === "saved" && gaKnobs.savedModelId) {
       const model = savedModels.find((m) => m.id === gaKnobs.savedModelId);
       if (!model || model.task === "dance") return undefined;
@@ -3447,7 +3516,6 @@ export default function App() {
             if (Number.isFinite(genome.fitness) && genome.fitness > -Infinity) {
               setBestGenome({ shape, genome });
               setSavedBrainLabel(null);
-              preferBestOfRun();
               if (meta && isFeatureEnabled("bestEverLedger")) {
                 considerBestEver("boxing", genome.fitness, meta.design);
                 setBestEverList(loadBestEver());
@@ -3482,7 +3550,6 @@ export default function App() {
       episodeSeconds,
       gaKnobs,
       observeSpeed,
-      preferBestOfRun,
       refreshModels,
       restorePreBoxingEnvironment,
       runSeed,
@@ -3600,7 +3667,6 @@ export default function App() {
             if (Number.isFinite(genome.fitness) && genome.fitness > -Infinity) {
               setBestGenome({ shape, genome });
               setSavedBrainLabel(null);
-              preferBestOfRun();
               if (meta && isFeatureEnabled("bestEverLedger")) {
                 considerBestEver("jousting", genome.fitness, meta.design);
                 setBestEverList(loadBestEver());
@@ -3635,7 +3701,6 @@ export default function App() {
       joustingPriorities,
       joustingSparringId,
       observeSpeed,
-      preferBestOfRun,
       refreshModels,
       restorePreJoustingEnvironment,
       runSeed,
@@ -3682,8 +3747,8 @@ export default function App() {
       if (
         !seedFrom &&
         isFeatureEnabled("trainStartFrom") &&
-        ((gaKnobs.startFrom === "saved" && gaKnobs.savedModelId) ||
-          (gaKnobs.startFrom === "best_of_run" && bestGenome)) &&
+        gaKnobs.startFrom === "saved" &&
+        gaKnobs.savedModelId &&
         !resolvedSeed
       ) {
         return;
@@ -3724,9 +3789,11 @@ export default function App() {
       setEvolveProgress({
         ...idleProgress(),
         running: true,
-        status: resolvedSeed
+        status: seedFrom
           ? `Keep training (${activeTask})…`
-          : `Watching live batch (${activeTask})…`,
+          : resolvedSeed
+            ? `Evolve from saved (${activeTask})…`
+            : `Evolve fresh (${activeTask})…`,
         populationSize: popSize,
         batch: 1,
         batchCount: Math.ceil(popSize / batchSize),
@@ -3783,7 +3850,6 @@ export default function App() {
         onFinished: (genome, shape) => {
           setBestGenome({ shape, genome });
           setSavedBrainLabel(null);
-          preferBestOfRun();
           setLiveBrain(null);
           setDriveMode("idle");
           simulation.driveMode = "idle";
@@ -4426,16 +4492,20 @@ export default function App() {
             divisionId: joustingDivisionId,
           } as const)
         : undefined;
-    saveModel({
-      name,
-      task: activeTask,
-      shape: adapted.shape,
-      genome: adapted.genome,
-      design,
-      kind: opts.kind,
-      ...(boxingMeta ? { boxingMeta } : {}),
-      ...(joustingMeta ? { joustingMeta } : {}),
-    });
+    if (
+      !persistLibraryModel({
+        name,
+        task: activeTask,
+        shape: adapted.shape,
+        genome: adapted.genome,
+        design,
+        kind: opts.kind,
+        ...(boxingMeta ? { boxingMeta } : {}),
+        ...(joustingMeta ? { joustingMeta } : {}),
+      })
+    ) {
+      return;
+    }
     setSavedBrainLabel(name);
     markDesignBaseline(design);
     if (opts.download) {
@@ -4453,7 +4523,6 @@ export default function App() {
         }),
       );
     }
-    refreshModels();
   };
   const stopEvolve = () => {
     simulation.requestStopEvolve();
@@ -4657,6 +4726,70 @@ export default function App() {
               kind: "session",
               goalTitle: goalTitleForTask(activeTask),
             };
+  const trainBodyFp = hasCreature ? bodyFingerprint(design) : "";
+  const trainBrainModels = trainBodyFp
+    ? savedModels.filter((m) => {
+        if (bodyFpFromModel(m) !== trainBodyFp) return false;
+        if (skill === "disco") return m.task === "dance";
+        return m.task !== "dance";
+      })
+    : [];
+  const trainSavedBrain = savedBrainLabel
+    ? trainBrainModels.find((m) => m.name === savedBrainLabel)
+    : undefined;
+  const trainBrainValue = !bestGenome
+    ? "__none__"
+    : trainSavedBrain
+      ? trainSavedBrain.id
+      : "__session__";
+  const trainBrainOptions = [
+    {
+      value: "__none__",
+      label:
+        trainBrainModels.length === 0 && !bestGenome
+          ? "No brains"
+          : "None",
+    },
+    ...(bestGenome && !trainSavedBrain
+      ? [
+          {
+            value: "__session__",
+            label: `Session · ${goalTitleForTask(activeTask)} (unsaved)`,
+          },
+        ]
+      : []),
+    ...trainBrainModels.map((m) => ({
+      value: m.id,
+      label: `${m.name} · ${m.fitness.toFixed(1)}`,
+    })),
+  ];
+  const trainBodyGroups = [
+    { options: [{ value: "custom", label: "Current" }] },
+    {
+      label: "Presets",
+      options: [
+        ...PRESETS.map((p) => ({
+          value: `preset:${p.name}`,
+          label: p.name,
+        })),
+        {
+          value: `preset:${ULTI_GROOVE_BOT_II.name}`,
+          label: ULTI_GROOVE_BOT_II.name,
+        },
+      ],
+    },
+    ...(isFeatureEnabled("creaturePackages") && packages.length > 0
+      ? [
+          {
+            label: "Bodies",
+            options: packages.map((pkg) => ({
+              value: `pkg:${pkg.id}`,
+              label: pkg.displayName,
+            })),
+          },
+        ]
+      : []),
+  ];
   return (
     <HoverHelpProvider enabled={hoverHelpEnabled}>
     <div className={immersive ? "app app-immersive" : "app"}>
@@ -4742,6 +4875,8 @@ export default function App() {
           applyFootMass,
           wheelMass,
           applyWheelMass,
+          wheelRadius,
+          applyWheelRadius,
           hasCreature,
           markedFootCount,
           markedWheelCount,
@@ -5472,6 +5607,27 @@ export default function App() {
               }
               continueFromModel(m);
             }}
+            onRenameModel={(id, name) => {
+              const clash = savedModels.find(
+                (m) =>
+                  m.id !== id &&
+                  m.name.trim().toLowerCase() === name.trim().toLowerCase(),
+              );
+              if (clash) {
+                const ok = window.confirm(
+                  `A trained creature named "${clash.name}" already exists. Replace it with this one?`,
+                );
+                if (!ok) return;
+                deleteSavedModel(clash.id);
+              }
+              const prev = savedModels.find((m) => m.id === id);
+              const updated = renameSavedModel(id, name);
+              if (!updated) return;
+              refreshModels();
+              if (prev && savedBrainLabel === prev.name) {
+                setSavedBrainLabel(updated.name);
+              }
+            }}
             onDeleteModel={(id) => {
               deleteSavedModel(id);
               refreshModels();
@@ -5729,6 +5885,14 @@ export default function App() {
                           skill !== "jousting"
                         }
                         envDisabled={evolveProgress.running}
+                        showBodyBrain={sandboxTab === "train"}
+                        bodyValue={selectedCreatureKey}
+                        bodyGroups={trainBodyGroups}
+                        onSelectBody={loadCreatureByKey}
+                        brainValue={trainBrainValue}
+                        brainOptions={trainBrainOptions}
+                        onSelectBrain={applyTrainBrain}
+                        bodyBrainDisabled={evolveProgress.running}
                       />
                       <WorkspaceStatus
                         bodyName={design.name}

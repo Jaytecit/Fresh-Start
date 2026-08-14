@@ -65,7 +65,20 @@ function writeAll(items: CreaturePackage[]): void {
 }
 
 export function loadCreaturePackages(): CreaturePackage[] {
-  return readAll().filter((p) => p.source !== 'builtin');
+  const stored = readAll();
+  const user = stored.filter((p) => p.source !== 'builtin');
+  const builtins = stored.filter((p) => p.source === 'builtin');
+  const best = new Map<string, CreaturePackage>();
+  for (const pkg of user) {
+    const key = pkg.displayName.trim().toLowerCase() || pkg.id;
+    const prev = best.get(key);
+    if (!prev || pkg.updatedAt >= prev.updatedAt) best.set(key, pkg);
+  }
+  const deduped = [...best.values()];
+  if (deduped.length !== user.length) {
+    writeAll([...builtins, ...deduped]);
+  }
+  return deduped;
 }
 
 export function saveNewPackage(

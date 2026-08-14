@@ -11,6 +11,10 @@ export interface Camera {
 
 /** Creature editor / play default (px per world unit). */
 export const CREATURE_CAM_ZOOM_DEFAULT = 48;
+/** Play / editor zoom-out floor (half the previous 20 so the course fits). */
+export const CREATURE_CAM_ZOOM_MIN = 10;
+/** Screen gap from the framing bottom to the ground horizon. */
+export const GROUND_SCREEN_PAD_PX = 10;
 
 /**
  * Environment Studio default — 5× wider framing than the creature builder
@@ -22,7 +26,7 @@ export const ENV_CAM_ZOOM_MAX = 140;
 export const ENV_CAM_Y_DEFAULT = 40;
 
 export function createCamera(): Camera {
-  // Bias upward so the ground horizon sits near the bottom of the frame (more sky).
+  // Y is overwritten in SimCanvas so world y=0 sits near the frame bottom.
   return { x: 0, y: 4.2, zoom: CREATURE_CAM_ZOOM_DEFAULT, insetBottom: 0 };
 }
 
@@ -38,6 +42,21 @@ export function createEnvCamera(): Camera {
 function framingHeight(canvasH: number, insetBottom: number | undefined): number {
   const inset = Math.max(0, insetBottom ?? 0);
   return Math.max(1, canvasH - inset);
+}
+
+/**
+ * Camera Y that puts world y=0 at `padPx` above the framing bottom
+ * (dock inset already excluded). Does not follow the creature vertically.
+ */
+export function camYForGroundAtBottom(
+  canvasH: number,
+  zoom: number,
+  insetBottom = 0,
+  padPx = GROUND_SCREEN_PAD_PX,
+): number {
+  const h = framingHeight(canvasH, insetBottom);
+  const pad = Math.max(0, Math.min(padPx, h / 2 - 1));
+  return (h / 2 - pad) / Math.max(1e-6, zoom);
 }
 
 export function worldToScreen(

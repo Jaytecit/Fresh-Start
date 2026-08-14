@@ -4,6 +4,7 @@
  */
 import {
   clampEpisodeSeconds,
+  clampPhaseClockHz,
   ELITE_COUNT,
   EPISODE_SECONDS,
   LIVE_BATCH_SIZE,
@@ -11,6 +12,7 @@ import {
   LIVE_POPULATION_SIZE,
   MUTATION_RESET_RATE,
   MUTATION_SIGMA,
+  PHASE_CLOCK_HZ,
   TOURNAMENT_SIZE,
 } from './constants';
 
@@ -42,6 +44,8 @@ export interface GaKnobSet {
   shortTriesFirst: boolean;
   stopAfterFall: boolean;
   crossover: boolean;
+  /** Open-loop phase clock for loco obs 10–11 (Hz). 0 = off. */
+  phaseClockHz: number;
 }
 
 export interface MutationStyleDef {
@@ -174,7 +178,6 @@ export const TRAINING_RECIPES: readonly RecipeDef[] = [
       mutationResetRate: 0.02,
       eliteCount: 3,
       tournamentSize: 4,
-      startFrom: 'best_of_run',
     }),
   },
   {
@@ -213,6 +216,7 @@ export function defaultGaKnobSet(): GaKnobSet {
     shortTriesFirst: false,
     stopAfterFall: false,
     crossover: false,
+    phaseClockHz: PHASE_CLOCK_HZ,
   };
 }
 
@@ -256,6 +260,8 @@ export function loadGaKnobSet(): GaKnobSet {
     next.tournamentSize = Math.max(2, Math.min(8, next.tournamentSize | 0));
     next.populationSize = Math.max(2, Math.min(120, next.populationSize | 0));
     next.maxGenerations = Math.max(1, Math.min(500, next.maxGenerations | 0));
+    // Dock Keep training continues from this run’s elite; Evolve fresh must not.
+    if (next.startFrom === 'best_of_run') next.startFrom = 'fresh';
     // Legacy ∞ sentinel (-1) maps to the slider max.
     if (parsed.episodeSeconds === -1) {
       next.episodeSeconds = clampEpisodeSeconds(Number.POSITIVE_INFINITY);
@@ -269,6 +275,11 @@ export function loadGaKnobSet(): GaKnobSet {
     } else {
       next.episodeSeconds = clampEpisodeSeconds(Number(parsed.episodeSeconds));
     }
+    next.phaseClockHz = clampPhaseClockHz(
+      typeof parsed.phaseClockHz === 'number'
+        ? parsed.phaseClockHz
+        : base.phaseClockHz,
+    );
     return next;
   } catch {
     return base;
@@ -280,6 +291,7 @@ export function saveGaKnobSet(knobs: GaKnobSet): void {
     const payload = {
       ...knobs,
       episodeSeconds: clampEpisodeSeconds(knobs.episodeSeconds),
+      phaseClockHz: clampPhaseClockHz(knobs.phaseClockHz),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {

@@ -21,8 +21,31 @@ import { gauntletEnv } from '../src/env/gauntletEnv.ts';
 import { FIXED_DT } from '../src/physics/constants.ts';
 import { Simulation } from '../src/sim/simulation.ts';
 import { isFeatureEnabled } from '../src/port/featureFlags.ts';
+import {
+  clampPhaseClockHz,
+  formatPhaseClockHz,
+  PHASE_CLOCK_HZ,
+  PHASE_CLOCK_HZ_MAX,
+} from '../src/brain/constants.ts';
+import { defaultGaKnobSet } from '../src/brain/trainingRecipes.ts';
 
 async function main() {
+  if (defaultGaKnobSet().phaseClockHz !== PHASE_CLOCK_HZ) {
+    throw new Error('default rhythm must be PHASE_CLOCK_HZ');
+  }
+  if (clampPhaseClockHz(-1) !== 0) {
+    throw new Error('phase clock floor is 0');
+  }
+  if (clampPhaseClockHz(99) !== PHASE_CLOCK_HZ_MAX) {
+    throw new Error('phase clock ceiling is PHASE_CLOCK_HZ_MAX');
+  }
+  if (clampPhaseClockHz(Number.NaN) !== PHASE_CLOCK_HZ) {
+    throw new Error('invalid phase clock falls back to default');
+  }
+  if (formatPhaseClockHz(0) !== 'off') {
+    throw new Error('0 Hz clock labels as off');
+  }
+
   if (!isFeatureEnabled('trainTelemetryLog')) {
     throw new Error('trainTelemetryLog flag should be enabled for D16');
   }
@@ -43,6 +66,8 @@ async function main() {
 
   const sim = new Simulation();
   await sim.init();
+  sim.setPhaseClockHz(0);
+  sim.setPhaseClockHz(PHASE_CLOCK_HZ);
   sim.setEnvironment(gauntletEnv());
 
   let finished = false;

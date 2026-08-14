@@ -208,9 +208,10 @@ export function WorldDock({
   }
 
   return (
-    <div className="dock-full">
-      {files}
-      <div className="dock-col">
+    <div className="dock-full course-dock">
+      <div className="course-dock-grid">
+        {files ? <div className="dock-col">{files}</div> : null}
+        <div className="dock-col">
         <h3 className="subhead">Tools</h3>
         <div className="button-row wrap">
           <button
@@ -265,10 +266,10 @@ export function WorldDock({
                 onClick={() => onToolChange(t)}
                 title={
                   t === 'start'
-                    ? 'Start marker — arms the course'
+                    ? 'Start marker — arms the course (needed with finish for bonuses)'
                     : t === 'checkpoint'
-                      ? 'Checkpoint — must hit in order'
-                      : 'Finish marker — completion when armed'
+                      ? 'Checkpoint — in-order bonus when the env has start + finish'
+                      : 'Finish marker — completion bonus when armed (needs a start)'
                 }
               >
                 + {t}
@@ -717,6 +718,7 @@ export function WorldDock({
         <p className="hint muted" style={{ marginTop: '0.35rem' }}>
           {label}
         </p>
+        </div>
       </div>
     </div>
   );

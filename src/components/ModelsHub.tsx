@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { TaskId } from '../brain/types';
 import type { BestEverEntry } from '../library/bestEver';
 import { inferSavedModelKind, goalTitleForTask } from '../library/fileVocabulary';
@@ -9,6 +10,7 @@ interface Props {
   bestEverList: BestEverEntry[];
   evolving: boolean;
   onContinue: (m: SavedModel) => void;
+  onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   /** H7 — load a saved dance brain into Disco freestyle (not Free evolve). */
   onLoadDanceFreestyle?: (m: SavedModel) => void;
@@ -16,6 +18,59 @@ interface Props {
   bodyFingerprint?: string | null;
   /** Show the full best-ever ledger (all tasks), not only the active task. */
   showAllBestEver?: boolean;
+}
+
+function promptRename(current: string): string | null {
+  const next = window.prompt('Rename this trained creature', current);
+  if (next == null) return null;
+  const trimmed = next.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function TrainedModelRow({
+  model,
+  evolving,
+  useLabel,
+  useTitle,
+  onUse,
+  onRename,
+  onDelete,
+}: {
+  model: SavedModel;
+  evolving: boolean;
+  useLabel: ReactNode;
+  useTitle: string;
+  onUse: () => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="library-row">
+      <button type="button" disabled={evolving} onClick={onUse} title={useTitle}>
+        {useLabel}
+      </button>
+      <button
+        type="button"
+        className="library-rename"
+        title={`Rename "${model.name}"`}
+        onClick={() => {
+          const name = promptRename(model.name);
+          if (!name || name === model.name) return;
+          onRename(model.id, name);
+        }}
+      >
+        Rename
+      </button>
+      <button
+        type="button"
+        className="danger-ghost"
+        title={`Delete "${model.name}"`}
+        onClick={() => onDelete(model.id)}
+      >
+        ×
+      </button>
+    </div>
+  );
 }
 
 function bodyFpFromModel(model: SavedModel): string {
@@ -35,6 +90,7 @@ export function ModelsHub({
   bestEverList,
   evolving,
   onContinue,
+  onRename,
   onDelete,
   onLoadDanceFreestyle,
   bodyFingerprint = null,
@@ -58,8 +114,8 @@ export function ModelsHub({
       <h2>Trained</h2>
       <p className="hint muted">
         {bodyFingerprint
-          ? 'Trained creatures bound to this body. Use trained loads body + brain + goal.'
-          : 'Trained creatures (body + brain + goal). Use trained loads them into the workspace.'}
+          ? 'Trained creatures bound to this body. Use trained loads body + brain + goal. Saving again overwrites the same name — rename first to keep a copy.'
+          : 'Trained creatures (body + brain + goal). Use trained loads them into the workspace. Saving again overwrites the same name — rename first to keep a copy.'}
       </p>
 
       {best.length > 0 && (
@@ -83,36 +139,33 @@ export function ModelsHub({
       ) : (
         <div className="button-col">
           {forTask.slice(0, 12).map((m) => (
-            <div key={m.id} className="library-row">
-              <button
-                type="button"
-                disabled={evolving}
-                onClick={() =>
-                  m.task === 'dance' && onLoadDanceFreestyle
-                    ? onLoadDanceFreestyle(m)
-                    : onContinue(m)
-                }
-                title={
-                  m.task === 'dance'
-                    ? `Load into Disco freestyle · fit ${m.fitness.toFixed(3)}`
-                    : `Use trained · ${m.designName} · ${m.task} · fit ${m.fitness.toFixed(3)}`
-                }
-              >
-                Use trained · {m.name}
-                <span className="hint muted">
-                  {' '}
-                  · {goalTitleForTask(m.task)} · {m.fitness.toFixed(2)}
-                  {m.designName ? ` · ${m.designName}` : ''}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="danger-ghost"
-                onClick={() => onDelete(m.id)}
-              >
-                ×
-              </button>
-            </div>
+            <TrainedModelRow
+              key={m.id}
+              model={m}
+              evolving={evolving}
+              onUse={() =>
+                m.task === 'dance' && onLoadDanceFreestyle
+                  ? onLoadDanceFreestyle(m)
+                  : onContinue(m)
+              }
+              useTitle={
+                m.task === 'dance'
+                  ? `Load into Disco freestyle · fit ${m.fitness.toFixed(3)}`
+                  : `Use trained · ${m.designName} · ${m.task} · fit ${m.fitness.toFixed(3)}`
+              }
+              useLabel={
+                <>
+                  Use trained · {m.name}
+                  <span className="hint muted">
+                    {' '}
+                    · {goalTitleForTask(m.task)} · {m.fitness.toFixed(2)}
+                    {m.designName ? ` · ${m.designName}` : ''}
+                  </span>
+                </>
+              }
+              onRename={onRename}
+              onDelete={onDelete}
+            />
           ))}
         </div>
       )}
@@ -125,30 +178,27 @@ export function ModelsHub({
           </p>
           <div className="button-col">
             {danceModels.slice(0, 8).map((m) => (
-              <div key={m.id} className="library-row">
-                <button
-                  type="button"
-                  disabled={evolving}
-                  onClick={() => onLoadDanceFreestyle(m)}
-                  title={
-                    m.danceMeta
-                      ? `stage ${m.danceMeta.stage} · obs v${m.danceMeta.obsPackVersion}`
-                      : 'Load dance freestyle'
-                  }
-                >
-                  {m.name}
-                  <span className="hint muted">
-                    {m.danceMeta ? ` · ${m.danceMeta.stage}` : ' · dance'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="danger-ghost"
-                  onClick={() => onDelete(m.id)}
-                >
-                  ×
-                </button>
-              </div>
+              <TrainedModelRow
+                key={m.id}
+                model={m}
+                evolving={evolving}
+                onUse={() => onLoadDanceFreestyle(m)}
+                useTitle={
+                  m.danceMeta
+                    ? `stage ${m.danceMeta.stage} · obs v${m.danceMeta.obsPackVersion}`
+                    : 'Load dance freestyle'
+                }
+                useLabel={
+                  <>
+                    {m.name}
+                    <span className="hint muted">
+                      {m.danceMeta ? ` · ${m.danceMeta.stage}` : ' · dance'}
+                    </span>
+                  </>
+                }
+                onRename={onRename}
+                onDelete={onDelete}
+              />
             ))}
           </div>
         </>
@@ -159,28 +209,25 @@ export function ModelsHub({
           <h3 className="subhead">Other goals</h3>
           <div className="button-col">
             {others.slice(0, 12).map((m) => (
-              <div key={m.id} className="library-row">
-                <button
-                  type="button"
-                  disabled={evolving}
-                  onClick={() => onContinue(m)}
-                title={`Use trained · ${m.designName} · ${m.task} · fit ${m.fitness.toFixed(3)}`}
-              >
-                Use trained · {m.name}
-                <span className="hint muted">
-                  {' '}
-                  · {goalTitleForTask(m.task)} · {m.fitness.toFixed(2)}
-                  {m.designName ? ` · ${m.designName}` : ''}
-                </span>
-                </button>
-                <button
-                  type="button"
-                  className="danger-ghost"
-                  onClick={() => onDelete(m.id)}
-                >
-                  ×
-                </button>
-              </div>
+              <TrainedModelRow
+                key={m.id}
+                model={m}
+                evolving={evolving}
+                onUse={() => onContinue(m)}
+                useTitle={`Use trained · ${m.designName} · ${m.task} · fit ${m.fitness.toFixed(3)}`}
+                useLabel={
+                  <>
+                    Use trained · {m.name}
+                    <span className="hint muted">
+                      {' '}
+                      · {goalTitleForTask(m.task)} · {m.fitness.toFixed(2)}
+                      {m.designName ? ` · ${m.designName}` : ''}
+                    </span>
+                  </>
+                }
+                onRename={onRename}
+                onDelete={onDelete}
+              />
             ))}
           </div>
         </>

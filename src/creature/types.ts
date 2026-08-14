@@ -77,6 +77,11 @@ export interface CreatureDesign {
    * Wins over `footMass` when a joint is both foot and wheel.
    */
   wheelMass?: number;
+  /**
+   * Rapier ball radius for joints marked `isWheel`.
+   * Applied in every mode at spawn / live retune; omit → JOINT_RADIUS.
+   */
+  wheelRadius?: number;
 }
 
 export function nextId(items: { id: number }[]): number {
@@ -94,5 +99,8 @@ export function cloneDesign(design: CreatureDesign): CreatureDesign {
     appearance: cloneAppearance(design.appearance),
     ...(design.footMass !== undefined ? { footMass: design.footMass } : {}),
     ...(design.wheelMass !== undefined ? { wheelMass: design.wheelMass } : {}),
+    ...(design.wheelRadius !== undefined
+      ? { wheelRadius: design.wheelRadius }
+      : {}),
   };
 }

@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { EnvironmentPackage } from '../library/environmentPackages';
 import type { GoalDef, GoalId } from '../goals/catalog';
 import type { SkillId } from '../skills/skills';
@@ -5,6 +6,16 @@ import { SKILL_ORDER, SKILLS } from '../skills/skills';
 import { EnvPicker } from './EnvPicker';
 import { GoalPicker } from './GoalPicker';
 import { HelpTip } from './HelpTip';
+
+export type StripSelectOption = {
+  value: string;
+  label: string;
+};
+
+export type StripSelectGroup = {
+  label?: string;
+  options: StripSelectOption[];
+};
 
 interface Props {
   skill: SkillId;
@@ -23,6 +34,74 @@ interface Props {
   onSelectEnv: (pkg: EnvironmentPackage) => void;
   showEnv: boolean;
   envDisabled?: boolean;
+  showBodyBrain?: boolean;
+  bodyValue?: string;
+  bodyGroups?: StripSelectGroup[];
+  onSelectBody?: (key: string) => void;
+  brainValue?: string;
+  brainOptions?: StripSelectOption[];
+  onSelectBrain?: (id: string) => void;
+  bodyBrainDisabled?: boolean;
+}
+
+function StripSelect({
+  label,
+  tip,
+  value,
+  groups,
+  disabled,
+  onSelect,
+  ariaLabel,
+}: {
+  label: string;
+  tip: string;
+  value: string;
+  groups: StripSelectGroup[];
+  disabled?: boolean;
+  onSelect: (value: string) => void;
+  ariaLabel: string;
+}) {
+  const flat = groups.flatMap((g) => g.options);
+  const resolved =
+    flat.some((o) => o.value === value) ? value : (flat[0]?.value ?? '');
+
+  return (
+    <div className="context-strip-picker">
+      <HelpTip tip={tip}>
+        <span className="context-strip-label">{label}</span>
+      </HelpTip>
+      <div className="env-picker env-picker-compact">
+        <label className="field-row">
+          <select
+            value={resolved}
+            disabled={disabled || flat.length === 0}
+            onChange={(e) => onSelect(e.target.value)}
+            aria-label={ariaLabel}
+          >
+            {groups.map((group, i) =>
+              group.label ? (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : (
+                <Fragment key={i}>
+                  {group.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Fragment>
+              ),
+            )}
+          </select>
+        </label>
+      </div>
+    </div>
+  );
 }
 
 /** Full-width Skill / Goal / Environment band above the sandbox body. */
@@ -43,8 +122,16 @@ export function ContextStrip({
   onSelectEnv,
   showEnv,
   envDisabled,
+  showBodyBrain,
+  bodyValue = 'custom',
+  bodyGroups = [],
+  onSelectBody,
+  brainValue = '__none__',
+  brainOptions = [],
+  onSelectBrain,
+  bodyBrainDisabled,
 }: Props) {
-  if (!showSkillTabs && !showGoals && !showEnv) return null;
+  if (!showSkillTabs && !showGoals && !showEnv && !showBodyBrain) return null;
 
   const skillIds = SKILL_ORDER.filter(
     (id) =>
@@ -107,20 +194,46 @@ export function ContextStrip({
         ) : null}
       </div>
 
-      {showEnv && (
-        <div className="context-strip-env">
-          <HelpTip tip="Environment is the course or ground your creature trains on. Flat is easiest; custom courses live in Course.">
-            <span className="context-strip-label">Environment</span>
-          </HelpTip>
-          <EnvPicker
-            packages={envPackages}
-            selectedPackageId={selectedPackageId}
-            activeName={activeEnvName}
-            disabled={envDisabled}
-            onSelect={onSelectEnv}
-            compact
-            hideLabel
-          />
+      {(showEnv || showBodyBrain) && (
+        <div className="context-strip-pickers">
+          {showEnv && (
+            <div className="context-strip-picker">
+              <HelpTip tip="Environment is the course or ground your creature trains on. Flat is easiest; custom courses live in Course.">
+                <span className="context-strip-label">Environment</span>
+              </HelpTip>
+              <EnvPicker
+                packages={envPackages}
+                selectedPackageId={selectedPackageId}
+                activeName={activeEnvName}
+                disabled={envDisabled}
+                onSelect={onSelectEnv}
+                compact
+                hideLabel
+              />
+            </div>
+          )}
+          {showBodyBrain && (
+            <>
+              <StripSelect
+                label="Body"
+                tip="Body is the creature in the workspace. Presets and saved library bodies appear here."
+                value={bodyValue}
+                groups={bodyGroups}
+                disabled={bodyBrainDisabled}
+                onSelect={(key) => onSelectBody?.(key)}
+                ariaLabel="Body for training"
+              />
+              <StripSelect
+                label="Brain"
+                tip="Brains trained on the selected body. The list stays empty until this creature has a saved brain."
+                value={brainValue}
+                groups={[{ options: brainOptions }]}
+                disabled={bodyBrainDisabled}
+                onSelect={(id) => onSelectBrain?.(id)}
+                ariaLabel="Brain for the selected body"
+              />
+            </>
+          )}
         </div>
       )}
     </div>

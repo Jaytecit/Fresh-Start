@@ -388,6 +388,19 @@ export function clampWheelMass(value: number): number {
   return Math.min(WHEEL_MASS_MAX, Math.max(WHEEL_MASS_MIN, value));
 }
 
+/**
+ * Rapier ball radius for joints marked `isWheel`.
+ * Omit → JOINT_RADIUS so unmarked / legacy designs keep the default joint ball.
+ */
+export const WHEEL_RADIUS_MIN = 0.12;
+export const WHEEL_RADIUS_MAX = 1.2;
+export const WHEEL_RADIUS_DEFAULT = JOINT_RADIUS;
+
+export function clampWheelRadius(value: number): number {
+  if (!Number.isFinite(value)) return WHEEL_RADIUS_DEFAULT;
+  return Math.min(WHEEL_RADIUS_MAX, Math.max(WHEEL_RADIUS_MIN, value));
+}
+
 /** Launch tower clamps / proportions. */
 export const TOWER_MIN_BASE_W = 3;
 export const TOWER_MAX_BASE_W = 2000;

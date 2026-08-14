@@ -16,6 +16,8 @@ import type {
 import {
   COURSE_MARKER_DEFAULT_H,
   COURSE_MARKER_DEFAULT_W,
+  SPRINT_CHECKPOINT_BONUS,
+  SPRINT_FINISH_BONUS,
 } from './constants';
 
 export interface CourseMarkerAccum {
@@ -34,12 +36,15 @@ export interface CourseMarkerAccum {
   finishTime: number | null;
   /** Marker ids already credited this episode (start/checkpoints/finish). */
   touchedIds: Set<string>;
+  /** Authored start and finish both present — course bonuses apply on every goal. */
+  hasStartAndFinish: boolean;
 }
 
 export function emptyCourseMarkerAccum(
   markers: EnvCourseMarker[],
 ): CourseMarkerAccum {
   const hasStart = markers.some((m) => m.kind === 'start');
+  const hasFinish = markers.some((m) => m.kind === 'finish');
   return {
     armed: !hasStart,
     /** No start gate → clock runs from episode t=0. */
@@ -48,6 +53,7 @@ export function emptyCourseMarkerAccum(
     finished: false,
     finishTime: null,
     touchedIds: new Set(),
+    hasStartAndFinish: hasStart && hasFinish,
   };
 }
 
@@ -221,7 +227,22 @@ export function updateCourseMarkerAccum(
     finished,
     finishTime,
     touchedIds: touched,
+    hasStartAndFinish: state.hasStartAndFinish,
   };
+}
+
+/**
+ * Checkpoint + finish bonuses when the env authored both gates.
+ * Sprint keeps a separate finish-time bonus in `scoreSprint`.
+ */
+export function applyCourseScore(
+  baseFitness: number,
+  accum: CourseMarkerAccum,
+): number {
+  if (!accum.hasStartAndFinish) return baseFitness;
+  let extra = accum.checkpointsHit * SPRINT_CHECKPOINT_BONUS;
+  if (accum.finished) extra += SPRINT_FINISH_BONUS;
+  return baseFitness + extra;
 }
 
 /** Next checkpoint order to assign when placing a new checkpoint. */

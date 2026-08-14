@@ -11,6 +11,7 @@ import {
   DEFAULT_JOINT_MASS,
   clampFootMass,
   clampWheelMass,
+  clampWheelRadius,
   FOOT_ANGULAR_DAMPING,
   FOOT_FRICTION,
   FOOT_FRICTION_MAX,
@@ -18,6 +19,7 @@ import {
   JOINT_FRICTION,
   JOINT_RADIUS,
   LINEAR_DAMPING,
+  WHEEL_RADIUS_DEFAULT,
   MUSCLE_MAX_FORCE,
   SOFT_CCD_PREDICTION,
   SOFT_CCD_SPEED_GATE,
@@ -144,6 +146,37 @@ function jointSpawnMass(design: CreatureDesign, j: CreatureDesign['joints'][numb
   return j.mass ?? DEFAULT_JOINT_MASS;
 }
 
+function jointSpawnRadius(
+  design: CreatureDesign,
+  j: CreatureDesign['joints'][number],
+): number {
+  if (j.isWheel) {
+    return clampWheelRadius(design.wheelRadius ?? WHEEL_RADIUS_DEFAULT);
+  }
+  return JOINT_RADIUS;
+}
+
+/** Live-update Rapier ball radius on every marked wheel (keeps authored mass). */
+export function applyWheelRadius(
+  creature: SpawnedCreature | null | undefined,
+  radius: number,
+  mass: number,
+): void {
+  if (!creature) return;
+  const r = clampWheelRadius(radius);
+  const m = clampWheelMass(mass);
+  for (const joint of creature.joints) {
+    if (!joint.isWheel) continue;
+    joint.radius = r;
+    for (let ci = 0; ci < joint.body.numColliders(); ci++) {
+      const col = joint.body.collider(ci);
+      col.setRadius(r);
+      col.setMass(m);
+    }
+    joint.body.wakeUp();
+  }
+}
+
 function jointMap(design: CreatureDesign): Map<number, { x: number; y: number; mass: number }> {
   const map = new Map<number, { x: number; y: number; mass: number }>();
   for (const j of design.joints) {
@@ -166,6 +199,7 @@ export function spawnCreature(
   let designedHeadY = 0;
   for (const j of design.joints) {
     const mass = jointSpawnMass(design, j);
+    const radius = jointSpawnRadius(design, j);
     const mat = jointContactMaterial(j);
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
@@ -174,7 +208,7 @@ export function spawnCreature(
         .setAngularDamping(mat.angularDamping),
     );
     world.createCollider(
-      RAPIER.ColliderDesc.ball(JOINT_RADIUS)
+      RAPIER.ColliderDesc.ball(radius)
         .setMass(mass)
         .setFriction(mat.friction)
         .setRestitution(BODY_RESTITUTION),
@@ -185,7 +219,7 @@ export function spawnCreature(
     joints.push({
       id: j.id,
       body,
-      radius: JOINT_RADIUS,
+      radius,
       isFoot: j.isFoot,
       isHead: j.isHead,
       isGlove: j.isGlove,

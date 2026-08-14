@@ -25,7 +25,7 @@ Brain ticks at 30 Hz by default; physics stays 60 Hz (`FIXED_DT`). Last outputs 
 
 Identical topology for every member of a run; only weights differ.
 
-- Inputs: locomotion pack `OBS_COUNT = 12` (body stats, foot contact/clearance, terrain grade, head height, phase clock). Optional raycast whiskers append 5 ranges (`RAYCAST_OBS_COUNT`).
+- Inputs: locomotion pack `OBS_COUNT = 12` (body stats, foot contact/clearance, terrain grade, head height, phase clock). Optional raycast whiskers append 5 ranges (`RAYCAST_OBS_COUNT`). Phase-clock frequency defaults to 2.5 Hz (`PHASE_CLOCK_HZ`); Train setup **Rhythm** can change it (0 = off). Changing frequency does not change genome shape.
 - Hidden: one tanh layer, width `clamp(2 * max(in, out), 8, 32)`.
 - Outputs: one `[-1, 1]` channel per muscle, then one per motor wheel.
 - Genome: packed weights + biases. Optional morph genes and padded structural channels when those Train toggles are on.

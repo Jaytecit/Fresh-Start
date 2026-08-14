@@ -10,8 +10,10 @@ import {
   MUTATION_RESET_RATE,
   MUTATION_SIGMA,
   OBS_COUNT,
+  PHASE_CLOCK_HZ,
   RAYCAST_OBS_COUNT,
   TOURNAMENT_SIZE,
+  clampPhaseClockHz,
   type BrainHz,
 } from '../brain/constants';
 import {
@@ -75,6 +77,7 @@ import {
   avgJointVelX,
   avgJointX,
   buildObservations,
+  type ObservationContext,
 } from '../brain/observations';
 import {
   buildDanceObservations,
@@ -193,6 +196,7 @@ import {
   spawnMotorGapCourse,
   spawnMotorHurdlesCourse,
   spawnMotorRampCourse,
+  shouldSpawnTaskCourse,
   spawnRoughCourse,
   type CourseHandle,
   type RoughCourseHandle,
@@ -211,8 +215,10 @@ import {
   DEFAULT_JOINT_MASS,
   FOOT_MASS_DEFAULT,
   WHEEL_MASS_DEFAULT,
+  WHEEL_RADIUS_DEFAULT,
   clampFootMass,
   clampWheelMass,
+  clampWheelRadius,
   DISCO_PUPPET_MODES,
   FIXED_DT,
   FOOT_FRICTION,
@@ -292,6 +298,7 @@ import {
 } from '../env/types';
 import {
   applyFootFriction,
+  applyWheelRadius,
   clampFootFriction,
   destroyCreature,
   spawnCreature,
@@ -310,6 +317,7 @@ export interface AgentSnapshot {
     radius: number;
     vx: number;
     vy: number;
+    isWheel?: boolean;
     isGlove?: boolean;
     isLance?: boolean;
     isHitTarget?: boolean;
@@ -963,6 +971,7 @@ function agentFromCreature(
       radius: j.radius,
       vx: v.x,
       vy: v.y,
+      isWheel: j.isWheel,
       isGlove: j.isGlove,
       isLance: j.isLance,
       isHitTarget: j.isHitTarget,
@@ -1076,6 +1085,13 @@ function designWheelMass(design: CreatureDesign | null | undefined): number {
   return WHEEL_MASS_DEFAULT;
 }
 
+function designWheelRadius(design: CreatureDesign | null | undefined): number {
+  if (design?.wheelRadius !== undefined) {
+    return clampWheelRadius(design.wheelRadius);
+  }
+  return WHEEL_RADIUS_DEFAULT;
+}
+
 function jointAuthorMass(
   design: CreatureDesign | null | undefined,
   j: { id: number; isFoot?: boolean; isWheel?: boolean; mass?: number },
@@ -1167,6 +1183,7 @@ export class Simulation {
   /** Mass applied to joints marked as feet (all modes). */
   footMass = FOOT_MASS_DEFAULT;
   wheelMass = WHEEL_MASS_DEFAULT;
+  wheelRadius = WHEEL_RADIUS_DEFAULT;
   /** @deprecated Use footMass — alias for Disco setup wiring. */
   get discoFootMass(): number {
     return this.footMass;
@@ -1186,6 +1203,8 @@ export class Simulation {
    * physics step. Disco imitation sampling stays at BRAIN_HZ for dataset parity.
    */
   brainHz: BrainHz = BRAIN_HZ;
+  /** Open-loop loco phase clock (obs 10–11). 0 = off. */
+  private phaseClockHz = PHASE_CLOCK_HZ;
   private muscleVisual: MuscleVisualState[] = [];
   private accumulator = 0;
   private brainShape: NetworkShape | null = null;
@@ -1359,6 +1378,7 @@ export class Simulation {
     this.running = true;
     this.footMass = designFootMass(design);
     this.wheelMass = designWheelMass(design);
+    this.wheelRadius = designWheelRadius(design);
     if (this.driveMode === 'disco') {
       this.applyDiscoPuppetBodyTune();
     } else {
@@ -1418,6 +1438,12 @@ export class Simulation {
     this.applyAuthorMassTune();
   }
 
+  /** Physical ball radius for marked wheel joints — applies in every mode. */
+  setWheelRadius(radius: number): void {
+    this.wheelRadius = clampWheelRadius(radius);
+    this.applyAuthorWheelRadius();
+  }
+
   /** @deprecated Use setFootMass — Disco panel / setups still call this. */
   setDiscoFootMass(mass: number): void {
     this.setFootMass(mass);
@@ -1441,6 +1467,15 @@ export class Simulation {
     if (this.creature && this.discoDancers.length === 0) {
       applyFootMass(this.creature, this.footMass);
       applyWheelMass(this.creature, this.wheelMass);
+    }
+  }
+
+  private applyAuthorWheelRadius(): void {
+    for (const d of this.discoDancers) {
+      applyWheelRadius(d.creature, this.wheelRadius, this.wheelMass);
+    }
+    if (this.creature && this.discoDancers.length === 0) {
+      applyWheelRadius(this.creature, this.wheelRadius, this.wheelMass);
     }
   }
 
@@ -1534,6 +1569,9 @@ export class Simulation {
     this.course = null;
     destroyRoughCourse(this.world, this.roughCourse);
     this.roughCourse = null;
+    // User-authored Studio geometry is the course. Do not also inject the
+    // task-owned cuboids / sine hills (those used to spawn with no draw).
+    if (!shouldSpawnTaskCourse(this.environment)) return;
     if (task === 'climb' && isFeatureEnabled('climbCourse')) {
       this.course = spawnClimbCourse(this.world, this.worldGrip);
     }
@@ -1558,9 +1596,15 @@ export class Simulation {
     }
   }
 
+  private snapshotObstacles(): ObstacleVisual[] {
+    const authored = this.envObstacles?.visuals ?? [];
+    const course = this.course?.visuals ?? [];
+    return course.length === 0 ? authored : authored.concat(course);
+  }
+
   /** Active terrain for obs / plant / fall (course preferred over studio). */
   activeTerrain(): EnvironmentDesign['terrain'] {
-    return this.observationContext().terrain;
+    return this.observationContext().terrain ?? undefined;
   }
 
   private activeTerrainVisual(): TerrainVisual | null {
@@ -1570,7 +1614,10 @@ export class Simulation {
   /** Apply Environment Studio design (G1 / G3 / C2.4 when flagged). */
   setEnvironment(env: EnvironmentDesign): void {
     this.environment = cloneEnvironment(env);
-    if (this.world) this.syncEnvironmentGeometry();
+    if (!this.world) return;
+    this.syncEnvironmentGeometry();
+    // Course spawn depends on whether the new env already has a world.
+    if (!this.live) this.syncCourseForTask(this.task);
   }
 
   getEnvironment(): EnvironmentDesign {
@@ -1646,22 +1693,20 @@ export class Simulation {
     return this.envObstacles;
   }
 
-  private observationContext(): {
-    terrain: EnvironmentDesign['terrain'];
-    timeSec: number;
-  } {
+  private observationContext(): ObservationContext {
     const timeSec = this.time;
+    const phaseClockHz = this.phaseClockHz;
     if (this.roughCourse?.design) {
-      return { terrain: this.roughCourse.design, timeSec };
+      return { terrain: this.roughCourse.design, timeSec, phaseClockHz };
     }
     if (
       isFeatureEnabled('terrainHeightfield') &&
       this.environment.terrain &&
       this.environment.terrain.samples.length >= 2
     ) {
-      return { terrain: this.environment.terrain, timeSec };
+      return { terrain: this.environment.terrain, timeSec, phaseClockHz };
     }
-    return { terrain: undefined, timeSec };
+    return { terrain: undefined, timeSec, phaseClockHz };
   }
 
   private syncEnvironmentGeometry(): void {
@@ -1737,6 +1782,11 @@ export class Simulation {
     } else if (shape.inputCount === OBS_COUNT) {
       this.raycastObservations = false;
     }
+  }
+
+  /** Open-loop phase-clock rate for locomotion / dance pose obs. */
+  setPhaseClockHz(hz: number): void {
+    this.phaseClockHz = clampPhaseClockHz(hz);
   }
 
   /** Toggle brain eval rate (30 Hz default ↔ 60 Hz). Muscle forces stay at FIXED_DT. */
@@ -6078,7 +6128,7 @@ export class Simulation {
         task: this.live.task,
         extrapolateDt: Math.min(this.accumulator, FIXED_DT),
         brain: this.probeFocusedBrain(),
-        obstacles: this.envObstacles?.visuals ?? [],
+        obstacles: this.snapshotObstacles(),
         terrain: this.activeTerrainVisual(),
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
@@ -6189,7 +6239,7 @@ export class Simulation {
         task: 'jousting',
         extrapolateDt: Math.min(this.accumulator, FIXED_DT),
         brain: this.probeFocusedBrain(),
-        obstacles: this.envObstacles?.visuals ?? [],
+        obstacles: this.snapshotObstacles(),
         terrain: this.activeTerrainVisual(),
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
@@ -6321,7 +6371,7 @@ export class Simulation {
         task: 'boxing',
         extrapolateDt: Math.min(this.accumulator, FIXED_DT),
         brain: this.probeFocusedBrain(),
-        obstacles: this.envObstacles?.visuals ?? [],
+        obstacles: this.snapshotObstacles(),
         terrain: this.activeTerrainVisual(),
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
@@ -6440,7 +6490,7 @@ export class Simulation {
         task,
         extrapolateDt: Math.min(this.accumulator, FIXED_DT),
         brain: this.probeFocusedBrain(),
-        obstacles: this.envObstacles?.visuals ?? [],
+        obstacles: this.snapshotObstacles(),
         terrain: this.activeTerrainVisual(),
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
@@ -6502,7 +6552,7 @@ export class Simulation {
         task: this.task,
         extrapolateDt: Math.min(this.accumulator, FIXED_DT),
         brain: null,
-        obstacles: this.envObstacles?.visuals ?? [],
+        obstacles: this.snapshotObstacles(),
         terrain: this.activeTerrainVisual(),
         tower: this.envTower?.visuals ?? [],
         scoreRegions: activeScoreRegions(this.environment),
@@ -6560,7 +6610,7 @@ export class Simulation {
       task: this.task,
       extrapolateDt: Math.min(this.accumulator, FIXED_DT),
       brain: this.probeFocusedBrain(),
-      obstacles: this.envObstacles?.visuals ?? [],
+      obstacles: this.snapshotObstacles(),
       terrain: this.activeTerrainVisual(),
       tower: this.envTower?.visuals ?? [],
       scoreRegions: activeScoreRegions(this.environment),

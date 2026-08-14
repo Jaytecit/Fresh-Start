@@ -9,8 +9,10 @@ import {
   type BrainHz,
 } from "../brain/constants";
 import {
+  brainActuatorChannelByMuscleId,
   countBrainActuatorChannels,
   designHasActuators,
+  normalizeDriveGroup,
 } from "../brain/driveGroups";
 import { getGoal, type GoalId } from "../goals/catalog";
 import type { GaKnobSet } from "../brain/trainingRecipes";
@@ -47,6 +49,21 @@ import type { SavedModel } from "../library/savedModels";
 
 const OBSERVE_SPEEDS = [0.25, 1, 2, 4] as const;
 const TRAIN_SPEEDS = [1, 4, 16, 0] as const;
+
+function manualChannelLabel(
+  design: CreatureDesign,
+  index: number,
+  muscleChannels: number,
+): string {
+  if (index >= muscleChannels) return `W${index - muscleChannels + 1}`;
+  const byId = brainActuatorChannelByMuscleId(design.muscles);
+  for (const muscle of design.muscles) {
+    if (byId.get(muscle.id) !== index) continue;
+    const group = normalizeDriveGroup(muscle.driveGroup);
+    return group !== undefined ? `G${group}` : `M${index + 1}`;
+  }
+  return `M${index + 1}`;
+}
 
 export interface TrainDockProps {
   collapsed?: boolean;
@@ -150,7 +167,7 @@ function EvolveButtons({
   return (
     <>
             <div className="button-row">
-              <HelpTip tip="Evolve tries many brains at once. Ghost outlines are the rest of the pack.">
+              <HelpTip tip="Start a new search with random brains. Training setup → Start from can copy a saved brain instead.">
                 <button
                   type="button"
                   disabled={
@@ -163,11 +180,10 @@ function EvolveButtons({
                   }
                   onClick={() => startEvolve()}
                 >
-                  {bestGenome &&
-                  isFeatureEnabled("trainStartFrom") &&
-                  gaKnobs.startFrom !== "fresh"
-                    ? "Evolve (from brain)"
-                    : "Evolve"}
+                  {isFeatureEnabled("trainStartFrom") &&
+                  gaKnobs.startFrom === "saved"
+                    ? "Evolve from saved"
+                    : "Evolve fresh"}
                 </button>
               </HelpTip>
               <button
@@ -186,13 +202,13 @@ function EvolveButtons({
                   Play best
                 </button>
               </HelpTip>
-              <HelpTip tip="Continue evolving from this run’s elite instead of starting random.">
+              <HelpTip tip="Improve this run’s best brain instead of starting random.">
                 <button
                   type="button"
                   disabled={!bestGenome || evolveProgress.running || h2hRunning}
                   onClick={continueFromBest}
                 >
-                  {isFeatureEnabled("trainDockIa") ? "Keep training" : "Continue"}
+                  Keep training
                 </button>
               </HelpTip>
             </div>
@@ -395,33 +411,45 @@ export function TrainDock(props: TrainDockProps) {
                     ({brainHz} Hz)
                   </span>
                 </label>
+                {driveMode !== "manual" && (
+                  <p className="hint muted">
+                    Click Manual for muscle sliders (push/pull each group).
+                  </p>
+                )}
                 {driveMode === "manual" && (
                   <div className="sliders dock-sliders">
-                    {manualDrives.map((v, i) => {
-                      const muscleCh = countBrainActuatorChannels(
-                        design.muscles,
-                      );
-                      const label =
-                        i < muscleCh
-                          ? `M${i + 1}`
-                          : `W${i - muscleCh + 1}`;
-                      return (
-                        <label key={i} className="slider-row">
-                          <span>{label}</span>
-                          <input
-                            type="range"
-                            min={-1}
-                            max={1}
-                            step={0.01}
-                            value={v}
-                            onChange={(e) =>
-                              updateManual(i, Number(e.target.value))
-                            }
-                          />
-                          <span className="val">{v.toFixed(2)}</span>
-                        </label>
-                      );
-                    })}
+                    {manualDrives.length === 0 ? (
+                      <p className="hint muted">
+                        No muscle groups on this body.
+                      </p>
+                    ) : (
+                      manualDrives.map((v, i) => {
+                        const muscleCh = countBrainActuatorChannels(
+                          design.muscles,
+                        );
+                        const label = manualChannelLabel(
+                          design,
+                          i,
+                          muscleCh,
+                        );
+                        return (
+                          <label key={i} className="slider-row">
+                            <span>{label}</span>
+                            <input
+                              type="range"
+                              min={-1}
+                              max={1}
+                              step={0.01}
+                              value={v}
+                              onChange={(e) =>
+                                updateManual(i, Number(e.target.value))
+                              }
+                            />
+                            <span className="val">{v.toFixed(2)}</span>
+                          </label>
+                        );
+                      })
+                    )}
                   </div>
                 )}
               </div>
@@ -802,7 +830,6 @@ export function TrainDock(props: TrainDockProps) {
                   <TrainingSetupPanel
                     knobs={gaKnobs}
                     disabled={evolveProgress.running}
-                    hasBestOfRun={!!bestGenome}
                     savedBrainOptions={savedModels
                       .filter((m) => m.task === activeTask)
                       .map((m) => ({ id: m.id, name: m.name }))}

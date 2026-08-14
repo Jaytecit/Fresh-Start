@@ -54,6 +54,7 @@ interface Props {
   onOpenInEditor: (key: CreaturesBrowseKey) => void;
   onDeletePackage: (id: string) => void;
   onContinueModel: (m: SavedModel) => void;
+  onRenameModel: (id: string, name: string) => void;
   onDeleteModel: (id: string) => void;
   onLoadDanceFreestyle?: (m: SavedModel) => void;
   /** C7 — open a public gallery share into the workspace. */
@@ -148,6 +149,7 @@ export function CreaturesPanel({
   onOpenInEditor,
   onDeletePackage,
   onContinueModel,
+  onRenameModel,
   onDeleteModel,
   onLoadDanceFreestyle,
   onOpenPublicShare,
@@ -211,9 +213,7 @@ export function CreaturesPanel({
     const saved: LibraryEntry[] = isFeatureEnabled('creaturePackages')
       ? packages.map((pkg) => ({
           key: `pkg:${pkg.id}` as const,
-          label: isFeatureEnabled('creatureLibrary')
-            ? `${pkg.displayName} (r${pkg.revision})`
-            : pkg.displayName,
+          label: pkg.displayName,
           kind: 'library' as const,
           design: pkg.design,
           override: packageSkillOverride(pkg),
@@ -379,9 +379,6 @@ export function CreaturesPanel({
                             onClick={() => pick(key)}
                           >
                             {pkg.displayName}
-                            {isFeatureEnabled('creatureLibrary')
-                              ? ` (r${pkg.revision})`
-                              : ''}
                           </button>
                         );
                       })}
@@ -517,6 +514,7 @@ export function CreaturesPanel({
                   bodyFingerprint={selectedFp}
                   showAllBestEver={isFeatureEnabled('bestEverLedger')}
                   onContinue={onContinueModel}
+                  onRename={onRenameModel}
                   onDelete={onDeleteModel}
                   onLoadDanceFreestyle={onLoadDanceFreestyle}
                 />

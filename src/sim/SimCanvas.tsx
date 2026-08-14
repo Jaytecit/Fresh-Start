@@ -8,7 +8,13 @@ import {
   DISCO_CAM_ZOOM_MIN,
 } from '../physics/constants';
 import { isFeatureEnabled } from '../port/featureFlags';
-import { createCamera, screenToWorld, type Camera } from './Camera';
+import {
+  camYForGroundAtBottom,
+  createCamera,
+  CREATURE_CAM_ZOOM_MIN,
+  screenToWorld,
+  type Camera,
+} from './Camera';
 import {
   clampDiscoBallPos,
   clearDiscoCanvas,
@@ -23,10 +29,6 @@ import { drawParallaxSky } from './parallaxSky';
 import { clearCanvas, drawGround, drawSnapshot } from './render';
 import { drawSimAxisRulers } from './simRulers';
 import type { Simulation, SimulationSnapshot } from './simulation';
-
-const DEFAULT_CAM_ZOOM_MIN = 20;
-/** World-Y added to follow target so standing creatures sit in the lower frame. */
-const FOLLOW_Y_BIAS = 2.8;
 
 export interface FramePerf {
   fps: number;
@@ -190,20 +192,18 @@ export function SimCanvas({
         discoOverviewAppliedRef.current = false;
       }
 
-      // Disco uses a fixed arena overview; skip creature follow so zoom-out sticks.
-      const dragging = dragRef.current !== null;
-      if (snap.cameraFollow && !dragging && !discoFx) {
-        // Soft follow focused creature (Keiwan-style locked camera).
-        // Bias look-target upward so the ground band stays short above the dock.
-        const k = 1 - Math.exp(-6 * Math.min(dt, 0.05));
-        cam.x += (snap.focusX - cam.x) * k;
-        cam.y += (snap.focusY + FOLLOW_Y_BIAS - cam.y) * k;
-      }
-
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const w = rect.width;
       const h = rect.height;
+
+      // Disco uses a fixed arena overview; skip creature follow so zoom-out sticks.
+      const dragging = dragRef.current !== null;
+      if (snap.cameraFollow && !dragging && !discoFx) {
+        const k = 1 - Math.exp(-6 * Math.min(dt, 0.05));
+        cam.x += (snap.focusX - cam.x) * k;
+        cam.y = camYForGroundAtBottom(h, cam.zoom, cam.insetBottom);
+      }
       // Assigning canvas.width/height resets the buffer every time — only
       // when the backing-store size actually changes.
       const nextW = Math.floor(w * dpr);
@@ -442,11 +442,19 @@ export function SimCanvas({
       const zoomMin =
         isFeatureEnabled('discoMode') && discoFxRef.current
           ? DISCO_CAM_ZOOM_MIN
-          : DEFAULT_CAM_ZOOM_MIN;
+          : CREATURE_CAM_ZOOM_MIN;
       camRef.current.zoom = Math.max(
         zoomMin,
         Math.min(120, camRef.current.zoom * factor),
       );
+      if (!(isFeatureEnabled('discoMode') && discoFxRef.current)) {
+        const box = canvas.getBoundingClientRect();
+        camRef.current.y = camYForGroundAtBottom(
+          box.height,
+          camRef.current.zoom,
+          camRef.current.insetBottom,
+        );
+      }
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);

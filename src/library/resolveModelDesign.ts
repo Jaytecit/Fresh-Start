@@ -5,7 +5,7 @@ import type { CreatureDesign } from '../creature/types';
 import { bodyFingerprint } from './bestEver';
 import type { SavedModel } from './savedModels';
 
-function bodyFpFromModel(model: SavedModel): string {
+export function bodyFpFromModel(model: SavedModel): string {
   const i = model.designFingerprint.indexOf(':');
   return i >= 0 ? model.designFingerprint.slice(i + 1) : model.designFingerprint;
 }

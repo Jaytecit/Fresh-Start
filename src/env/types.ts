@@ -184,6 +184,15 @@ export interface EnvironmentDesign {
   spawn?: EnvSpawn;
 }
 
+/** True when Studio authored walkable world geometry (not score overlays). */
+export function environmentHasAuthoredWorld(
+  env: Pick<EnvironmentDesign, 'obstacles' | 'terrain' | 'tower'>,
+): boolean {
+  if (env.obstacles.length > 0) return true;
+  if (env.tower) return true;
+  return !!(env.terrain && env.terrain.samples.length >= 2);
+}
+
 export const ENV_THEMES: EnvTheme[] = ['plain', 'dusk', 'mint', 'slate'];
 
 export const THEME_CSS: Record<
@@ -207,6 +216,8 @@ export const THEME_SKY: Record<
     cloud: string;
     cloudHi: string;
     ridge: string;
+    foliage: string;
+    foliageHi: string;
   }
 > = {
   plain: {
@@ -217,6 +228,8 @@ export const THEME_SKY: Record<
     cloud: 'rgba(210, 220, 235, 0.22)',
     cloudHi: 'rgba(230, 235, 245, 0.28)',
     ridge: 'rgba(40, 55, 75, 0.55)',
+    foliage: 'rgba(24, 42, 36, 0.78)',
+    foliageHi: 'rgba(32, 54, 44, 0.9)',
   },
   dusk: {
     zenith: '#140c18',
@@ -226,6 +239,8 @@ export const THEME_SKY: Record<
     cloud: 'rgba(220, 180, 170, 0.2)',
     cloudHi: 'rgba(240, 200, 190, 0.26)',
     ridge: 'rgba(50, 30, 40, 0.55)',
+    foliage: 'rgba(42, 24, 30, 0.78)',
+    foliageHi: 'rgba(58, 32, 38, 0.9)',
   },
   mint: {
     zenith: '#0a1816',
@@ -235,6 +250,8 @@ export const THEME_SKY: Record<
     cloud: 'rgba(190, 220, 210, 0.2)',
     cloudHi: 'rgba(210, 235, 225, 0.26)',
     ridge: 'rgba(30, 50, 45, 0.55)',
+    foliage: 'rgba(18, 48, 38, 0.8)',
+    foliageHi: 'rgba(28, 64, 50, 0.92)',
   },
   slate: {
     zenith: '#0e1218',
@@ -244,6 +261,8 @@ export const THEME_SKY: Record<
     cloud: 'rgba(200, 210, 220, 0.2)',
     cloudHi: 'rgba(220, 228, 235, 0.26)',
     ridge: 'rgba(35, 42, 52, 0.55)',
+    foliage: 'rgba(30, 40, 42, 0.78)',
+    foliageHi: 'rgba(40, 52, 54, 0.9)',
   },
 };
 

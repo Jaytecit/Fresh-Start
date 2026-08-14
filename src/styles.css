@@ -250,27 +250,36 @@ body,
   margin: 0;
 }
 
-.context-strip-env {
-  flex: 0 1 16rem;
-  min-width: 12rem;
+.context-strip-pickers {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
   margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
-.context-strip-env .env-picker {
+.context-strip-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 0 1 12rem;
+  min-width: 9rem;
+  max-width: 16rem;
+}
+
+.context-strip-picker .env-picker {
   margin: 0;
 }
 
-.context-strip-env .field-row {
+.context-strip-picker .field-row {
   margin: 0;
   gap: 0.35rem;
 }
 
-.context-strip-env .field-row span {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  font-weight: 650;
+.context-strip-picker .field-row select {
+  max-width: none;
+  width: 100%;
 }
 
 .app-immersive .context-strip {
@@ -635,6 +644,7 @@ body,
   flex-wrap: wrap;
   gap: 0.65rem 1rem;
   align-items: flex-start;
+  width: 100%;
 }
 
 .dock-full-train {
@@ -646,7 +656,7 @@ body,
 .train-dock-grid {
   display: grid;
   grid-template-columns:
-    minmax(8.5rem, 0.9fr)
+    minmax(11rem, 1.05fr)
     minmax(15rem, 1.45fr)
     minmax(12rem, 1.15fr)
     minmax(12.5rem, 1.2fr);
@@ -781,23 +791,84 @@ body,
   margin-top: 0.3rem;
 }
 
+.combat-dock {
+  display: block;
+  width: 100%;
+}
+
 .combat-dock-grid {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(14rem, 1.2fr) minmax(11rem, 0.9fr);
-  gap: 0.55rem 0.85rem;
+  width: 100%;
+  grid-template-columns:
+    minmax(11rem, 0.9fr)
+    minmax(24rem, 2.4fr)
+    minmax(12rem, 1.1fr);
+  grid-template-areas: "mode corners match";
+  gap: 0.65rem 1.5rem;
   align-items: start;
 }
 
-@media (max-width: 960px) {
+.combat-dock-mode { grid-area: mode; min-width: 0; }
+.combat-dock-corners { grid-area: corners; min-width: 0; }
+.combat-dock-run { grid-area: match; min-width: 0; }
+
+.combat-dock-corner-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 1.15rem;
+  align-items: start;
+}
+
+.combat-dock-corners .hint {
+  margin: 0 0 0.15rem;
+}
+
+.combat-dock .field-row {
+  margin-top: 0.2rem;
+}
+
+.combat-dock .field-row select {
+  max-width: none;
+}
+
+@media (max-width: 1100px) {
   .combat-dock-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(12rem, 0.9fr) minmax(14rem, 1.1fr);
+    grid-template-areas:
+      "mode match"
+      "corners corners";
   }
 }
 
 @media (max-width: 640px) {
   .combat-dock-grid {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "mode"
+      "corners"
+      "match";
   }
+
+  .combat-dock-corner-picks {
+    grid-template-columns: 1fr;
+  }
+}
+
+.course-dock {
+  display: block;
+  width: 100%;
+}
+
+.course-dock-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: 0.55rem 1.15rem;
+  align-items: start;
+}
+
+.course-dock-grid > * {
+  min-width: 0;
 }
 
 .creature-dock-col {
@@ -974,6 +1045,10 @@ body,
   width: 100%;
 }
 
+.train-rhythm-slider {
+  grid-template-columns: 1.25rem 1fr 3.4rem;
+}
+
 .train-knob-select {
   min-width: 6.5rem;
   max-width: 100%;
@@ -1107,7 +1182,7 @@ body,
 }
 
 .dock-sliders {
-  max-height: 7rem;
+  max-height: 12rem;
   overflow-y: auto;
   margin-top: 0.35rem;
 }
@@ -1133,6 +1208,13 @@ body,
 
 .library-row > button:first-child {
   flex: 1;
+}
+
+.library-rename {
+  flex: 0 0 auto;
+  min-width: auto;
+  font-size: 0.75rem;
+  padding: 0 0.45rem;
 }
 
 .danger-ghost {
@@ -1447,9 +1529,10 @@ button:disabled {
     padding: 0.3rem 0.5rem;
   }
 
-  .context-strip-env {
+  .context-strip-pickers {
     margin-left: 0;
     flex: 1 1 100%;
+    flex-wrap: wrap;
   }
 
   .context-strip-skill-tabs,
@@ -1487,6 +1570,13 @@ button:disabled {
 
 .library-row > button:first-child {
   flex: 1;
+}
+
+.library-rename {
+  flex: 0 0 auto;
+  min-width: auto;
+  font-size: 0.75rem;
+  padding: 0 0.45rem;
 }
 
 .danger-ghost {

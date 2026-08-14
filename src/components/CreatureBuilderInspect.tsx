@@ -57,6 +57,8 @@ import {
   FOOT_MASS_MIN,
   WHEEL_MASS_MAX,
   WHEEL_MASS_MIN,
+  WHEEL_RADIUS_MAX,
+  WHEEL_RADIUS_MIN,
 } from "../physics/constants";
 import { isFeatureEnabled } from "../port/featureFlags";
 
@@ -92,6 +94,8 @@ export interface CreatureBuilderInspectProps {
   applyFootMass: (n: number) => void;
   wheelMass: number;
   applyWheelMass: (n: number) => void;
+  wheelRadius: number;
+  applyWheelRadius: (n: number) => void;
   hasCreature: boolean;
   markedFootCount: number;
   markedWheelCount: number;
@@ -296,6 +300,8 @@ export function CreatureBuilderOptions(props: CreatureBuilderInspectProps) {
     markedFootCount,
     wheelMass,
     applyWheelMass,
+    wheelRadius,
+    applyWheelRadius,
     markedWheelCount,
     evolveProgress,
     h2hRunning,
@@ -355,9 +361,27 @@ export function CreatureBuilderOptions(props: CreatureBuilderInspectProps) {
                 />
                 <span className="val">{wheelMass.toFixed(2)}</span>
               </label>
+              <label
+                className="slider-row"
+                title="Physical radius for joints marked as wheels — Rapier collider in Build, Play, Train, and Disco"
+              >
+                <span>Wheel radius</span>
+                <input
+                  type="range"
+                  min={WHEEL_RADIUS_MIN}
+                  max={WHEEL_RADIUS_MAX}
+                  step={0.02}
+                  value={wheelRadius}
+                  disabled={!hasCreature || markedWheelCount === 0}
+                  aria-label="Wheel radius for marked wheels"
+                  onChange={(e) => applyWheelRadius(Number(e.target.value))}
+                />
+                <span className="val">{wheelRadius.toFixed(2)}</span>
+              </label>
               {hasCreature && markedWheelCount === 0 && (
                 <p className="hint muted">
-                  Mark at least one joint as a wheel to use wheel weight.
+                  Mark at least one joint as a wheel to use wheel weight and
+                  size.
                 </p>
               )}
               <label
@@ -383,7 +407,8 @@ export function CreatureBuilderOptions(props: CreatureBuilderInspectProps) {
                 <>
                   <p className="hint muted">
                     Muscles idle — watch how the body rests. Editing is paused
-                    until you turn this off.
+                    until you turn this off. To push muscles yourself, open
+                    Train → Drive → Manual.
                   </p>
                   <div className="button-row wrap">
                     <button
@@ -422,10 +447,6 @@ export function CreatureBuilderInspector(props: CreatureBuilderInspectProps) {
     clothDraftFineness,
     clothDraftWeight,
     clothDraftStiffness,
-    footMass,
-    applyFootMass,
-    wheelMass,
-    applyWheelMass,
     skill,
   } = useInspect(props);
   return (
@@ -587,26 +608,6 @@ export function CreatureBuilderInspector(props: CreatureBuilderInspectProps) {
                         />
                         Mark as foot
                       </label>
-                      {!!joint.isFoot && (
-                        <label
-                          className="slider-row"
-                          title="Shared mass for all marked feet (all modes)"
-                        >
-                          <span>Foot weight</span>
-                          <input
-                            type="range"
-                            min={FOOT_MASS_MIN}
-                            max={FOOT_MASS_MAX}
-                            step={0.25}
-                            value={footMass}
-                            aria-label="Foot weight for marked feet"
-                            onChange={(e) =>
-                              applyFootMass(Number(e.target.value))
-                            }
-                          />
-                          <span className="val">{footMass.toFixed(2)}</span>
-                        </label>
-                      )}
                       <label className="toggle-row">
                         <input
                           type="checkbox"
@@ -756,26 +757,6 @@ export function CreatureBuilderInspector(props: CreatureBuilderInspectProps) {
                         />
                         Wheel / motor
                       </label>
-                      {!!joint.isWheel && (
-                        <label
-                          className="slider-row"
-                          title="Shared mass for all marked wheels (all modes)"
-                        >
-                          <span>Wheel weight</span>
-                          <input
-                            type="range"
-                            min={WHEEL_MASS_MIN}
-                            max={WHEEL_MASS_MAX}
-                            step={0.25}
-                            value={wheelMass}
-                            aria-label="Wheel weight for marked wheels"
-                            onChange={(e) =>
-                              applyWheelMass(Number(e.target.value))
-                            }
-                          />
-                          <span className="val">{wheelMass.toFixed(2)}</span>
-                        </label>
-                      )}
                       {joint.isWheel && (
                         <label className="slider-row">
                           <span>Torque</span>

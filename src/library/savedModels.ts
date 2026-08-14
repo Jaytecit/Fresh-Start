@@ -96,11 +96,34 @@ function writeAll(models: SavedModel[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(models));
 }
 
-export function loadSavedModels(): SavedModel[] {
-  return readAll().sort((a, b) => b.savedAt - a.savedAt);
+function nameKey(name: string): string {
+  return name.trim().toLowerCase();
 }
 
-export function saveModel(opts: {
+function dedupeByName(models: SavedModel[]): SavedModel[] {
+  const best = new Map<string, SavedModel>();
+  for (const model of models) {
+    const key = nameKey(model.name) || model.id;
+    const prev = best.get(key);
+    if (!prev || model.savedAt >= prev.savedAt) best.set(key, model);
+  }
+  return [...best.values()];
+}
+
+export function loadSavedModels(): SavedModel[] {
+  const all = readAll();
+  const deduped = dedupeByName(all);
+  if (deduped.length !== all.length) writeAll(deduped);
+  return deduped.sort((a, b) => b.savedAt - a.savedAt);
+}
+
+export function findSavedModelByName(name: string): SavedModel | undefined {
+  const key = nameKey(name);
+  if (!key) return undefined;
+  return readAll().find((m) => nameKey(m.name) === key);
+}
+
+type SaveModelOpts = {
   name: string;
   task: TaskId;
   shape: NetworkShape;
@@ -110,9 +133,11 @@ export function saveModel(opts: {
   danceMeta?: DanceCurriculumMeta;
   boxingMeta?: BoxingModelMeta;
   joustingMeta?: JoustingModelMeta;
-}): SavedModel {
-  const model: SavedModel = {
-    id: `m_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
+};
+
+function buildSavedModel(opts: SaveModelOpts, id: string): SavedModel {
+  return {
+    id,
     name: opts.name || `${opts.task} model`,
     kind: opts.kind ?? 'trained',
     task: opts.task,
@@ -134,14 +159,44 @@ export function saveModel(opts: {
     ...(opts.joustingMeta ? { joustingMeta: { ...opts.joustingMeta } } : {}),
     ...(opts.task === 'jousting' ? { joustingDesign: cloneDesign(opts.design) } : {}),
   };
+}
+
+export function saveModel(opts: SaveModelOpts): SavedModel {
+  const model = buildSavedModel(
+    opts,
+    `m_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
+  );
   const all = readAll();
   all.push(model);
   writeAll(all);
   return model;
 }
 
+export function replaceSavedModel(id: string, opts: SaveModelOpts): SavedModel | null {
+  const all = readAll();
+  const idx = all.findIndex((m) => m.id === id);
+  if (idx < 0) return null;
+  const model = buildSavedModel(opts, id);
+  all[idx] = model;
+  writeAll(all);
+  return model;
+}
+
 export function deleteSavedModel(id: string): void {
   writeAll(readAll().filter((m) => m.id !== id));
+}
+
+/** Rename a saved trained/brain entry. Empty names are ignored. */
+export function renameSavedModel(id: string, name: string): SavedModel | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const all = readAll();
+  const idx = all.findIndex((m) => m.id === id);
+  if (idx < 0) return null;
+  const next: SavedModel = { ...all[idx], name: trimmed };
+  all[idx] = next;
+  writeAll(all);
+  return next;
 }
 
 export function shapesCompatible(a: NetworkShape, b: NetworkShape): boolean {

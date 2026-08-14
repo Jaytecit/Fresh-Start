@@ -28,6 +28,7 @@ import {
   clampFootMass,
   clampLaunchPadApex,
   clampWheelMass,
+  clampWheelRadius,
 } from '../physics/constants';
 import { clampTower } from '../physics/tower';
 import {
@@ -294,6 +295,11 @@ export function importCreatureJson(raw: string): JsonResult<CreatureDesign> {
     const wheelMassRaw = (design as { wheelMass?: unknown }).wheelMass;
     const wheelMass =
       typeof wheelMassRaw === 'number' ? clampWheelMass(wheelMassRaw) : undefined;
+    const wheelRadiusRaw = (design as { wheelRadius?: unknown }).wheelRadius;
+    const wheelRadius =
+      typeof wheelRadiusRaw === 'number'
+        ? clampWheelRadius(wheelRadiusRaw)
+        : undefined;
 
     return {
       ok: true,
@@ -327,6 +333,7 @@ export function importCreatureJson(raw: string): JsonResult<CreatureDesign> {
         appearance: cloneAppearance(design.appearance),
         ...(footMass !== undefined ? { footMass } : {}),
         ...(wheelMass !== undefined ? { wheelMass } : {}),
+        ...(wheelRadius !== undefined ? { wheelRadius } : {}),
       },
     };
   } catch (err) {

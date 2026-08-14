@@ -81,14 +81,14 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
   'training-train': {
     title: 'Training room',
     body: [
-      'Evolve tries many brains. If nothing improves, simplify the body or flatten the course.',
-      'Keep training continues from the elite of the current run.',
+      'Evolve fresh starts a new search with random brains. If nothing improves, simplify the body or flatten the course.',
+      'Keep training continues from the best brain of this run.',
     ],
   },
   'training-creatures': {
     title: 'Trained creatures',
     body: [
-      'Bodies and trained creatures you save appear here. Use body or Use trained to load them.',
+      'Bodies and trained creatures you save appear here. Use body or Use trained to load them. Rename a trained creature from the Trained list.',
     ],
   },
   'wander-world': {
@@ -106,20 +106,20 @@ export const TUTORIAL_HELP: Record<TutorialHelpKey, TutorialHelpContent> = {
   'wander-h2h': {
     title: 'Combat',
     body: [
-      'Race, box, or joust from the Combat dock. Corner A can be this workspace once you have a brain — no export required.',
+      'Race, box, or joust from the Combat dock. Pick a body, then a matching brain — or use this workspace once it has a brain.',
     ],
   },
   'advanced-train': {
     title: 'Fine-tuning a run',
     body: [
-      'Training setup holds the knobs: recipe, pack size, try length, mutation style, and who breeds.',
+      'Training setup holds the knobs: recipe, pack size, try length, rhythm clock, mutation style, and who breeds.',
       'Priorities tilt the score mix for the selected goal. The Rewards panel shows exactly what earned the points.',
     ],
   },
   'advanced-world': {
     title: 'Scoring the course itself',
     body: [
-      'Penalty and reward zones, start / checkpoint / finish markers, and launch pads all change how a course scores.',
+      'Penalty and reward zones, start / checkpoint / finish markers, and launch pads all change how a course scores. An env with both start and finish pays checkpoint and finish bonuses on every goal.',
       'Save the course, then pick it from the Environment strip before training.',
     ],
   },
